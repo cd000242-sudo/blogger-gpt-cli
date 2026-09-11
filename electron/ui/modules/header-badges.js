@@ -35,6 +35,40 @@ async function mergeIntoLocalSettings(patch) {
   }
 }
 
+/**
+ * 🤖 v3.8.716 — 에이전트 모델 목록을 **메인에서 받아 온다.**
+ *
+ * v3.8.714 가 이 자리에서 선언한 적 없는 전역 이름(대문자 카탈로그 상수)을 읽었는데, 그 이름은
+ * 렌더러 어디에도 선언된 적이 없다. 선언 없는 이름은 `?.` 로도 못 막는다 —
+ * 접근하는 순간 ReferenceError 다. 그래서 **에이전트 모드에서 AI 모델 배지를 누르면**
+ * 드롭다운이 통째로 안 열렸다(실측 로그: header-badges.js:400 Uncaught ReferenceError).
+ *
+ * 목록의 정본은 메인(dist/core/agent-models)이고 `agent:models` 로 준다.
+ * 팝오버를 만드는 함수는 동기라, 한 번 받아 두고 캐시를 읽는다.
+ * 아직 못 받았으면 모델 줄만 비우고(에이전트 선택은 그대로 된다) 받은 뒤 다시 그린다.
+ */
+let agentModelCatalog = null;
+let agentModelCatalogLoading = null;
+
+function loadAgentModelCatalog() {
+  if (agentModelCatalog || agentModelCatalogLoading) return agentModelCatalogLoading;
+  agentModelCatalogLoading = Promise.resolve(window.electronAPI?.invoke?.('agent:models'))
+    .then((res) => {
+      if (res?.ok && res.models && typeof res.models === 'object') {
+        agentModelCatalog = res.models;
+      } else {
+        console.warn('[HEADER-BADGE] 에이전트 모델 목록을 받지 못했습니다:', res?.error || '응답 없음');
+      }
+      return agentModelCatalog;
+    })
+    .catch((err) => {
+      console.warn('[HEADER-BADGE] 에이전트 모델 목록 조회 실패:', err);
+      return null;
+    })
+    .finally(() => { agentModelCatalogLoading = null; });
+  return agentModelCatalogLoading;
+}
+
 const PLATFORMS = [
   { value: 'blogger', label: 'Blogger', color: '#f97316' },
   { value: 'wordpress', label: 'WordPress', color: '#3b82f6' },
@@ -355,6 +389,13 @@ function buildModelPop(pop) {
   let agentMode = false;
   try { agentMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"') === 'agent'; } catch { agentMode = localStorage.getItem('leadernamExecutionMode') === 'agent'; }
 
+  // v3.8.716: 목록이 아직 없으면 받아 오고, 도착하면 열려 있는 팝오버를 다시 그린다
+  if (agentMode && !agentModelCatalog) {
+    loadAgentModelCatalog()?.then((catalog) => {
+      if (catalog && isPopOpen(pop)) buildModelPop(pop);
+    });
+  }
+
   /**
    * 🤖 v3.8.604 — 에이전트를 **이 목록에** 넣는다.
    *
@@ -397,7 +438,7 @@ function buildModelPop(pop) {
     try { return String(window.getAgentModel?.(agentProvider) || ''); } catch { return ''; }
   })();
   const modelRows = (provider) => {
-    const list = AGENT_MODEL_CATALOG?.[provider];
+    const list = agentModelCatalog?.[provider];
     if (!list || !list.length) return '';
     return list.map((m) => `
         <div class="hb-opt hb-sub${(m.value || '') === curModel ? ' sel' : ''}" data-hb-agent-model="${m.value}"

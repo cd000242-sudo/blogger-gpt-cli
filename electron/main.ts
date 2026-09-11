@@ -7880,8 +7880,27 @@ ipcMain.handle('publish-content', async (_evt, data) => {
         metaParts.push(`<meta name="twitter:description" content="${descText}">`);
         if (imgUrl) metaParts.push(`<meta name="twitter:image" content="${imgUrl}">`);
       }
-      if (metaParts.length > 0) {
-        // 본문 맨 앞에 추가 (Blogger/WP 둘 다 head에 들어가지 않더라도 OG/Twitter 파서는 본문 inline 메타도 잡음)
+      /**
+       * 🚫 v3.8.716 — **워드프레스에는 본문 메타를 넣지 않는다.**
+       *
+       * 워드프레스는 Yoast 가 head 에 메타를 넣는다. 본문에 또 실으면 중복인 데다,
+       * `<meta>` 는 보이지 않으면서 wpautop 이 그것들을 `<p>` 로 감싸고 사이에 `<br>` 를
+       * 끼우는 바람에 **제목 아래 빈 줄 10개**로 쌓인다(실측 발행글 5707: meta 11개).
+       *
+       * 에이전트 경로는 이 메타를 이미 한 번 걷어냈는데(v3.8.609) 여기서 다시 넣고 있었다.
+       * 블로거는 본문 inline 메타가 실제로 쓰이므로 그대로 둔다.
+       */
+      const publishPlatform = String(
+        (data.payload as any)?.platform
+        || (data.payload as any)?.targetPlatform
+        || (data.payload as any)?.blogPlatform
+        || '',
+      ).toLowerCase();
+      const metaBelongsInHead = publishPlatform.includes('wordpress');
+      if (metaParts.length > 0 && metaBelongsInHead) {
+        enrichmentLog.push(`HTML 메타 ${metaParts.length}개 주입 생략 (워드프레스는 Yoast 가 head 에 넣음)`);
+      } else if (metaParts.length > 0) {
+        // 본문 맨 앞에 추가 (Blogger는 본문 inline 메타를 OG/Twitter 파서가 잡음)
         data.content = metaParts.join('\n') + '\n' + data.content;
         enrichmentLog.push(`HTML 메타 ${metaParts.length}개 주입 (desc/og/twitter/robots)`);
       }

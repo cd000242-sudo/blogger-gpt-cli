@@ -2059,6 +2059,39 @@ export class WordPressPublisher {
         .replace(/<img\b[^>]*\bsrc=["']data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200}["'][^>]*>/gi, '')
         .replace(/<figure[^>]*>\s*(?:<a[^>]*>)?\s*(?:<\/a>)?\s*<\/figure>/gi, '');
 
+      /**
+       * 🧹 v3.8.716 — **실제로 쓰이는 발행 경로에 두 그물을 단다.**
+       *
+       * v3.8.605(wpautop 차단) · v3.8.609(head 태그 제거) 는 `publishToWordPress()` 에만
+       * 붙어 있었는데, 앱이 부르는 것은 이 클래스의 `publish()` 다 (dist/core/index.js).
+       * 실측(발행글 5707): 짝 없는 `</p>` 14개 · `<br />` 83개 · 본문 `<meta>` 11개.
+       *   - 제목 아래 빈 공간  ← 본문에 실린 meta 11개가 <p>+<br> 로 쌓임
+       *   - CTA 카드 3조각 분해 ← <a> flex 안에 wpautop 이 </p> 를 끼워 넣음
+       *   - 박스 아래 과잉 여백 ← 짝 없는 </p> 가 만든 유령 빈 문단
+       *
+       * API 모드 글이 멀쩡했던 이유는 `applyWordPressInlineStyles` 가 블록을 다시 짜서
+       * 줄바꿈이 전부 블록 경계에 놓였기 때문이다. 에이전트 글(bgpt-wp-ready)은 그 함수를
+       * 건너뛰므로 줄바꿈이 태그 안쪽에 남고, wpautop 이 그 자리를 파고든다.
+       */
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { stripHeadOnlyTags } = require('../core/final/head-tag-strip');
+        const cleaned = stripHeadOnlyTags(optimizedContent);
+        if (cleaned.removed > 0) {
+          optimizedContent = cleaned.html;
+          console.log(`[WP-PUBLISH] 🧹 본문에 섞인 head 태그 ${cleaned.removed}개 제거 (제목 아래 빈 공간의 원인)`);
+          options.onLog?.(`🧹 본문에 섞여 있던 head 태그 ${cleaned.removed}개를 걷어냈습니다 (제목 아래 빈 공간).`);
+        }
+      } catch (stripErr) {
+        console.warn('[WP-PUBLISH] head 태그 제거 스킵:', (stripErr as Error)?.message || stripErr);
+      }
+
+      const beforeAutop = optimizedContent;
+      optimizedContent = neutralizeWpAutop(optimizedContent);
+      if (optimizedContent.length !== beforeAutop.length) {
+        console.log(`[WP-PUBLISH] 🩹 wpautop 방지: 줄바꿈 정리 (${beforeAutop.length} → ${optimizedContent.length}자)`);
+      }
+
       // 포스트 데이터 준비 - options.status 사용
       // 🔥 예약 발행: status를 'future'로 설정해야 WordPress가 예약 발행으로 처리
       let finalStatus: 'publish' | 'draft' | 'future';

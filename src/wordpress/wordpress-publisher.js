@@ -1748,6 +1748,23 @@ class WordPressPublisher {
                 .replace(/<img\b[^>]*\bsrc=["']javascript:[^"']*["'][^>]*>/gi, '')
                 .replace(/<img\b[^>]*\bsrc=["']data:image\/[a-z+]+;base64,[A-Za-z0-9+/=]{0,200}["'][^>]*>/gi, '')
                 .replace(/<figure[^>]*>\s*(?:<a[^>]*>)?\s*(?:<\/a>)?\s*<\/figure>/gi, '');
+            try {
+                const { stripHeadOnlyTags } = require('../core/final/head-tag-strip');
+                const cleaned = stripHeadOnlyTags(optimizedContent);
+                if (cleaned.removed > 0) {
+                    optimizedContent = cleaned.html;
+                    console.log(`[WP-PUBLISH] 🧹 본문에 섞인 head 태그 ${cleaned.removed}개 제거 (제목 아래 빈 공간의 원인)`);
+                    options.onLog?.(`🧹 본문에 섞여 있던 head 태그 ${cleaned.removed}개를 걷어냈습니다 (제목 아래 빈 공간).`);
+                }
+            }
+            catch (stripErr) {
+                console.warn('[WP-PUBLISH] head 태그 제거 스킵:', stripErr?.message || stripErr);
+            }
+            const beforeAutop = optimizedContent;
+            optimizedContent = neutralizeWpAutop(optimizedContent);
+            if (optimizedContent.length !== beforeAutop.length) {
+                console.log(`[WP-PUBLISH] 🩹 wpautop 방지: 줄바꿈 정리 (${beforeAutop.length} → ${optimizedContent.length}자)`);
+            }
             let finalStatus;
             if (options.status === 'draft') {
                 finalStatus = 'draft';
@@ -2540,12 +2557,17 @@ async function publishToWordPress(options, onLog) {
             onLog?.(`✅ WordPress 포스트 생성 완료: ${postUrl}`);
             try {
                 const { applyShareUrl } = require('../core/final/share-url');
-                const patched = applyShareUrl(options.content, postUrl);
-                if (patched !== options.content) {
-                    const shareResult = await wpApi.updatePostContent(post.id, patched);
+                const patched = applyShareUrl(contentForWp, postUrl);
+                if (patched !== contentForWp) {
+                    let shareResult = await wpApi.updatePostContent(post.id, patched);
+                    if (!shareResult.success)
+                        shareResult = await wpApi.updatePostContent(post.id, patched);
                     onLog?.(shareResult.success
-                        ? '🔗 공유 버튼 URL을 실제 글 주소로 갱신했습니다.'
-                        : '⚠️ 공유 버튼 URL 갱신에 실패했습니다 (홈 주소가 유지됩니다).');
+                        ? '🔗 공유 버튼을 실제 글 주소로 갱신했습니다.'
+                        : '⚠️ 공유 버튼 갱신에 두 번 실패했습니다 — 공유 시 블로그 홈이 퍼집니다.');
+                }
+                else {
+                    onLog?.('ℹ️ 공유 버튼에서 바꿀 주소를 찾지 못했습니다 (본문 모양이 예상과 다릅니다).');
                 }
             }
             catch (shareErr) {

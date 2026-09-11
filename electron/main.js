@@ -4063,6 +4063,16 @@ electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
         }
         catch { /* noop */ }
     };
+    /**
+     * 🛑 v3.8.711 — 재생성도 "도는 작업"으로 등록한다.
+     * 사장님: "추론중인데 중지가안되냐" — beginRun() 없이 돌면 currentRunId 가 0 이라
+     * cancel-task 가 "진행 중인 작업이 없습니다"로 무시된다. publish(v3.8.414)·
+     * run-post(v3.8.53x)에서 두 번 겪은 것과 같은 계열의 세 번째 사고다.
+     */
+    try {
+        require('../dist/core/cancel-token').beginRun();
+    }
+    catch { /* noop */ }
     try {
         const mode = args?.mode === 'images' ? 'images' : 'article';
         const postId = String(args?.postId || '').trim();
@@ -4138,8 +4148,19 @@ electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
     }
     catch (error) {
         const message = error?.message || String(error);
+        // 사용자 중지는 실패가 아니다 — 화면이 다르게 말해야 한다
+        if (error?.canceled || /중지되었습니다/.test(message)) {
+            send('⏹️ 다시 생성이 중지되었습니다 — 기존 글은 그대로 있습니다');
+            return { ok: false, canceled: true, error: '사용자가 중지했습니다. 기존 글은 그대로 있습니다.' };
+        }
         send(`❌ 다시 생성 실패: ${message}`);
         return { ok: false, error: message };
+    }
+    finally {
+        try {
+            require('../dist/core/cancel-token').endRun();
+        }
+        catch { /* noop */ }
     }
 });
 /**
@@ -4158,362 +4179,494 @@ electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
  * 블로그 본문에 넣으면 발행글이 더러워지고, 플랫폼을 옮기면 사라진다.
  */
 const critiqueHistoryPath = () => path.join(electron_1.app.getPath('userData'), 'critique-history.json');
-/**
- * 📥 v3.8.631 — 매일 만들어지는 고CPC 키워드 리포트를 읽는다.
- *
- * 사장님: "매일마다 생성하니까 읽게해주고 … 자동으로 생성되는걸감지해서 가져오게끔"
- *         "문제는 이걸 사용자가 다볼수있게하고싶지는않아 이건 내꺼라서"
- *
- * ## 사생활 — 코드에 흔적을 남기지 않는다
- * 폴더 경로를 여기 적지 않는다. `config.json` 의 `cpcReportDir` 에서만 읽고,
- * 그 값이 없으면 **이 기능은 아예 켜지지 않는다.** 설정하지 않은 사용자에게는
- * 없는 기능과 같다. 실행파일(asar)은 누구나 열 수 있으므로, 코드에 경로나
- * 계정을 적으면 그 순간 공개된다.
- *
- * ## 시각이 아니라 파일을 본다
- * 클로드코드 할당량이 막히면 리포트가 몇 시간 뒤에 만들어진다. 그래서
- * "매일 9시에 읽는다" 는 못 쓴다 — 폴더에 **새 파일이 나타났는지**만 본다.
+/*
+ * 📥 v3.8.711 — 고CPC 키워드 리포트 기능 삭제 (사장님: "고단가 CPC 그자리 없애버리고 다른거넣거나 비워두자").
+ * v3.8.631~708 에 걸쳐 있던 카드 UI·IPC(keywords:latest-report / keywords:mark-report-used /
+ * drive:connect / drive:report-status)와 드라이브 읽기 헬퍼를 걷어냈다.
+ * src/core/keywords/ 의 파서·매칭 모듈과 발행 payload 사슬(cpcReportSlot)은 남겨 뒀다 —
+ * 되살리려면 git 히스토리에서 이 자리의 핸들러와 화면 카드를 가져오면 된다.
  */
-const cpcReportStatePath = () => path.join(electron_1.app.getPath('userData'), 'cpc-report-state.json');
-function cpcReportDir() {
+/* ═══════════════════════════════════════════════════════════════
+ * 🤖 v3.8.713 — AI 비서 (1단계: 진단 비서)
+ *
+ * 사장님: "에이전트 자체가 붙으면어떠니?? … 내앱 내부를 훤히알고 바이브코딩으로
+ *          직접 만든 에이전트가 비서가되면 사용자들의 문제점도 알수있자나"
+ *         "사용자들이 문제가있거나 궁금증이있다면 나한테 묻는거나 다름이없어지지"
+ *
+ * 사용자가 앱에서 막혔을 때, **앱의 실제 상태를 보고** 답하는 비서.
+ * 엔진은 로그인된 에이전트 CLI 를 먼저 쓴다 — 구독 할당량으로 돌아 추가 비용이 0이다.
+ * 없으면 API 키로 떨어지고, 둘 다 없으면 그 사실을 화면에 말한다.
+ *
+ * 1단계는 **읽기 전용**이다. 비서는 명령을 실행하지 않고, 화면에서 누를 것만 알려준다.
+ * 설계서: docs/assistant-agent-plan.md
+ * ═══════════════════════════════════════════════════════════════ */
+/** 최근 로그를 들고 있는다 — 비서가 "무슨 일이 있었는지" 볼 유일한 창이다 */
+const ASSISTANT_LOG_MAX = 200;
+const assistantLogRing = [];
+function rememberAssistantLog(args) {
     try {
-        const configPath = path.join(electron_1.app.getPath('userData'), 'config.json');
-        if (!fs.existsSync(configPath))
-            return '';
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        return String(config?.cpcReportDir || '').trim();
-    }
-    catch {
-        return '';
-    }
-}
-/**
- * ☁️ v3.8.634 — 드라이브에서 직접 읽는다.
- *
- * 사장님: "너가 읽고 자동으로 뜨게해줘야지 내가 수동으로 할꺼면
- *          그냥 드라이브열고 보는게낫지"
- *
- * v3.8.631 은 폴더 경로를 설정에 적고 파일을 갖다 놓아야 읽었다. 그건 심부름이지
- * 자동화가 아니다. 리포트는 매일 드라이브에 만들어지므로 앱이 거기서 가져온다.
- * 폴더 방식은 드라이브가 안 될 때를 위한 뒷문으로만 남긴다.
- */
-/**
- * 이 기능을 볼 수 있는 사람인지. 사장님 것이라 다른 사용자에게는 **버튼조차** 안 보인다.
- *
- * 계정을 코드에 적으면 asar 를 여는 순간 공개되므로 해시만 둔다.
- * 되돌릴 수 없고, 맞는 사람에게만 조용히 켜진다.
- */
-const OWNER_KEY_SHA256 = 'e376393291329606e9b30b159125ca32bb2bc665b4bdcf5aacd4ee1eedf0d4ea';
-function userEnvValue(key) {
-    try {
-        const envPath = path.join(electron_1.app.getPath('userData'), '.env');
-        if (!fs.existsSync(envPath))
-            return '';
-        const line = fs
-            .readFileSync(envPath, 'utf-8')
-            .split(/\r?\n/)
-            .find((l) => l.startsWith(key + '='));
-        return line ? line.slice(key.length + 1).trim() : '';
-    }
-    catch {
-        return '';
-    }
-}
-function googleClientId() {
-    return userEnvValue('GOOGLE_CLIENT_ID') || userEnvValue('BLOGGER_CLIENT_ID');
-}
-function isReportOwner() {
-    const id = googleClientId();
-    if (!id)
-        return false;
-    return require('crypto').createHash('sha256').update(id).digest('hex') === OWNER_KEY_SHA256;
-}
-function driveCreds() {
-    const clientId = googleClientId();
-    const clientSecret = userEnvValue('GOOGLE_CLIENT_SECRET') || userEnvValue('BLOGGER_CLIENT_SECRET');
-    const refreshToken = userEnvValue('GOOGLE_DRIVE_REFRESH_TOKEN');
-    if (!clientId || !clientSecret || !refreshToken)
-        return null;
-    return { clientId, clientSecret, refreshToken };
-}
-/** 드라이브 리프레시 토큰을 userData/.env 에 남긴다 (블로거 토큰과 같은 자리) */
-function saveDriveRefreshToken(token) {
-    const envPath = path.join(electron_1.app.getPath('userData'), '.env');
-    fs.mkdirSync(path.dirname(envPath), { recursive: true });
-    const before = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
-    const lines = before.split(/\r?\n/).filter((l) => !l.startsWith('GOOGLE_DRIVE_REFRESH_TOKEN='));
-    lines.push(`GOOGLE_DRIVE_REFRESH_TOKEN=${token}`);
-    fs.writeFileSync(envPath, lines.filter(Boolean).join('\n') + '\n', 'utf-8');
-}
-/** 화면이 물어본다: 이 사람에게 보여 줄 기능인가, 이미 연결돼 있나 */
-electron_1.ipcMain.handle('drive:report-status', async () => {
-    const owner = isReportOwner();
-    return { ok: true, owner, connected: owner && !!driveCreds() };
-});
-/**
- * 드라이브 읽기 권한을 한 번 받아 둔다. 그 뒤로는 앱이 알아서 가져온다.
- *
- * 블로거 인증과 **따로** 받는다. 기존 토큰에 스코프를 얹으면 재동의가 필요하고,
- * 거기서 실패하면 발행까지 같이 죽는다 — 잘 되는 것을 건드리지 않는다.
- */
-electron_1.ipcMain.handle('drive:connect', async () => {
-    if (!isReportOwner())
-        return { ok: false, error: '사용할 수 없는 기능입니다' };
-    const clientId = googleClientId();
-    const clientSecret = userEnvValue('GOOGLE_CLIENT_SECRET') || userEnvValue('BLOGGER_CLIENT_SECRET');
-    if (!clientId || !clientSecret) {
-        return { ok: false, error: '구글 클라이언트 ID·시크릿이 없습니다 (블로거 연동을 먼저 마쳐 주세요)' };
-    }
-    const redirectUri = 'http://localhost:8889/callback';
-    const scope = 'https://www.googleapis.com/auth/drive.readonly';
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
-        `client_id=${encodeURIComponent(clientId)}` +
-        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-        '&response_type=code' +
-        `&scope=${encodeURIComponent(scope)}` +
-        '&access_type=offline&prompt=consent';
-    const http = require('http');
-    const urlLib = require('url');
-    return new Promise((resolve) => {
-        let settled = false;
-        const done = (result) => {
-            if (settled)
-                return;
-            settled = true;
+        const line = args
+            .map((a) => {
+            if (typeof a === 'string')
+                return a;
             try {
-                server.close();
+                return JSON.stringify(a);
             }
-            catch { /* 이미 닫혔다 */ }
-            resolve(result);
-        };
-        const server = http.createServer(async (req, res) => {
-            const parsed = urlLib.parse(req.url, true);
-            if (parsed.pathname !== '/callback') {
-                res.writeHead(404);
-                res.end();
-                return;
+            catch {
+                return String(a);
             }
-            const code = parsed.query.code;
-            if (!code) {
-                res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end('<h1>인증이 취소되었습니다</h1>');
-                done({ ok: false, error: '인증이 취소되었습니다' });
-                return;
-            }
-            try {
-                const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        client_id: clientId,
-                        client_secret: clientSecret,
-                        code: String(code),
-                        grant_type: 'authorization_code',
-                        redirect_uri: redirectUri,
-                    }).toString(),
-                });
-                const tokenData = await tokenRes.json();
-                if (!tokenData?.refresh_token) {
-                    throw new Error(tokenData?.error_description || '리프레시 토큰을 받지 못했습니다');
-                }
-                saveDriveRefreshToken(String(tokenData.refresh_token));
-                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end('<!DOCTYPE html><html><head><meta charset="utf-8"><title>연결 완료</title></head>' +
-                    '<body style="font-family:sans-serif;text-align:center;padding:50px;background:#0f172a;color:#fff">' +
-                    '<h1>✅ 드라이브 연결 완료</h1><p>이 창을 닫고 앱으로 돌아가세요.</p>' +
-                    '<script>setTimeout(function(){window.close()},1500)</script></body></html>');
-                console.log('[DRIVE] ✅ 드라이브 읽기 권한 저장 완료');
-                done({ ok: true });
-            }
-            catch (error) {
-                res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end('<h1>연결 실패</h1>');
-                done({ ok: false, error: String(error?.message || error).slice(0, 200) });
-            }
-        });
-        server.listen(8889, () => {
-            const { shell } = require('electron');
-            shell.openExternal(authUrl);
-        });
-        server.on('error', (e) => done({ ok: false, error: `콜백 서버를 열지 못했습니다: ${e?.message || e}` }));
-        // 사람이 브라우저에서 손을 놓으면 영원히 안 끝난다 — 5분이면 충분하다
-        setTimeout(() => done({ ok: false, error: '인증 시간이 초과되었습니다 (5분)' }), 5 * 60 * 1000);
-    });
-});
-/** 드라이브에서 가져온 리포트를 앱 데이터에 남긴다 — 오프라인이어도 어제 것은 보인다 */
-const cpcReportCachePath = () => path.join(electron_1.app.getPath('userData'), 'cpc-report-cache.md');
-/**
- * 드라이브에서 오늘치를 가져온다. 못 가져오면 이유를 돌려준다 (조용히 비우지 않는다).
- */
-/**
- * 이미 발행한 키워드를 슬롯에서 걷어낸다 (v3.8.635).
- *
- * 사장님: "발행됫으면 자연스럽게 발행된키워드는 숨겨지게"
- *
- * 판단은 published-match.ts 하나에만 둔다. 화면마다 따로 판단하면
- * "카드에선 숨겨졌는데 달력엔 없는" 어긋난 상태가 생긴다.
- * 지우지 않고 나눈다 — "그거 언제 썼더라" 를 물을 수 있어야 한다.
- */
-function splitByPublished(slots, published) {
+        })
+            .join(' ')
+            .trim();
+        if (!line)
+            return;
+        assistantLogRing.push((new Date().toTimeString().slice(0, 8) + ' ' + line).slice(0, 500));
+        if (assistantLogRing.length > ASSISTANT_LOG_MAX) {
+            assistantLogRing.splice(0, assistantLogRing.length - ASSISTANT_LOG_MAX);
+        }
+    }
+    catch { /* 로그 수집 실패가 앱을 막지 않는다 */ }
+}
+// console 을 한 번 감싸 기록만 더한다. 원래 출력은 그대로 나간다.
+(() => {
     try {
-        const { splitSlotsByPublished } = require('../dist/core/keywords/published-match');
-        const { todo, done } = splitSlotsByPublished(slots || [], published || {});
-        return { slots: todo, doneSlots: done };
+        ['log', 'warn', 'error'].forEach((name) => {
+            const original = console[name].bind(console);
+            console[name] = (...args) => { rememberAssistantLog(args); original(...args); };
+        });
+    }
+    catch { /* 감싸기 실패해도 앱은 돈다 — 비서만 로그를 못 본다 */ }
+})();
+/** 비서에게 동봉된 매뉴얼. 없으면 빈 문자열 — 비서는 "모른다"고 답하게 된다 */
+function loadAssistantKnowledge() {
+    try {
+        return fs.readFileSync(path.join(__dirname, 'assets', 'assistant-knowledge.md'), 'utf-8');
     }
     catch (error) {
-        // 가르지 못하면 다 보여 준다 — 안 보여 주는 쪽이 더 나쁘다
-        console.warn('[CPC-REPORT] 발행 여부 판단 실패:', error?.message || error);
-        return { slots: slots || [], doneSlots: [] };
+        console.warn('[ASSISTANT] 매뉴얼을 읽지 못했습니다:', error?.message || error);
+        return '';
     }
 }
-async function loadReportFromDrive(published) {
-    const creds = driveCreds();
-    if (!creds)
-        return { ok: false, enabled: isReportOwner(), needsConnect: true, message: '' };
-    const { fetchLatestDriveReport } = require('../dist/core/keywords/drive-report');
-    const { parseCpcReport, usableSlots, missingSlots } = require('../dist/core/keywords/cpc-report');
-    const found = await fetchLatestDriveReport(creds);
-    if (!found) {
-        return { ok: false, enabled: true, message: '오늘 리포트가 아직 드라이브에 없습니다' };
-    }
-    /**
-     * v3.8.642 — 못 읽었을 때야말로 **원문을 남겨야 한다.**
-     *
-     * 예전에는 파싱에 성공한 뒤에만 저장해서, 정작 서식이 바뀌어 실패한 날에는
-     * 무엇을 받았는지 확인할 길이 없었다(2026-09-05 실측: 구글 문서 내보내기가
-     * `## 슬롯 A` 로 나오는데 파서는 `#` 하나만 받아 슬롯 0개가 됐다).
-     * 실패한 파일이 곧 증거다 — 먼저 적어 둔다.
-     */
+/**
+ * 설정된 글 엔진을 **사람이 화면에서 보는 이름**으로 (v3.8.714).
+ * 실측: 비서가 "OpenAI GPT-4.1" 이라고 답했는데 화면에는 그런 이름이 없었다.
+ * 내부 id(openai-gpt41)를 그대로 넘긴 탓이다 — 실제 모델은 GPT-5.6 Terra 다.
+ */
+function assistantTextEngineLabel(env) {
+    const raw = String(process.env['PRIMARY_TEXT_MODEL'] || env?.['PRIMARY_TEXT_MODEL'] || env?.['primaryGeminiTextModel'] || '').trim();
+    if (!raw)
+        return '(설정값 없음)';
     try {
-        fs.writeFileSync(cpcReportCachePath(), found.markdown, 'utf-8');
+        const { findTier } = require('../dist/core/llm/pricing');
+        const tier = findTier(raw);
+        return tier?.title ? `${tier.title} (실제 모델 ${tier.modelId})` : raw;
     }
-    catch { /* 기록 실패가 표시를 막지 않는다 */ }
-    const report = parseCpcReport(found.markdown);
-    const slots = usableSlots(report);
-    if (!slots.length) {
-        // 파일은 왔는데 못 읽었다 — 서식이 바뀐 것이다. 화면이 이 말을 해 줘야 한다
-        return {
-            ok: false,
-            enabled: true,
-            message: `리포트를 받았지만 항목을 읽지 못했습니다 (${found.name})`,
-        };
+    catch {
+        return raw;
     }
-    const split = splitByPublished(slots, published);
-    // 어제 것을 오늘 것으로 착각하지 않게, 마지막으로 쓴 파일 id 와 비교한다
-    let lastId = '';
-    try {
-        lastId = JSON.parse(fs.readFileSync(cpcReportStatePath(), 'utf-8'))?.driveFileId || '';
-    }
-    catch { /* 처음이다 */ }
-    return {
-        ok: true,
-        enabled: true,
-        source: 'drive',
-        date: found.date || report.date,
-        isNew: found.id !== lastId,
-        fileName: found.name,
-        driveFileId: found.id,
-        message: '',
-        slots: split.slots,
-        doneSlots: split.doneSlots,
-        // 리포트가 못 채운 슬롯 — 말없이 빼면 "건너뛰었다" 로 보인다 (v3.8.637)
-        missingSlots: missingSlots(report),
-        urls: report.urls,
-    };
 }
-electron_1.ipcMain.handle('keywords:latest-report', async (_evt, args) => {
+/**
+ * 앱이 스스로 보고하는 상태. **키 값은 절대 싣지 않는다 — 있다/없다만.**
+ * 로그 꼬리는 마스킹을 거친다(src/core/assistant/redact).
+ */
+function collectAssistantDiagnostics() {
+    const env = (() => { try {
+        return (0, env_1.loadEnvFromFile)() || {};
+    }
+    catch {
+        return {};
+    } })();
+    const filled = (...names) => names.some((n) => String(env[n] || '').trim().length >= 8);
+    const agents = (() => {
+        try {
+            return loadAgentProfiles().map((p) => ({ provider: p.provider, status: p.status }));
+        }
+        catch {
+            return [];
+        }
+    })();
+    const { redactLogLines, redactDeep } = require('../dist/core/assistant/redact');
+    return redactDeep({
+        app: {
+            version: electron_1.app.getVersion(),
+            os: process.platform === 'win32' ? 'Windows' : process.platform === 'darwin' ? 'Mac' : process.platform,
+            packaged: electron_1.app.isPackaged,
+        },
+        engine: {
+            // 어떤 엔진으로 글을 만들도록 설정돼 있는가.
+            //
+            // v3.8.714 — **화면에 보이는 이름**을 준다. 내부 id 에는 옛 이름이 남아 있어서
+            //   (openai-gpt41 → 실제로는 GPT-5.6 Terra) 그대로 넘기면 비서가 "GPT-4.1" 이라고
+            //   답한다(실측). 사용자는 화면에서 그 이름을 못 찾고 앱이 틀린 줄 안다.
+            //   라벨의 단일 출처는 pricing 표다 — 화면도 같은 표를 읽는다.
+            text: assistantTextEngineLabel(env),
+            provider: String(env['AI_PROVIDER'] || env['aiProvider'] || '(자동)'),
+            image: String(env['IMAGE_SOURCE'] || env['imageSource'] || '(화면 선택값)'),
+            loggedInAgents: agents,
+        },
+        apiKeys: {
+            openai: filled('openaiKey', 'OPENAI_API_KEY'),
+            gemini: filled('geminiKey', 'GEMINI_API_KEY'),
+            claude: filled('claudeKey', 'CLAUDE_API_KEY', 'ANTHROPIC_API_KEY'),
+            perplexity: filled('perplexityKey', 'PERPLEXITY_API_KEY'),
+        },
+        /**
+         * v3.8.714 — 네이버는 여기 넣지 않는다.
+         * 사장님: "네이버 미연결은 원래 연결이 안되어있고 독립앱이따로있는데 설명을 왜해주는거냐"
+         * 네이버 발행은 별도 앱이 맡는다. 목록에 두면 비서가 "네이버가 연결 안 됐다"고
+         * 굳이 설명해서, 고칠 것도 없는 걸 고치라고 하는 꼴이 된다.
+         */
+        blogs: {
+            wordpress: filled('wordpressSiteUrl') && filled('wordpressUsername') && filled('wordpressPassword'),
+            blogger: filled('blogId') && filled('bloggerRefreshToken'),
+            tistory: filled('tistoryBlogName', 'TISTORY_BLOG_NAME'),
+        },
+        recentLog: redactLogLines(assistantLogRing, { maxLines: 90, maxChars: 240 }),
+    });
+}
+/**
+ * 🤖 v3.8.714 — 에이전트 안에서 고를 수 있는 모델 목록.
+ * 화면이 목록을 따로 적지 않게 **메인이 준다** — 두 벌이면 한쪽만 늙는다.
+ */
+/**
+ * 🩺 v3.8.714 — 비서가 **최근 발행글을 비평**한다.
+ *
+ * 사장님: "비서로 비평 개선이 가능하게 해주고"
+ *
+ * 목록 화면까지 가서 카드를 찾아 누르는 대신, 비서에게 "최근 글 비평해줘" 하면 된다.
+ * 비평·개선 자체는 이미 있는 채널(critique-published-post / improve-published-post)을
+ * 그대로 부른다 — 두 벌로 만들면 한쪽만 고쳐지고 어긋난다.
+ */
+electron_1.ipcMain.handle('assistant:latest-post', async (_evt, args) => {
+    const platform = String(args?.platform || '').trim() || 'wordpress';
     try {
-        // 화면이 가진 발행 기록을 받아서 이미 쓴 키워드를 걸러낸다 (v3.8.635)
-        // 발행 기록은 렌더러의 localStorage 에 있어서 메인이 혼자 볼 수가 없다
-        const published = args?.published || {};
-        // ① 드라이브 (기본) — 사장님이 아무것도 안 해도 여기서 온다
-        if (driveCreds()) {
-            try {
-                const viaDrive = await loadReportFromDrive(published);
-                if (viaDrive.ok || !cpcReportDir())
-                    return viaDrive;
-            }
-            catch (error) {
-                // 드라이브가 막혔으면 폴더로 내려가되, 폴더도 없으면 이유를 말한다
-                const why = String(error?.message || error).slice(0, 200);
-                console.warn('[CPC-REPORT] 드라이브 읽기 실패:', why);
-                if (!cpcReportDir())
-                    return { ok: false, enabled: true, message: why };
-            }
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, { platform: platform });
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        // 본문은 안 받는다 — 비평은 뒤이어 부르는 채널이 제 손으로 읽는다
+        const posts = await adapter.listPosts({ fetchBodies: false, maxResults: 5 });
+        if (!Array.isArray(posts) || !posts.length) {
+            return { ok: false, error: `${platform} 에서 최근 글을 찾지 못했습니다. 발행한 글이 있는지 확인해 주세요.` };
         }
-        else if (isReportOwner() && !cpcReportDir()) {
-            return { ok: false, enabled: true, needsConnect: true, message: '' };
-        }
-        // ② 폴더 (뒷문) — 드라이브가 안 될 때만
-        const dir = cpcReportDir();
-        if (!dir)
-            return { ok: false, enabled: false, message: '' };
-        const { loadLatestReport } = require('../dist/core/keywords/report-source');
-        const { usableSlots, missingSlots } = require('../dist/core/keywords/cpc-report');
-        const result = loadLatestReport(dir, cpcReportStatePath());
-        if (!result.report)
-            return { ok: false, enabled: true, message: result.note };
-        const folderSplit = splitByPublished(usableSlots(result.report), published);
+        const first = posts[0];
         return {
             ok: true,
-            enabled: true,
-            date: result.report.date,
-            isNew: result.isNew,
-            fileName: result.found?.fileName || '',
-            message: result.note,
-            slots: folderSplit.slots,
-            doneSlots: folderSplit.doneSlots,
-            missingSlots: missingSlots(result.report),
-            urls: result.report.urls,
+            platform,
+            postId: String(first?.postId || first?.id || ''),
+            title: String(first?.title || ''),
+            url: String(first?.url || ''),
         };
     }
     catch (error) {
-        return { ok: false, enabled: true, message: String(error?.message || error).slice(0, 160) };
+        return { ok: false, error: String(error?.message || error).slice(0, 160) };
     }
 });
-/** 이 리포트를 썼다고 기록한다 — 같은 것을 두 번 쓰지 않기 위해서다 */
-electron_1.ipcMain.handle('keywords:mark-report-used', async (_evt, args) => {
+electron_1.ipcMain.handle('agent:models', async () => {
     try {
-        // 드라이브에서 온 것이면 파일 id 를 적는다 — 다음에 "새 리포트" 인지 이걸로 가른다
-        const driveFileId = String(args?.driveFileId || '').trim();
-        if (driveFileId) {
-            let state = {};
-            try {
-                state = JSON.parse(fs.readFileSync(cpcReportStatePath(), 'utf-8')) || {};
-            }
-            catch { /* 처음이다 */ }
-            state.driveFileId = driveFileId;
-            state.usedAt = new Date().toISOString();
-            fs.mkdirSync(path.dirname(cpcReportStatePath()), { recursive: true });
-            fs.writeFileSync(cpcReportStatePath(), JSON.stringify(state, null, 2), 'utf-8');
-            return { ok: true, driveFileId };
+        const { AGENT_MODELS, agentModelsFor } = require('../dist/core/agent-models');
+        return { ok: true, models: AGENT_MODELS, claude: agentModelsFor('claude'), codex: agentModelsFor('codex') };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 160) };
+    }
+});
+electron_1.ipcMain.handle('assistant:diagnostics', async () => {
+    try {
+        return { ok: true, diagnostics: collectAssistantDiagnostics() };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+/**
+ * 비서에게 묻는다. **에이전트 전용이다.**
+ *
+ * 사장님: "비서는 무조건 에이전트로만 움직이게해줘 코덱스나 클로드코드 안티그래비티"
+ *
+ * API 폴백을 두지 않는 이유 — 비서는 사용자가 막혔을 때 **여러 번** 부르는 기능이다.
+ * 조용히 API 로 떨어지면 도움을 받을수록 요금이 붙고, 사용자는 그걸 모른 채 쓴다.
+ * 구독 에이전트는 이미 내고 있는 요금 안에서 돌아 추가 비용이 0이다.
+ * 그래서 에이전트가 없으면 답하지 않고 **로그인하라고 말한다** — 그게 정직하다.
+ */
+const ASSISTANT_AGENT_ORDER = ['claude', 'codex', 'gemini'];
+/**
+ * 비서의 정체성 (v3.8.714). 클로드 코드의 기본 시스템 프롬프트를 **대체**한다.
+ *
+ * 실측 사고: 이게 없으니 "작업 디렉터리에서 앱 코드를 아직 확인하지 않았습니다",
+ * "코드 작업을 도와드릴까요" 라고 답했다 — 사용자에게는 무슨 소린지 모를 말이다.
+ * 짧게 쓴다. 길면 윈도우 명령줄에서 따옴표가 꼬인다.
+ */
+const ASSISTANT_SYSTEM_PROMPT = [
+    '당신은 블로그 자동화 앱 "LEADERNAM Orbit" 안에 들어 있는 사용자 비서입니다.',
+    '코딩 에이전트가 아닙니다. 작업 디렉터리·파일·코드·터미널을 절대 언급하지 말고, 파일을 읽으려 하지 마세요.',
+    '앱의 기능과 지금 상태는 사용자 메시지에 담긴 「앱 매뉴얼」과 「지금 이 앱의 상태」 안에서만 말합니다.',
+    '그 밖의 일(글감·제목 제안, 문장 다듬기, 발행 계획, 블로그 운영 상담)은 비서답게 아는 대로 도와주세요.',
+    '항상 한국어로, 결론부터, 간결하게 답합니다. 여러 단계가 필요한 일은 한 번에 하나씩 물어보며 진행하세요.',
+].join(' ');
+/** 사장님 지정 (v3.8.714): 비서는 페이블로, 막히면 오푸스 5 로 */
+const ASSISTANT_MODEL = 'claude-fable-5';
+const ASSISTANT_FALLBACK_MODEL = 'claude-opus-5';
+/**
+ * 그 모델이 지금 못 쓰는 상태인가.
+ *
+ * 실측(2026-09-10) — 페이블 한도가 찼을 때 CLI 는 `--fallback-model` 을 줘도
+ * **자동으로 넘어가지 않았다.** 종료코드 1 과 함께 이렇게 끝난다:
+ *   "You've reached your Fable 5 limit. Switch to another model, …"
+ * 그래서 폴백을 우리가 직접 한다. 플래그는 과부하(529)용으로 남겨 둔다.
+ */
+function isModelUnavailableError(message) {
+    return /limit|한도|quota|overload|unavailable|switch to another model|rate.?limit|\b429\b|\b529\b/i
+        .test(String(message ?? ''));
+}
+/**
+ * 비서용 claude 호출 — 고른 모델로 시도하고, 못 쓰면 다음 모델로 (v3.8.714).
+ *
+ * 사장님이 화면에서 모델을 골랐으면 그것부터 쓴다. 안 골랐으면 지정값(페이블 → 오푸스 5).
+ * 고른 모델이 한도에 막혔을 때도 손 놓지 않고 다음 후보로 넘어간다 — 실측으로 확인한
+ * 그 상황(페이블 한도)에서 비서가 통째로 죽으면 안 된다.
+ */
+async function askAssistantViaClaude(prompt, chosenModel) {
+    let lastError;
+    const candidates = [...new Set([String(chosenModel || '').trim(), ASSISTANT_MODEL, ASSISTANT_FALLBACK_MODEL].filter(Boolean))];
+    for (const model of candidates) {
+        try {
+            const text = await runAgentTextTask('claude', prompt, () => { }, {
+                systemPrompt: ASSISTANT_SYSTEM_PROMPT,
+                model,
+                // 과부하일 때를 위한 CLI 자체 폴백 (한도에는 안 먹는다 — 위 주석 참고)
+                ...(model === ASSISTANT_MODEL ? { fallbackModel: ASSISTANT_FALLBACK_MODEL } : {}),
+                noTools: true,
+            });
+            return { text, model };
         }
-        const dir = cpcReportDir();
-        if (!dir)
+        catch (error) {
+            lastError = error;
+            if (!isModelUnavailableError(error?.message || error))
+                throw error;
+            console.warn(`[ASSISTANT] ${model} 못 씀 → 다음 모델로:`, String(error?.message || error).slice(0, 100));
+        }
+    }
+    throw lastError;
+}
+electron_1.ipcMain.handle('assistant:ask', async (_evt, args) => {
+    const question = String(args?.question || '').trim();
+    if (!question)
+        return { ok: false, error: '질문이 비어 있습니다.' };
+    // 로그인된 에이전트가 하나도 없으면 여기서 끝난다 — API 로 몰래 넘어가지 않는다
+    const ready = (() => {
+        try {
+            return loadAgentProfiles().filter((p) => p.status === 'ready');
+        }
+        catch {
+            return [];
+        }
+    })();
+    if (!ready.length) {
+        return {
+            ok: false,
+            needsAgent: true,
+            error: 'AI 비서는 구독 에이전트로만 동작합니다. 환경설정 → Agent 계정에서 Codex 또는 Claude Code 에 로그인해 주세요.',
+        };
+    }
+    /**
+     * 비서 패널에서 고른 에이전트를 **1순위로** 쓴다 (v3.8.714).
+     * 사장님: "ai 비서 옆에 배찌도 코덱스로 할지 클로드코드로할지 선택가능하게해야지"
+     *
+     * 안 골랐으면 클로드 코드부터 — 시스템 프롬프트로 역할을 갈아끼울 수 있는 것이 지금은
+     * claude 뿐이라 답이 가장 비서답다. 고른 것이 실패하면 나머지로 이어서 시도한다.
+     */
+    const order = [...new Set([
+            String(args?.preferred || '').trim(),
+            ...ASSISTANT_AGENT_ORDER,
+        ])].filter((p) => (ASSISTANT_AGENT_ORDER.includes(p)));
+    try {
+        const { buildAssistantPrompt, cleanAssistantAnswer } = require('../dist/core/assistant/prompt');
+        const prompt = buildAssistantPrompt({
+            knowledge: loadAssistantKnowledge(),
+            diagnostics: collectAssistantDiagnostics(),
+            history: Array.isArray(args?.history) ? args.history : [],
+            question,
+        });
+        let lastError = '';
+        for (const provider of order) {
+            if (!ready.some((p) => p.provider === provider))
+                continue;
+            try {
+                // 역할은 claude 에서만 시스템 프롬프트로 갈아끼운다. 모델은 셋 다 고를 수 있다(v3.8.714).
+                const { normalizeAgentModel } = require('../dist/core/agent-models');
+                const picked = normalizeAgentModel(provider, args?.model);
+                const run = provider === 'claude'
+                    ? await askAssistantViaClaude(prompt, picked)
+                    : {
+                        text: await runAgentTextTask(provider, prompt, () => { }, picked ? { model: picked } : undefined),
+                        model: picked,
+                    };
+                const answer = cleanAssistantAnswer(run.text);
+                if (answer) {
+                    const modelShort = run.model.replace(/^claude-/, '').replace(/-5$/, ' 5');
+                    return {
+                        ok: true,
+                        answer,
+                        engine: provider,
+                        engineLabel: `${agentProviderLabel(provider)}${modelShort ? ' · ' + modelShort : ''} · 구독 사용량`,
+                        model: run.model,
+                        free: true,
+                    };
+                }
+                lastError = `${agentProviderLabel(provider)} 가 빈 답을 돌려줬습니다`;
+            }
+            catch (agentError) {
+                lastError = String(agentError?.message || agentError);
+                console.warn('[ASSISTANT] 에이전트 실패 → 다음 후보:', lastError.slice(0, 120));
+            }
+        }
+        /**
+         * 로그인 표시는 'ready' 인데 실제 토큰이 만료된 경우가 있다 (v3.8.714 실측:
+         * codex "Failed to refresh token"). 원문 오류를 그대로 보여주면 사용자는
+         * 무슨 소린지 모른다 — 다시 로그인하라고 말해 준다.
+         */
+        if (AGENT_AUTH_REQUIRED_RE.test(lastError)) {
+            return {
+                ok: false,
+                needsAgent: true,
+                error: '에이전트 로그인이 만료됐습니다. 환경설정 → Agent 계정에서 다시 로그인해 주세요.',
+            };
+        }
+        // 그 외 실패는 이유를 그대로 돌려준다(조용히 비우지 않는다)
+        return { ok: false, error: (lastError || '에이전트가 답하지 못했습니다.').slice(0, 200) };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+});
+/**
+ * 📝 v3.8.711 — 사이트(LEWORD)의 「오늘의 글감」을 가져온다.
+ *
+ * 사장님: "내사이트에 내 앱이니까 연동도가능하지않을까" →
+ *         "LEWORD를 보면 오늘의 글감이 있어 여기서 3개만 가져오게가능할까
+ *          키워드 더보기 누르면 사이트로 이동하게끔"
+ *
+ * leaderspro.kr 콘텐츠는 GAS 가 JSON 으로 준다(릴리스 스크립트가 쓰는 것과 같은 통로,
+ * 읽기는 토큰 불필요 — 사이트에 공개된 내용 그대로다). content.keywordBriefing.rows 에서
+ * 기회지수 상위 3개만 추린다. GAS 콜드 스타트가 수십 초라(실측) 성공본을 캐시해 두고,
+ * 못 가져온 날은 캐시라도 보여 준다 — 화면이 그냥 비면 고장으로 보인다.
+ */
+const keywordBriefingCachePath = () => path.join(electron_1.app.getPath('userData'), 'keyword-briefing-cache.json');
+const LEADERSPRO_GAS_URL = process.env.LEADERSPRO_GAS_URL
+    || 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
+/**
+ * 저장해 둔 회차를 **즉시** 준다 (v3.8.714).
+ *
+ * 사장님: "오늘의 글감 하나도 안 바꼇는데?" — 실측해 보니 사이트(GAS) 응답이 9.8초 걸렸고,
+ * 그동안 화면은 카드를 통째로 숨기고 있었다. 데이터는 멀쩡한데 **보여줄 게 없던 시간**이
+ * 길었던 것이다. 그래서 캐시를 먼저 그리고, 네트워크 결과가 오면 그때 갈아끼운다.
+ */
+electron_1.ipcMain.handle('site:keyword-briefing-cached', async () => {
+    try {
+        const cached = JSON.parse(fs.readFileSync(keywordBriefingCachePath(), 'utf-8'));
+        if (!Array.isArray(cached?.rows) || !cached.rows.length)
             return { ok: false };
-        const { findLatestReport, writeImportState } = require('../dist/core/keywords/report-source');
-        const found = findLatestReport(dir);
-        if (!found)
-            return { ok: false };
-        writeImportState(cpcReportStatePath(), found);
-        return { ok: true, fileName: found.fileName };
+        return { ...cached, stale: true };
     }
     catch {
         return { ok: false };
     }
 });
+/** 「오늘의 글감」 원본 — 사이트의 글감 보드가 읽는 그 파일 (아침·오후·저녁 회차) */
+const LEWORD_TOPIC_BRIEFS_URL = 'https://leaderspro.kr/data/topic-briefs.json';
+electron_1.ipcMain.handle('site:keyword-briefing', async () => {
+    const readCache = () => {
+        try {
+            return JSON.parse(fs.readFileSync(keywordBriefingCachePath(), 'utf-8'));
+        }
+        catch {
+            return null;
+        }
+    };
+    try {
+        /**
+         * 📝 v3.8.714 — **진짜 「오늘의 글감」**을 가져온다.
+         *
+         * 두 번 헛짚었다. 사장님이 두 번 다 잡아 줬다:
+         *   1차 GAS 의 keywordBriefing → "부방장 **황금키워드**" 보드였다
+         *   2차 Worker 의 realtime-issues → "**실시간 검색어**" 였다
+         *
+         * 사이트를 직접 열어 확인한 결과(Playwright), /leword?tab=briefs 의 「✎ 오늘의 글감」은
+         * 화면에 🔒 가 걸린 회원 보드이고, 그 데이터는 **정적 파일** 하나에서 온다:
+         *   https://leaderspro.kr/data/topic-briefs.json  (LewordPage 청크의 fetch 로 확인)
+         *
+         * 구조도 사장님 말 그대로다 — `rounds` 가 **아침 · 오후 · 저녁** 회차로 나뉘고,
+         * 회차마다 글감 70여 건이 title·timing(NOW/NEXT/ALWAYS)·star 와 함께 들어 있다.
+         */
+        const res = await fetch(LEWORD_TOPIC_BRIEFS_URL + '?ts=' + Date.now(), {
+            redirect: 'follow',
+            signal: AbortSignal.timeout(30000),
+        });
+        const data = await res.json();
+        const rounds = Array.isArray(data?.rounds) && data.rounds.length
+            ? data.rounds
+            : [{ slot: data?.slot, builtAt: data?.builtAt, briefs: data?.briefs }];
+        const latest = rounds[rounds.length - 1] || {};
+        const briefs = Array.isArray(latest?.briefs) ? latest.briefs : [];
+        if (!briefs.length)
+            throw new Error('사이트에 오늘의 글감이 아직 없습니다');
+        /**
+         * 70여 건 중 셋만 고른다.
+         *   ★(star) 붙은 것 먼저 → 지금 쓸 것(NOW) 먼저 → 그다음 파일 순서.
+         * 사이트가 이미 중요도 순으로 담아 두므로 그 순서를 크게 흔들지 않는다.
+         */
+        const score = (b) => (b?.star ? 2 : 0) + (String(b?.timing) === 'NOW' ? 1 : 0);
+        const rows = briefs
+            .map((b, i) => ({
+            // 발행 키워드로 쓸 값은 제목이다 — coreKeyword 는 너무 짧아 글 한 편이 안 나온다
+            keyword: String(b?.title || '').trim(),
+            coreKeyword: String(b?.coreKeyword || '').trim(),
+            timing: String(b?.timing || ''),
+            star: !!b?.star,
+            intent: String(b?.primaryIntent || '').trim(),
+            order: i,
+        }))
+            .filter((r) => r.keyword)
+            .sort((a, b) => (score(b) - score(a)) || (a.order - b.order))
+            .slice(0, 3);
+        const result = {
+            ok: true,
+            title: '오늘의 글감',
+            slot: String(latest?.slot || ''), // 아침 · 오후 · 저녁
+            total: briefs.length,
+            updatedAt: String(latest?.builtAt || data?.builtAt || new Date().toISOString()),
+            rows,
+        };
+        try {
+            fs.writeFileSync(keywordBriefingCachePath(), JSON.stringify(result), 'utf-8');
+        }
+        catch { /* 캐시 실패가 표시를 막지 않는다 */ }
+        return result;
+    }
+    catch (error) {
+        const cached = readCache();
+        if (cached?.rows?.length)
+            return { ...cached, stale: true }; // 오프라인이어도 직전 것은 보인다
+        return { ok: false, error: String(error?.message || error).slice(0, 160) };
+    }
+});
 /**
- * 🤖 v3.8.629 — 에이전트 CLI 에 **짧은 글 작업 하나**를 시키고 답만 받는다.
+ * 윈도우 명령줄 한계 (v3.8.714).
  *
- * 사장님: "에이전트로하면 더 좋은데 왜 활용을 못할까 완벽히 연동시켜줘"
+ * 실측 2026-09-10 — 비서 프롬프트(매뉴얼+상태+로그)로 명령줄이 9,237자가 되자
+ * `종료코드 1 / "지정된 명령줄이 너무 깁니다"` 로 죽었다. cmd.exe 한계는 8,191자다.
+ * 같은 프롬프트를 **표준입력**으로 주면 명령줄 87자, 종료코드 0 으로 정상 동작한다.
+ * (코덱스가 "Reading additional input from stdin…" 이라고 한 것도 프롬프트 인자가
+ *  사라졌다는 신호였다.)
  *
- * 발행용 경로(runAgentProcess)는 작업 폴더를 만들고 article.html·metadata.json 을
- * 파일로 받아 오는 구조다. 비평은 그럴 필요가 없다 — 프롬프트 하나 주고 텍스트
- * 하나를 받으면 된다. 그래서 같은 CLI 를 **훨씬 가볍게** 부른다.
- *
- * 구독 CLI 라 **API 비용이 0**이다. 비평처럼 자주 누르는 기능일수록 값어치가 크다.
+ * 그래서 길면 자동으로 표준입력으로 넘긴다 — 비서뿐 아니라 긴 글을 다루는
+ * 비평 경로도 같은 구멍에 빠져 있었다.
  */
-async function runAgentTextTask(providerId, prompt, log) {
+const AGENT_CMDLINE_SAFE_LIMIT = 7000;
+/** 비서가 절대 쓰면 안 되는 도구들 — 1단계는 읽기 전용이다 */
+const ASSISTANT_BLOCKED_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task'];
+async function runAgentTextTask(providerId, prompt, log, opts) {
     const profiles = loadAgentProfiles();
     const profile = profiles.find((p) => p.provider === providerId && p.status === 'ready')
         || profiles.find((p) => p.provider === providerId);
@@ -4521,15 +4674,38 @@ async function runAgentTextTask(providerId, prompt, log) {
         throw new Error(`에이전트 "${providerId}" 로그인이 없습니다. 환경설정 → Agent 계정에서 로그인해 주세요.`);
     }
     const command = resolveAgentBinaryCommand(profile.provider);
-    const args = profile.provider === 'gemini'
-        ? ['--approval-mode', 'yolo', '-p', prompt]
+    /** 프롬프트를 뺀 나머지 인자 — 프롬프트는 아래에서 명령줄이나 표준입력으로 붙인다 */
+    // v3.8.714: codex·gemini 도 -m 으로 모델을 받는다(실측). claude 는 --model.
+    const modelArgs = opts?.model ? ['-m', opts.model] : [];
+    const baseArgs = profile.provider === 'gemini'
+        ? ['--approval-mode', 'yolo', ...modelArgs, '-p']
         : profile.provider === 'codex'
-            ? ['exec', '--skip-git-repo-check', prompt]
+            ? ['exec', '--skip-git-repo-check', ...modelArgs]
             // claude 계열 — 도구를 안 쓰므로 턴을 크게 줄 이유가 없다
-            : ['-p', '--permission-mode', 'dontAsk', '--max-turns', '4', prompt];
+            : [
+                '-p',
+                '--permission-mode', 'dontAsk',
+                ...(opts?.systemPrompt ? ['--system-prompt', opts.systemPrompt] : []),
+                ...(opts?.model ? ['--model', opts.model] : []),
+                ...(opts?.fallbackModel ? ['--fallback-model', opts.fallbackModel] : []),
+                ...(opts?.noTools ? ['--disallowed-tools', ...ASSISTANT_BLOCKED_TOOLS] : []),
+                '--max-turns', opts?.noTools ? '1' : '4',
+            ];
     const { spawn } = require('child_process');
     const isWindows = process.platform === 'win32';
     const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+    /**
+     * 프롬프트를 명령줄에 실을 것인가, 표준입력으로 흘릴 것인가 (v3.8.714).
+     * 명령줄이 길면 윈도우가 통째로 거부한다 — 실측 9,237자에서 "명령줄이 너무 깁니다".
+     * 셋 다 표준입력으로 프롬프트를 받는다(codex 는 스스로 그렇게 말한다).
+     */
+    const withPrompt = [...baseArgs, prompt];
+    const commandLineLength = buildShellCommandLine(command, withPrompt).length;
+    const useStdin = opts?.promptViaStdin === true || commandLineLength > AGENT_CMDLINE_SAFE_LIMIT;
+    const args = useStdin ? baseArgs : withPrompt;
+    if (useStdin && commandLineLength > AGENT_CMDLINE_SAFE_LIMIT) {
+        console.log(`[AGENT] 프롬프트가 길어 표준입력으로 넘깁니다 (명령줄 ${commandLineLength}자)`);
+    }
     return new Promise((resolve, reject) => {
         let stdout = '';
         let stderr = '';
@@ -4537,9 +4713,18 @@ async function runAgentTextTask(providerId, prompt, log) {
             cwd: electron_1.app.getPath('userData'),
             env: buildAgentRunEnv(profile),
             shell: useShell,
-            stdio: ['ignore', 'pipe', 'pipe'],
+            stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
             windowsHide: true,
         });
+        if (useStdin) {
+            try {
+                child.stdin?.write(prompt);
+                child.stdin?.end();
+            }
+            catch (stdinError) {
+                console.warn('[AGENT] 표준입력 쓰기 실패:', stdinError?.message || stdinError);
+            }
+        }
         // 발행 취소와 같은 목록에 넣어 [중지] 가 이 프로세스도 죽일 수 있게 한다
         activeAgentChildren.add(child);
         // 비평은 글 한 편을 읽고 답하는 일이라 5분이면 넉넉하다 (발행은 25분)
@@ -4569,6 +4754,150 @@ async function runAgentTextTask(providerId, prompt, log) {
         });
     });
 }
+/**
+ * ✏️ v3.8.683 — 편집기 초안(붙여넣기·파일·발행글 어느 것이든) 을 postId 없이 다룬다.
+ *
+ * 사장님: "수동으로 LLM 으로 생성한 글이나 HTML 을 넣고 미리보기로 보면서 수정도 가능하며 이미지도 추가해서 발행.
+ *          비평·개선 버튼 → 비평할 부분 알려주고 → 수정하기 → 그 위치가 수정. 이미지 생성 — 썸네일 따로, 소제목은 영역 골라서."
+ * 판단은 dist/core/final/editor-draft 에, 여기는 엔진 고르기와 전달만.
+ */
+async function callEditorModel(payload, prompt, send, timeoutMs = 120000) {
+    const useAgent = payload?.executionMode === 'agent' && !!payload?.agentProvider;
+    if (useAgent) {
+        send(`   🤖 에이전트(${payload.agentProvider})로 처리합니다 — API 비용 0`);
+        return runAgentTextTask(payload.agentProvider, prompt, send);
+    }
+    const { chooseTextModel, applyEngineChoice } = require('../dist/core/final/engine-selection');
+    const choice = chooseTextModel(payload, { currentEnv: process.env['PRIMARY_TEXT_MODEL'] });
+    const restore = applyEngineChoice(choice);
+    send(`   🎯 엔진: ${choice.reason}`);
+    try {
+        const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
+        return await callGeminiWithRetry(prompt, 1, { timeoutMs });
+    }
+    finally {
+        restore();
+    }
+}
+electron_1.ipcMain.handle('normalize-editor-paste', async (_evt, args) => {
+    try {
+        const { normalizePastedContent } = require('../dist/core/final/editor-draft');
+        const r = normalizePastedContent(String(args?.text || ''));
+        if (!r.html.trim())
+            return { ok: false, error: '붙여 넣은 내용이 비어 있습니다.' };
+        return { ok: true, html: r.html, title: r.title };
+    }
+    catch (error) {
+        return { ok: false, error: error?.message || String(error) };
+    }
+});
+// v3.8.693: resolved — 편집기가 기억한 "이미 고친 지적". 안 넘기면 같은 말이 또 나온다.
+electron_1.ipcMain.handle('critique-editor-html', async (_evt, args) => {
+    const send = (line) => { try {
+        if (_evt.sender && !_evt.sender.isDestroyed())
+            _evt.sender.send('log-line', line);
+    }
+    catch { /* noop */ } };
+    try {
+        const html = String(args?.html || '');
+        const title = String(args?.title || '').trim();
+        if (!html.trim())
+            return { ok: false, error: '본문이 비어 있습니다.' };
+        const { critiqueDraft } = require('../dist/core/final/editor-draft');
+        send('[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
+        let competitors = [];
+        if (title) {
+            try {
+                const { naverSearch } = require('../dist/core/naver-search-client');
+                const found = await naverSearch('blog', { query: title, display: 5, sort: 'sim' }, { payload: args?.payload, timeoutMs: 8000 });
+                if (found?.ok) {
+                    competitors = (found.items || [])
+                        .map((item) => ({ title: String(item?.title || '').replace(/<[^>]+>/g, '').trim(), summary: String(item?.description || '').replace(/<[^>]+>/g, '').trim() }))
+                        .filter((c) => c.title);
+                }
+            }
+            catch (searchError) {
+                send(`   ℹ️ 경쟁글 조회 건너뜀: ${String(searchError?.message || searchError).slice(0, 60)}`);
+            }
+        }
+        send('[PROGRESS] 45% - 📏 게이트로 본문을 재는 중…');
+        const result = await critiqueDraft({
+            title, html, competitors,
+            resolved: Array.isArray(args?.resolved) ? args.resolved.map(String) : [],
+            callModel: (prompt) => { send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…'); return callEditorModel(args?.payload, prompt, send); },
+            log: send,
+        });
+        send(`[PROGRESS] 100% - 🩺 비평 완료 — ${result.summary}`);
+        return { ...result, url: '' };
+    }
+    catch (error) {
+        const message = error?.message || String(error);
+        send(`❌ 비평 실패: ${message}`);
+        return { ok: false, error: message };
+    }
+});
+electron_1.ipcMain.handle('improve-editor-html', async (_evt, args) => {
+    const send = (line) => { try {
+        if (_evt.sender && !_evt.sender.isDestroyed())
+            _evt.sender.send('log-line', line);
+    }
+    catch { /* noop */ } };
+    try {
+        const html = String(args?.html || '');
+        const issues = Array.isArray(args?.issues) ? args.issues : [];
+        if (!html.trim())
+            return { ok: false, error: '본문이 비어 있습니다.' };
+        if (issues.length === 0)
+            return { ok: false, error: '고를 개선 항목이 없습니다.' };
+        const { improveDraft } = require('../dist/core/final/editor-draft');
+        const result = await improveDraft({
+            title: String(args?.title || ''), html, issues,
+            callModel: (prompt) => callEditorModel(args?.payload, prompt, send, 180000),
+            log: send,
+        });
+        send(`[PROGRESS] 100% - ✅ ${result.revised}개 구간을 고쳤습니다 (편집기에만 반영, 발행은 저장 버튼)`);
+        return result;
+    }
+    catch (error) {
+        const message = error?.message || String(error);
+        send(`❌ 개선 실패: ${message}`);
+        return { ok: false, error: message };
+    }
+});
+electron_1.ipcMain.handle('generate-editor-image', async (_evt, args) => {
+    const send = (line) => { try {
+        if (_evt.sender && !_evt.sender.isDestroyed())
+            _evt.sender.send('log-line', line);
+    }
+    catch { /* noop */ } };
+    try {
+        const title = String(args?.title || '').trim();
+        if (!title)
+            return { ok: false, error: '제목이 있어야 이미지 프롬프트를 만듭니다. 제목 칸을 채워 주세요.' };
+        const { buildDraftImagePrompt, imageBlockHtml } = require('../dist/core/final/editor-draft');
+        const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
+        const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
+        const envData = (0, env_1.loadEnvFromFile)();
+        const engine = String(args?.payload?.h2ImageSource || args?.payload?.imageSource || envData['IMAGE_SOURCE'] || 'imagefx');
+        const sectionTitle = args?.kind === 'section' ? String(args?.sectionTitle || '').trim() : '';
+        const prompt = buildDraftImagePrompt(title, sectionTitle || null);
+        send(`[PROGRESS] 10% - 🖼️ ${args?.kind === 'section' ? `"${sectionTitle.slice(0, 30)}" 영역` : '썸네일'} 이미지 생성 (${engine})`);
+        const made = await dispatchH2ImageGeneration(engine, prompt, title, send, undefined, { allowFreeTrialPublishing: true });
+        const raw = String(made?.dataUrl || made?.url || '');
+        if (!made?.ok || !raw)
+            return { ok: false, error: made?.error || '이미지를 만들지 못했습니다. 이미지 엔진 로그인을 확인해 주세요.' };
+        const hosted = raw.startsWith('data:') ? await uploadBase64ToImageHost(raw, 'editor') : raw;
+        if (!hosted)
+            return { ok: false, error: '이미지 업로드에 실패했습니다.' };
+        send('[PROGRESS] 100% - ✅ 이미지 준비 완료');
+        return { ok: true, url: hosted, html: imageBlockHtml(hosted, sectionTitle || title), prompt };
+    }
+    catch (error) {
+        const message = error?.message || String(error);
+        send(`❌ 이미지 생성 실패: ${message}`);
+        return { ok: false, error: message };
+    }
+});
 electron_1.ipcMain.handle('critique-published-post', async (_evt, args) => {
     const send = (line) => {
         try {
@@ -7187,8 +7516,26 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
                 if (imgUrl)
                     metaParts.push(`<meta name="twitter:image" content="${imgUrl}">`);
             }
-            if (metaParts.length > 0) {
-                // 본문 맨 앞에 추가 (Blogger/WP 둘 다 head에 들어가지 않더라도 OG/Twitter 파서는 본문 inline 메타도 잡음)
+            /**
+             * 🚫 v3.8.716 — **워드프레스에는 본문 메타를 넣지 않는다.**
+             *
+             * 워드프레스는 Yoast 가 head 에 메타를 넣는다. 본문에 또 실으면 중복인 데다,
+             * `<meta>` 는 보이지 않으면서 wpautop 이 그것들을 `<p>` 로 감싸고 사이에 `<br>` 를
+             * 끼우는 바람에 **제목 아래 빈 줄 10개**로 쌓인다(실측 발행글 5707: meta 11개).
+             *
+             * 에이전트 경로는 이 메타를 이미 한 번 걷어냈는데(v3.8.609) 여기서 다시 넣고 있었다.
+             * 블로거는 본문 inline 메타가 실제로 쓰이므로 그대로 둔다.
+             */
+            const publishPlatform = String(data.payload?.platform
+                || data.payload?.targetPlatform
+                || data.payload?.blogPlatform
+                || '').toLowerCase();
+            const metaBelongsInHead = publishPlatform.includes('wordpress');
+            if (metaParts.length > 0 && metaBelongsInHead) {
+                enrichmentLog.push(`HTML 메타 ${metaParts.length}개 주입 생략 (워드프레스는 Yoast 가 head 에 넣음)`);
+            }
+            else if (metaParts.length > 0) {
+                // 본문 맨 앞에 추가 (Blogger는 본문 inline 메타를 OG/Twitter 파서가 잡음)
                 data.content = metaParts.join('\n') + '\n' + data.content;
                 enrichmentLog.push(`HTML 메타 ${metaParts.length}개 주입 (desc/og/twitter/robots)`);
             }
@@ -8551,7 +8898,7 @@ function emitPublishSuccess(payload) {
          */
         try {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const { requestIndexingForUrl } = require('../src/core/indexing/index-request');
+            const { requestIndexingForUrl } = require('../dist/core/indexing/index-request');
             void requestIndexingForUrl({ url, platform }, {
                 persistEnv: async (patch) => {
                     try {
@@ -9052,12 +9399,25 @@ function describeToneStyle(toneStyle) {
         '     - 평서문 종결("~이다", "~한다", "~된다", "~좁아진다") 절대 금지 — 한국 블로그 독자 거부감',
         '     - 표 셀, 콜아웃, 체크리스트, FAQ 답변, 면책 박스 등 본문 100% 적용',
     ];
+    /**
+     * v3.8.674 — 다섯 말투의 본 지시는 tone-registry(API 경로와 같은 정의)에서 통째로 싣는다.
+     * 아래 종결 예시는 에이전트용 요약이고, 지어낸 1인칭 체험 유도(옛 친근한 분기의 "저도 처음엔…" 줄)는 어느 말투에서도 시키지 않는다.
+     */
+    const registryBlock = (() => {
+        try {
+            const reg = require('../dist/core/final/tone-registry');
+            return String(reg.getToneInstruction(normalized) || '').split('\n').map((l) => `     ${l}`);
+        }
+        catch {
+            return [];
+        }
+    })();
     if (normalized === 'friendly') {
         return [
             '8-1. 🚨 **글 톤: 친근한 존댓말 (사용자 설정: 친근한)**',
-            '     - 종결: ~해요 / ~이에요 / ~예요 / ~거든요 / ~죠 중심 (~합니다는 30% 이하로 줄이고 따뜻한 ~해요/~예요 우선)',
+            '     - 종결: ~해요 / ~이에요 / ~예요 / ~거든요 / ~죠 (~합니다 는 쓰지 않는다)',
             '     - 예: "~필요합니다 → ~필요해요" / "~확인하세요 → ~확인해보세요" / "~중요한 부분입니다 → ~중요한 부분이에요"',
-            '     - 1인칭 경험을 자주 ("저도 처음엔 헷갈렸어요", "제 경우엔...")',
+            ...registryBlock,
             ...common,
         ];
     }
@@ -9068,6 +9428,7 @@ function describeToneStyle(toneStyle) {
             '     - 짧은 감탄/리액션 허용 ("진짜요?", "이게 의외로 큰 차이예요", "결론부터요")',
             '     - 격식 표현(~사료됩니다, ~말씀드립니다) 금지. 자연스럽게.',
             '     - 예: "~확인이 필요합니다 → 한번 보고 가세요" / "~포함되어야 합니다 → 꼭 챙겨야 돼요"',
+            ...registryBlock,
             ...common,
         ];
     }
@@ -9078,26 +9439,26 @@ function describeToneStyle(toneStyle) {
             '     - 감탄, 구어체 표현 금지. 정제된 문장.',
             '     - 1인칭은 최소화. "저"보다 "필자"/"본 글에서는" 같은 표현 일부 허용',
             '     - 예: "~확인해보세요 → ~확인이 요구됩니다" / "~챙겨야 돼요 → ~포함되어야 합니다"',
+            ...registryBlock,
             ...common,
         ];
     }
     if (normalized === 'conversational') {
         return [
-            '8-1. 🚨 **글 톤: 대화체 존댓말 (사용자 설정: 대화체)**',
-            '     - 종결: ~인 거예요 / ~잖아요 / ~죠 / ~보셨어요? / ~해보셨죠? — 친구에게 말 거는 톤',
-            '     - 독자에게 질문 던지기 자주 ("그런데 여기서 이상한 점, 느끼셨나요?", "왜 그럴까요?")',
-            '     - 한 호흡 짧은 감탄/추임새 허용 ("아", "근데", "사실은")',
-            '     - 1인칭 빈도 높임 ("제가 해보니", "저는 이렇게 생각해요")',
+            '8-1. 🚨 **글 톤: 대화체 (사용자 설정: 대화체 — 리더남 영상 말투)**',
+            '     - 종결: 설명은 ~합니다 / ~입니다, 공감·마무리만 ~죠 / ~거든요 / ~잖아요 (다섯 문장 중 넷은 합니다체)',
+            '     - 독자의 속말을 따옴표로 세우고 되묻는다 ("그런데 솔직히 이런 생각 든 적 없으신가요?", "간단하죠?")',
+            ...registryBlock,
             ...common,
         ];
     }
     // professional (디폴트) — v3.8.286 기존 정중한 존댓말
     return [
         '8-1. 🚨 **글 톤: 전문적 존댓말 (사용자 설정: 전문적 — 디폴트)**',
-        '     - 종결: ~합니다 / ~입니다 / ~됩니다 중심 (~해요는 보조 30% 이하)',
+        '     - 종결: ~합니다 / ~입니다 / ~됩니다 (~해요 는 쓰지 않는다)',
         '     - 신뢰감 우선. 객관적·중립적 문체.',
-        '     - 1인칭 경험은 절제해서 ("실제로 시도해본 결과", "관련 자료를 살펴보면")',
         '     - 예: "~좁아진다 → ~좁아집니다" / "~나뉜다 → ~나뉩니다" / "~필요하다 → ~필요합니다"',
+        ...registryBlock,
         ...common,
     ];
 }
@@ -9764,6 +10125,9 @@ function buildAgentJobInstructions(request, profile) {
                     //   해당 블록은 만들어만 놓고 한 번도 안 도는 죽은 코드가 된다.
                     reportSlot: payload?.cpcReportSlot,
                     reportUrls: payload?.cpcReportUrls || [],
+                    // v3.8.660 — 화면의 「내 경험 메모」(육하원칙 객체). 에이전트는 orchestration 을 안 타므로 여기서 따로 넘긴다
+                    experience: payload?.experience,
+                    authorExperience: payload?.authorExperience,
                     breakingEvent: payload?.agentBreakingEvent,
                 });
             }
@@ -9891,6 +10255,8 @@ function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodex
         args: [
             '-p',
             '--permission-mode', 'dontAsk',
+            // v3.8.714: 사장님이 고른 모델(페이블·오푸스·소넷)을 그대로 쓴다. 안 골랐으면 CLI 설정 그대로.
+            ...(model ? ['--model', model] : []),
             // v3.8.487: 검색 -> 계획 -> 집필 -> 자가검토까지 하려면 12턴은 빠듯하다.
             //   턴이 모자라면 글이 중간에 잘린 채 회수된다.
             '--max-turns', '24',
@@ -10011,7 +10377,7 @@ function cancelActiveAgentProcesses() {
     }
     return count;
 }
-async function runAgentProcess(profile, jobDir, lastMessagePath) {
+async function runAgentProcess(profile, jobDir, lastMessagePath, chosenModel) {
     const runOnce = (model) => {
         return new Promise((resolve) => {
             const { spawn } = require('child_process');
@@ -10101,10 +10467,25 @@ async function runAgentProcess(profile, jobDir, lastMessagePath) {
             });
         });
     };
+    /**
+     * v3.8.714 — 화면에서 고른 모델을 그대로 쓴다.
+     * 안 골랐으면 예전과 같다(claude·gemini 는 CLI 설정, codex 는 후보 순서대로).
+     */
+    const picked = (() => {
+        try {
+            return require('../dist/core/agent-models').normalizeAgentModel(profile.provider, chosenModel);
+        }
+        catch {
+            return '';
+        }
+    })();
     if (profile.provider !== 'codex') {
-        return runOnce(null);
+        return runOnce(picked || null);
     }
-    const attempts = getCodexModelAttemptOrder();
+    // 고른 모델이 있으면 그것부터 — 실패하면 기존 후보 순서로 이어서 시도한다
+    const attempts = picked
+        ? [picked, ...getCodexModelAttemptOrder().filter((m) => m !== picked)]
+        : getCodexModelAttemptOrder();
     let upgraded = false;
     let lastRun = {
         exitCode: null,
@@ -11645,7 +12026,31 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             if (agentKeyword) {
                 const { fetchGrounding, describeGrounding } = require('../dist/core/final/naver-grounding');
                 const { naverSearch } = require('../dist/core/naver-search-client');
-                const g = await fetchGrounding(agentKeyword, (type, params) => naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 }));
+                const agentSearch = (type, params) => naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 });
+                const g = await fetchGrounding(agentKeyword, agentSearch);
+                /**
+                 * v3.8.665 — 리포트 출처 본문 + 제목 약속 근거를 에이전트에게도 넘긴다.
+                 * orchestration(API 경로)과 **같은 두 함수**를 쓴다 — 여기만 빠지면 또 "조용한 미배선" 이다.
+                 */
+                let agentEvidence = String(g?.text || '');
+                try {
+                    const { fetchPromiseGrounding } = require('../dist/core/final/promise-grounding');
+                    const { fetchReportSourceBodies, buildReportSourcesBlock } = require('../dist/core/final/report-sources');
+                    const { fetchPageBody } = require('../dist/core/crawlers/official-page-body');
+                    const agentTitle = String(request?.payload?.cpcReportSlot?.title || request?.title || '');
+                    const pgr = await fetchPromiseGrounding(agentTitle, agentKeyword, agentSearch, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5 });
+                    const rs = await fetchReportSourceBodies(
+                    // v3.8.669: 항목별 "출처 기사 URL"(v5 리포트)을 리포트 전체 주소보다 앞에
+                    [...(request?.payload?.cpcReportSlot?.urls || []), ...(request?.payload?.cpcReportUrls || [])], { keyword: agentKeyword, title: agentTitle }, (u) => fetchPageBody(u, 2600));
+                    agentEvidence = [rs.used.length ? buildReportSourcesBlock(rs) : '', ...pgr.blocks, agentEvidence].filter(Boolean).join('\n\n');
+                    // v3.8.667: 지시서의 출처 목록에는 실제로 읽었고 이 글과 관련된 주소만 남긴다 —
+                    //   안 읽은 주소를 나열하면 모델이 그 내용을 지어내 인용한다(실측: 사이트 wp-json 주소를 출처로 적었다)
+                    request.payload = { ...(request?.payload || {}), cpcReportUrls: rs.used.map((b) => b.url) };
+                    console.log(`[AGENT-GROUNDING] 리포트 출처 본문 ${rs.used.length}건 · 제목 약속 근거 ${pgr.blocks.length}건`);
+                }
+                catch (extraErr) {
+                    console.warn('[AGENT-GROUNDING] 출처·약속 근거 스킵:', String(extraErr?.message || extraErr).slice(0, 120));
+                }
                 /**
                  * v3.8.638 — 속보 판정을 지시서까지 들고 간다.
                  *
@@ -11660,11 +12065,11 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
                     };
                     console.log(`[AGENT-GROUNDING] ⏱️ ${g.breakingEvent.note}`);
                 }
-                if (g?.text) {
+                if (agentEvidence) {
                     console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
                     request.payload = {
                         ...(request?.payload || {}),
-                        agentEvidenceBlock: g.text,
+                        agentEvidenceBlock: agentEvidence,
                     };
                 }
                 else {
@@ -11677,8 +12082,39 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         }
         writeAgentJobFiles(jobDir, request || {}, profile);
         const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
-        const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+        // v3.8.714: 화면에서 고른 에이전트 모델을 그대로 쓴다 (payload 에 실려 온다)
+        const run = await runAgentProcess(profile, jobDir, lastMessagePath, request?.payload?.agentModel);
         const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+        /**
+         * v3.8.666 — 호출 0회짜리 후처리를 에이전트 글에도 건다. 사장님: "지금 수정하는 건 에이전트 모드도 적용되는 거지?"
+         * API 경로의 본문 표 상한·되풀이 삭제·auto-repair(마침표 뒤 공백, 숫자 앞 공백, 상대 시점→연도)를 그대로 —
+         * 여기만 빠지면 또 "조용한 미배선" 이다. 실패해도 발행을 막지 않는다.
+         */
+        try {
+            const { autoRepairBeforePublish, removeEchoedSentences, describeRepairs } = require('../dist/core/final/auto-repair');
+            const { capInlineTables } = require('../dist/core/final/table-cap');
+            let polished = String(result.content || '');
+            const capped = capInlineTables([polished], 3);
+            if (capped.demoted > 0) {
+                polished = capped.contents[0] || polished;
+                console.log(`[AGENT-POLISH] 📊 본문 표 ${capped.total}개 중 숫자가 적은 ${capped.demoted}개를 목록으로 바꿨습니다`);
+            }
+            const echo = removeEchoedSentences(polished);
+            if (echo.count > 0) {
+                polished = echo.html;
+                console.log(`[AGENT-POLISH] 🔁 앞과 겹치는 문장 ${echo.count}개를 지웠습니다`);
+            }
+            const repaired = autoRepairBeforePublish(polished);
+            if (repaired.repairs.length > 0) {
+                polished = repaired.html;
+                console.log(`[AGENT-POLISH] 🔧 ${describeRepairs(repaired)}`);
+            }
+            if (polished !== result.content)
+                result.content = polished;
+        }
+        catch (polishErr) {
+            console.warn('[AGENT-POLISH] 건너뜀:', String(polishErr?.message || polishErr).slice(0, 120));
+        }
         /**
          * 🩺 v3.8.630 — 에이전트 글도 발행 전에 자가 수정한다.
          *
@@ -12811,7 +13247,7 @@ function resolveBacklinkPostId(post, platform) {
 async function updateWordPressSpiderBacklink(post, hub, settings) {
     // v3.8.539: 처방 번역까지 함께 — GET 실패 경로가 아래 require 보다 앞서 참조하면 TDZ 라 첫머리에 둔다
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
+    const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../dist/core/spiderweb/hub-backlinks');
     const env = (0, env_1.loadEnvFromFile)();
     const postId = resolveBacklinkPostId(post, 'wordpress');
     if (!postId)
@@ -12933,7 +13369,7 @@ async function updateBloggerSpiderBacklink(post, hub, settings) {
         throw new Error('Blogger 글 본문을 읽지 못했습니다.');
     // v3.8.539: 상단·중간·하단 3위치 — 로직은 src/core/spiderweb/hub-backlinks.ts (하네스 대상)
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../src/core/spiderweb/hub-backlinks');
+    const { applySpiderHubBacklinks, describeBacklinkFailure } = require('../dist/core/spiderweb/hub-backlinks');
     const patch = applySpiderHubBacklinks(currentHtml, hub, pickSpiderEyeComfortPalette(`${hub.title || ''}|${hub.url || ''}`));
     if (patch.action === 'unchanged') {
         return { action: 'unchanged', url: current.url || post.url || '' };
@@ -13345,6 +13781,20 @@ electron_1.app.whenReady().then(async () => {
 // 모든 창이 닫히면 앱 종료 (macOS 제외)
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
+        /**
+         * v3.8.707 — 마지막 창이 닫힐 때 **받아 둔 업데이트가 있으면 설치부터** 한다.
+         *
+         * 인증창은 유일한 창이라 닫히는 순간 여기로 와서 앱이 끝났고, updater 가 2초 뒤에
+         * 걸어 둔 설치는 오지 않았다("자동업데이트가 안되고 로그인인증창에서 자꾸 꺼지는데").
+         * 메인 창도 마찬가지다 — 내려받는 중에 창을 닫으면 그냥 끝났다.
+         * 설치가 걸리면 quitAndInstall 이 스스로 app.quit() 한다.
+         */
+        try {
+            const { installDownloadedUpdateNow } = require('./updater');
+            if (installDownloadedUpdateNow('마지막 창이 닫힘'))
+                return;
+        }
+        catch { /* 개발 모드 등 — 그냥 끝낸다 */ }
         electron_1.app.quit();
     }
 });
@@ -14059,8 +14509,8 @@ electron_1.ipcMain.handle('cta-render-block', async (_evt, payload) => {
         if (!/^https?:\/\//i.test(url)) {
             return { ok: false, error: 'CTA 주소는 http:// 또는 https:// 로 시작해야 합니다.' };
         }
-        const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
-        const { renderFinalCtaBlock } = require('../src/core/final/orchestration');
+        const { buildCtaCopy, siteNameFromUrl } = require('../dist/cta/cta-copy');
+        const { renderFinalCtaBlock } = require('../dist/core/final/orchestration');
         const auto = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
         // 사장님이 직접 적은 문구가 있으면 그게 이긴다 — 자동 문구는 빈칸을 채울 뿐이다
         const buttonText = String(payload?.buttonText || '').trim() || auto.buttonText;
@@ -14078,6 +14528,241 @@ electron_1.ipcMain.handle('cta-render-block', async (_evt, payload) => {
     }
 });
 /**
+ * 🔗 v3.8.688 — 편집기의 글을 **다시 읽고** CTA 를 새로 정한다.
+ *
+ * 사장님: "미리보기 수정에서도 글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
+ *
+ * 실측 사고가 계기다 — 하지정맥류 실손 글의 버튼이 금융감독원 민원조회 화면으로 나갔다.
+ * 본문은 멀쩡한데 버튼 하나 때문에 글을 통째로 다시 만드는 건 낭비다.
+ *
+ * ⚠️ 여기는 **재료만 넣어 주는 자리**다. 판단은 src/cta/regenerate.ts 에 있고
+ *    목적지 이름은 AI(smart-cta)가 정한다 — 기관 목록을 코드에 박지 않는다.
+ *    (사장님: "하드코딩시키지말고 그때그때 추론해서 판단해서 넣게해야지")
+ *
+ * 못 찾으면 ok:false 를 돌려주고 **기존 버튼을 건드리지 않는다.** 틀린 버튼보다
+ * 나쁜 건 버튼이 사라지는 것이다.
+ */
+electron_1.ipcMain.handle('cta-regenerate', async (_evt, payload) => {
+    try {
+        const title = String(payload?.title || '').trim();
+        const html = String(payload?.html || '');
+        if (!html.trim())
+            return { ok: false, error: '편집기에 글이 없습니다.' };
+        /**
+         * 📖 본문을 **통째로** 넘긴다 — 이게 이번 사고의 핵심이었다.
+         * 발행 경로의 CTA 는 문단당 400자만 보다가 글의 뒷부분(핵심)을 놓쳤다.
+         * 여기는 편집기에 있는 글 전체를 그대로 읽는다.
+         */
+        const articleText = html
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&[a-z#0-9]+;/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const { regenerateCta } = require('../dist/cta/regenerate');
+        const { resolveSmartCtaDecision } = require('../dist/cta/smart-cta');
+        const { buildCtaCopy } = require('../dist/cta/cta-copy');
+        const { createCtaPageFetcher } = require('../dist/cta/page-fetcher');
+        const { renderFinalCtaBlock } = require('../dist/core/final/orchestration');
+        const { naverSearch } = require('../dist/core/naver-search-client');
+        // ① AI 는 **이름**만 정한다 (URL 을 뱉게 하면 그럴듯한 죽은 링크를 지어낸다)
+        //    v3.8.706: "없음"도 정식 판정이다 — 레시피·취미 글엔 기관 버튼을 만들지 않는다.
+        let smartTarget = null;
+        let noDestination = false;
+        try {
+            const decision = await resolveSmartCtaDecision({
+                keyword: title,
+                articleHint: articleText.slice(0, 12000), // 정독 — 발행 경로와 같은 크기
+            });
+            smartTarget = decision?.target || null;
+            noDestination = !!decision?.none;
+        }
+        catch {
+            smartTarget = null;
+        }
+        // ② 검색으로 실주소를 찾고, ③ 게이트로 검산한다
+        const result = await regenerateCta({
+            keyword: title,
+            articleText,
+            smartTarget,
+            noDestination,
+            skipUrls: Array.isArray(payload?.currentUrls) ? payload.currentUrls.map(String) : [],
+            search: async (query) => {
+                const res = await naverSearch('webkr', { query, display: 10 });
+                if (!res?.ok)
+                    return [];
+                return (res.items || []).map((it) => ({
+                    url: String(it.link || ''),
+                    title: String(it.title || '').replace(/<[^>]*>/g, ''),
+                }));
+            },
+            // v3.8.706 — 크로미움으로 연다(page-fetcher). 맨 fetch 는 국토교통부·이파인 같은 쿠키 리다이렉트 홈을 못 열었다
+            fetchPage: createCtaPageFetcher({ timeoutMs: 8000 }),
+        });
+        if (result.none) {
+            return { ok: false, none: true, error: '이 주제는 갈 기관이 없다고 판정했습니다 — 외부 버튼을 붙이지 않는 편이 낫습니다.', log: result.log };
+        }
+        if (!result.ok || !result.picked) {
+            return { ok: false, error: result.log[result.log.length - 1] || 'CTA 후보를 찾지 못했습니다.', log: result.log };
+        }
+        // ④ 문구 — AI 가 지은 게 있으면 그걸 쓰고, 없으면 목적지에서 뽑는다 (v3.8.570 과 같은 규칙)
+        const auto = buildCtaCopy({ url: result.picked.url, action: smartTarget?.action || '' });
+        const buttonText = String(smartTarget?.buttonLabel || '').trim() || auto.buttonText;
+        const hook = String(smartTarget?.hookMessage || '').trim() || auto.hookingMessage;
+        return {
+            ok: true,
+            html: renderFinalCtaBlock({ hook, buttonText, url: result.picked.url }),
+            url: result.picked.url,
+            buttonText,
+            hook,
+            stage: result.picked.stage,
+            score: result.picked.score,
+            log: result.log,
+        };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 300) };
+    }
+});
+/**
+ * 🔧 v3.8.696 — **점검 결과를 받아 한 번에 고친다.**
+ *
+ * 사장님: "일괄 점검 교체 도구 만들고"
+ *
+ * v3.8.688~695 에서 고친 것은 전부 앞으로 만들어질 CTA 다. 이미 나가 있는 글은 그대로다
+ * (실측: 183편 중 죽은 링크 14개·기관 홈/문서파일 48개). 글마다 편집기를 여는 건 100편이 넘는다.
+ *
+ * ## 규칙
+ * ① 목적지는 cta/regenerate 가 찾는다 — 게이트(조회 벽·목록·문서·홈)를 그대로 통과해야 한다.
+ * ② **주소만** 갈아끼운다. 버튼 문구·박스·본문은 건드리지 않는다.
+ * ③ 못 찾으면 그 글은 **건너뛴다.** 나쁜 주소를 다른 나쁜 주소로 바꾸지 않고,
+ *    버튼을 지우지도 않는다(버튼이 사라지면 광고 수익도 사라진다).
+ * ④ 바뀐 게 없으면 발행하지 않는다 — 의미 없는 수정 이력을 남기지 않는다.
+ *
+ * 한 글씩 진행 상황을 보낸다. 수십 편을 도는 동안 화면이 조용하면 멈춘 것과 구별이 안 된다.
+ */
+electron_1.ipcMain.handle('cta-bulk-repair', async (evt, payload) => {
+    const send = (line) => {
+        try {
+            if (evt.sender && !evt.sender.isDestroyed())
+                evt.sender.send('log-line', line);
+        }
+        catch { /* noop */ }
+    };
+    try {
+        const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+        if (!targets.length)
+            return { ok: false, error: '고칠 대상이 없습니다.' };
+        const platform = String(payload?.platform || 'wordpress');
+        const dryRun = Boolean(payload?.dryRun);
+        const { regenerateCta } = require('../dist/cta/regenerate');
+        const { applyCtaUrlSwaps } = require('../dist/cta/bulk-repair');
+        const { resolveSmartCtaDecision } = require('../dist/cta/smart-cta');
+        const { naverSearch } = require('../dist/core/naver-search-client');
+        const envData = (0, env_1.loadEnvFromFile)();
+        const creds = loadPlatformCredsFromEnv(envData, { platform: platform });
+        const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
+        const adapter = buildPlatformAdapter(creds, axios);
+        const search = async (query) => {
+            const res = await naverSearch('webkr', { query, display: 10 });
+            if (!res?.ok)
+                return [];
+            return (res.items || []).map((it) => ({
+                url: String(it.link || ''),
+                title: String(it.title || '').replace(/<[^>]*>/g, ''),
+            }));
+        };
+        // v3.8.706 — 크로미움으로 연다(page-fetcher). 맨 fetch 는 쿠키 리다이렉트·인증서 체인 홈을 못 열었다
+        const { createCtaPageFetcher } = require('../dist/cta/page-fetcher');
+        const fetchPage = createCtaPageFetcher({ timeoutMs: 10000 });
+        // 같은 글에 여러 개가 걸렸으면 한 번만 열고 한 번만 발행한다
+        const byPost = new Map();
+        for (const t of targets) {
+            const key = String(t?.postId || '');
+            if (!key)
+                continue;
+            byPost.set(key, [...(byPost.get(key) || []), t]);
+        }
+        // v3.8.708 대상은 있는데 글 id 가 하나도 없으면 배선 사고다 — 조용히 0편 성공으로 끝내지 않는다
+        if (byPost.size === 0) {
+            return { ok: false, error: `고칠 대상 ${targets.length}건에 글 id(postId)가 없습니다 — 점검 결과 배선 오류입니다. 개발자에게 알려주세요.` };
+        }
+        const results = [];
+        let done = 0;
+        for (const [postId, items] of byPost) {
+            done += 1;
+            const title = String(items[0]?.title || '');
+            send(`[PROGRESS] ${Math.floor((done / byPost.size) * 90)}% - 🔧 ${done}/${byPost.size} "${title.slice(0, 26)}"`);
+            try {
+                const current = await adapter.getPost(postId);
+                if (!current) {
+                    results.push({ postId, title, ok: false, reason: '글을 찾지 못했습니다' });
+                    continue;
+                }
+                const html = String(current.content || '');
+                const articleText = html
+                    .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+                    .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+                let smartTarget = null;
+                let noDestination = false;
+                try {
+                    const decision = await resolveSmartCtaDecision({ keyword: title, articleHint: articleText.slice(0, 12000) });
+                    smartTarget = decision?.target || null;
+                    noDestination = !!decision?.none;
+                }
+                catch {
+                    smartTarget = null;
+                }
+                // v3.8.706: "없음" 판정이면 대체 목적지를 찾지 않는다 — 다른 엉뚱한 기관으로 바꿔 끼우는 것이 더 나쁘다
+                if (noDestination) {
+                    results.push({ postId, title, ok: false, none: true, reason: '이 주제는 갈 기관이 없다고 판정 — 그대로 뒀습니다' });
+                    send('   ⛔ 갈 기관이 없는 주제 — 건너뜁니다 (기존 버튼 유지)');
+                    continue;
+                }
+                const swaps = [];
+                const skipped = [];
+                for (const item of items) {
+                    const found = await regenerateCta({
+                        keyword: title, articleText, smartTarget, noDestination, search, fetchPage,
+                        skipUrls: items.map((x) => String(x.url || '')),
+                    });
+                    if (found?.ok && found.picked?.url)
+                        swaps.push({ from: String(item.url || ''), to: found.picked.url });
+                    else
+                        skipped.push(`${String(item.url || '').slice(0, 50)} — 대체 목적지를 못 찾음`);
+                }
+                if (!swaps.length) {
+                    results.push({ postId, title, ok: false, reason: '대체 목적지를 못 찾아 그대로 뒀습니다', skipped });
+                    send('   ⏭️ 대체 목적지를 못 찾아 건너뜁니다 (기존 버튼 유지)');
+                    continue;
+                }
+                const applied = applyCtaUrlSwaps(html, swaps);
+                if (applied.changed === 0) {
+                    results.push({ postId, title, ok: false, reason: '본문에서 그 주소를 못 찾았습니다', missing: applied.missing });
+                    continue;
+                }
+                if (!dryRun)
+                    await adapter.updatePost(postId, { content: applied.html });
+                results.push({
+                    postId, title, ok: true, changed: applied.changed, dryRun,
+                    swaps: swaps.map((s) => ({ from: s.from, to: s.to })), skipped,
+                });
+                send(`   ${dryRun ? '🧪 (시험)' : '✅'} ${applied.changed}개 주소 교체`);
+            }
+            catch (postError) {
+                results.push({ postId, title, ok: false, reason: String(postError?.message || postError).slice(0, 120) });
+            }
+        }
+        const fixed = results.filter((r) => r.ok).length;
+        send(`[PROGRESS] 100% - 🔧 ${fixed}/${byPost.size}편 교체 완료${dryRun ? ' (시험 실행 — 발행하지 않음)' : ''}`);
+        return { ok: true, dryRun, posts: byPost.size, fixed, results };
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error).slice(0, 300) };
+    }
+});
+/**
  * 🩺 v3.8.572 — 이미 발행한 글의 CTA 를 다시 본다.
  *
  * 링크는 썩는다. 실측(2026-08-28 leadernam.com): CTA 366개 중 31개가 죽어 있었고,
@@ -14088,37 +14773,22 @@ electron_1.ipcMain.handle('cta-render-block', async (_evt, payload) => {
  */
 electron_1.ipcMain.handle('cta-audit-run', async (evt, payload) => {
     try {
-        const { extractCtaUrls, classifyCtaLink, summarizePost, summarizeAudit, describeAudit, } = require('../src/cta/cta-audit');
+        const { extractCtaUrls, classifyCtaLink, summarizePost, summarizeAudit, describeAudit, } = require('../dist/cta/cta-audit');
         const posts = Array.isArray(payload?.posts) ? payload.posts : [];
         if (!posts.length)
             return { ok: false, error: '검사할 글이 없습니다 — 글목록을 먼저 불러와 주세요' };
         const ownHost = String(payload?.ownHost || '').trim();
         const limit = Math.min(Number(payload?.limit) || posts.length, 300);
         /** 리다이렉트를 따라가고, 못 받으면 ok:false — 죽었다고 단정하는 건 분류기가 한다 */
+        const { fetchCtaPage } = require('../dist/cta/page-fetcher');
         const fetchPage = async (url) => {
-            const ctl = new AbortController();
-            const timer = setTimeout(() => ctl.abort(), 15000);
-            try {
-                const res = await fetch(url, {
-                    redirect: 'follow',
-                    signal: ctl.signal,
-                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128 Safari/537.36' },
-                });
-                const html = await res.text().catch(() => '');
-                return { ok: true, status: res.status, html, finalUrl: res.url || url };
-            }
-            catch (e) {
-                /**
-                 * ⚠️ 실패 원인을 반드시 넘긴다. 관공서 사이트는 인증서 체인이 불완전한 곳이 많아
-                 *    node 에서만 실패하고 브라우저에서는 멀쩡히 열린다(실측: efine.go.kr, kinfa.or.kr).
-                 *    원인 없이 넘기면 살아있는 사이트를 죽었다고 보고하게 된다.
-                 */
-                const code = String(e?.cause?.code || e?.code || e?.message || '').slice(0, 60);
-                return { ok: false, status: 0, html: '', finalUrl: url, errorCode: code };
-            }
-            finally {
-                clearTimeout(timer);
-            }
+            /**
+             * v3.8.706 — 크로미움(page-fetcher)으로 연다. 관공서 사이트는 인증서 체인이 불완전하거나 쿠키 리다이렉트를 돌려
+             * 맨 fetch 로는 못 열고 브라우저에서는 멀쩡했다(실측: efine.go.kr, molit.go.kr, kinfa.or.kr).
+             * 분류기 계약: ok = 요청이 끝까지 갔는가(4xx 도 true). 실패 원인(errorCode)은 반드시 넘긴다 — 없으면 죽음을 가릴 수 없다.
+             */
+            const r = await fetchCtaPage(url, { timeoutMs: 15000, maxChars: Number.MAX_SAFE_INTEGER, keepErrorBody: true });
+            return { ok: r.status > 0, status: r.status, html: r.html, finalUrl: r.finalUrl || url, errorCode: r.errorCode };
         };
         // 같은 주소를 여러 글이 쓰므로 한 번만 받는다 (실측에서 366개 중 절반이 중복이었다)
         const cache = new Map();
@@ -14132,8 +14802,13 @@ electron_1.ipcMain.handle('cta-audit-run', async (evt, payload) => {
                     cache.set(url, classifyCtaLink(url, await fetchPage(url)));
                 checks.push(cache.get(url));
             }
+            /**
+             * 🔗 v3.8.708 — 렌더러(published-posts.js)는 `postId` 로 보낸다. `post?.id` 만 읽던 탓에
+             * 리포트마다 postId 가 비었고, cta-bulk-repair 는 postId 없는 대상을 조용히 버려
+             * "수정하기"가 0편 고치고 성공으로 끝났다. 사장님: "수정하기누르니까 하나도 못고치네"
+             */
             reports.push(summarizePost({
-                postId: post?.id, title: String(post?.title || ''), link: String(post?.link || ''), checks,
+                postId: post?.postId ?? post?.id, title: String(post?.title || ''), link: String(post?.link || ''), checks,
             }));
             done += 1;
             try {
@@ -14228,7 +14903,7 @@ electron_1.ipcMain.handle('cta-suggest-copy', async (_evt, payload) => {
         const url = String(payload?.url || '').trim();
         if (!/^https?:\/\//i.test(url))
             return { ok: false, error: '주소 형식이 아닙니다' };
-        const { buildCtaCopy, siteNameFromUrl } = require('../src/cta/cta-copy');
+        const { buildCtaCopy, siteNameFromUrl } = require('../dist/cta/cta-copy');
         const copy = buildCtaCopy({ url, action: String(payload?.action || '').trim() || undefined });
         return { ok: true, siteName: siteNameFromUrl(url), ...copy };
     }
