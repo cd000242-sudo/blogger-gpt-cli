@@ -1146,6 +1146,18 @@ function renderUsagePanels() {
   renderAgentProviderPanel();
 }
 
+/**
+ * v3.8.722 — 같은 내용을 다시 그리지 않는다.
+ * innerHTML 을 새로 쓰면 그 안의 노드가 전부 버려지고 다시 만들어진다 —
+ * 내용이 같으면 화면은 그대로인데 비용만 나간다.
+ */
+function writeIfChanged(el, html) {
+  if (!el || el.__bgptLastHtml === html) return false;
+  el.__bgptLastHtml = html;
+  el.innerHTML = html;
+  return true;
+}
+
 function saveUsageSettingsFromInputs() {
   const settings = {
     resetHours: Math.max(1, Math.min(24, Number($('agentUsageResetHours')?.value || USAGE_WINDOW_DEFAULT_HOURS))),
@@ -1160,9 +1172,38 @@ function saveUsageSettingsFromInputs() {
   addLog('Max Agent 사용량 설정을 저장했습니다.', 'success');
 }
 
+/**
+ * ⚡ v3.8.722 — **안 보이는 화면을 1초마다 다시 그리던 것을 멈춘다.**
+ *
+ * 사장님: "앱이 전체적으로 렉도 좀 있고 무거워진 느낌인데..."
+ *
+ * 예전 코드는 앱이 켜지는 순간(initCodexWorkshop) 1초 간격 타이머를 걸고
+ * `renderUsagePanels()` 로 패널 두 개의 **innerHTML 을 통째로 다시 만들었다.**
+ * 멈추는 코드는 어디에도 없었다 — 환경설정을 한 번도 안 열어도 앱이 켜져 있는 내내
+ * 초당 한 번씩 DOM 을 갈아엎었다. 그게 전반적인 렉의 정체다.
+ *
+ * 게다가 이 패널에는 **초 단위로 변하는 값이 없다**(사용량 창은 시간 단위다).
+ * 1초는 처음부터 과했다.
+ *
+ * 이제 세 가지를 지킨다:
+ *   ① 화면에 안 보이면 아예 그리지 않는다
+ *   ② 그려야 할 내용이 지난번과 같으면 DOM 을 건드리지 않는다 (renderUsagePanels 안에서)
+ *   ③ 주기를 5초로 — 시간 단위 표시에는 충분하다
+ */
+const USAGE_TIMER_INTERVAL_MS = 5000;
+
+function usagePanelsVisible() {
+  const target = $('apiProviderCards') || $('agentProviderDetail');
+  // offsetParent 가 null 이면 화면에 그려지지 않는 상태다 (display:none 포함)
+  return !!target && target.offsetParent !== null;
+}
+
 function startUsageTimer() {
   if (state.usageTimer) return;
-  state.usageTimer = setInterval(renderUsagePanels, 1000);
+  state.usageTimer = setInterval(() => {
+    if (!usagePanelsVisible()) return;
+    renderUsagePanels();
+  }, USAGE_TIMER_INTERVAL_MS);
 }
 
 function setSettingsStatus(message = '', type = 'info') {
@@ -1345,7 +1386,7 @@ function renderApiProviderCards() {
     { type: '이미지 생성', provider: image },
   ];
 
-  target.innerHTML = cards.map(({ type, provider }) => {
+  writeIfChanged(target, cards.map(({ type, provider }) => {
     const ready = isApiProviderReady(provider);
     return `
       <div class="agent-mode-provider-card">
@@ -1366,7 +1407,7 @@ function renderApiProviderCards() {
         </div>
       </div>
     `;
-  }).join('');
+  }).join(''));
 
   target.querySelectorAll('[data-open-url]').forEach((button) => {
     button.addEventListener('click', () => openExternalUrl(button.getAttribute('data-open-url') || ''));
@@ -1442,7 +1483,7 @@ function renderAgentProviderPanel() {
     ? '공식 5시간 세션 잔여량'
     : '공식 구독 잔여량';
 
-  detail.innerHTML = `
+  writeIfChanged(detail, `
     <div class="agent-mode-provider-card">
       <div class="agent-mode-provider-top">
         <div>
@@ -1584,7 +1625,7 @@ function renderAgentProviderPanel() {
         </aside>
       </div>
     </div>
-  `;
+  `);
 
   detail.querySelectorAll('[data-open-url]').forEach((button) => {
     button.addEventListener('click', () => openExternalUrl(button.getAttribute('data-open-url') || ''));
@@ -3609,7 +3650,14 @@ async function checkAgentLoginStatus(provider = state.activeAgentProvider, profi
 
 async function verifyActiveAgentLogin(options = {}) {
   loadExecutionPrefs();
-  await loadAgentModeStatus(true);
+  /**
+   * ⚡ v3.8.722 — 방금 받아 온 상태를 또 강제로 받지 않는다.
+   *
+   * 배지에서 에이전트를 고르면 setExecutionMode 가 이미 `loadAgentModeStatus(true)` 를 마친 뒤
+   * 이 함수가 불린다. 여기서 또 force 로 받으면 CLI 감지가 한 번 더 돈다(사장님: "너무 느리게 바뀐다").
+   * 상태가 있으면 그대로 쓰고, 없을 때만 받아 온다.
+   */
+  await loadAgentModeStatus(!state.agentStatus);
   const profile = getSelectedAgentProfile();
   // v3.8.612: 자기 자신을 참조하던 줄을 되돌린다 (아래 주석 참고)
   const provider = normalizeAgentProviderId(profile?.provider);

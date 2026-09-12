@@ -11769,6 +11769,48 @@ electron_1.ipcMain.handle('sync-license-with-server', async (_evt, { serverUrl, 
         return { ok: false, synced: false, error: '서버 동기화 오류' };
     }
 });
+/**
+ * ⚡ v3.8.722 — CLI 감지 결과를 잠깐 기억한다.
+ *
+ * 사장님: "배지 에이전트로 선택했는데 너무 느리게 바뀌고"
+ *
+ * 감지 한 번은 `codex --version` · `claude --version` · `gemini --version` 을 **실제로 실행**한다
+ * (각 5초 타임아웃). 윈도우에서 npm 셸(.cmd)은 node 를 새로 띄우므로 한 번에 수백 ms 씩 든다.
+ *
+ * 그런데 배지에서 에이전트를 한 번 고르면 상태 조회가 **세 번** 일어난다:
+ *   setExecutionMode → loadAgentModeStatus(force)
+ *   → verifyAgentExecutionReadiness → verifyActiveAgentLogin → loadAgentModeStatus(force) 또 한 번
+ *   → checkAgentLoginStatus(verify) 가 CLI 를 또 실행
+ * 즉 같은 답을 얻으려고 프로세스를 아홉 번까지 띄웠다. 그게 "너무 느리게 바뀐다" 의 정체다.
+ *
+ * CLI 설치 여부가 몇 초 사이에 바뀌지는 않는다. 30초만 기억해도 한 번의 클릭에서
+ * 감지는 한 번으로 줄고, 그 뒤 사용자가 설치하러 갔다 와도 곧 다시 확인된다.
+ */
+/**
+ * 실측(2026-09-12, 사장님 PC):
+ *   codex --version 179ms · claude --version 88ms · **gemini --version 3,055ms**
+ * 병렬로 돌려도 가장 느린 하나가 전체를 잡으므로 한 번 감지에 ≈3.1초다.
+ * 배지 클릭 한 번에 세 번 돌았으니 ≈9초 — 사장님이 "너무 느리게 바뀐다" 고 한 그 시간이다.
+ *
+ * CLI 설치 여부는 몇 분 사이에 바뀌지 않는다. 5분을 기억하면 배지 전환은 사실상 즉시가 된다.
+ * 설치·로그인처럼 실제로 상태를 바꾸는 동작 뒤에는 아래에서 기억을 버린다.
+ */
+const AGENT_BINARY_CACHE_TTL_MS = 5 * 60000;
+let agentBinaryCache = null;
+async function detectAgentBinariesCached(providerIds) {
+    const fresh = agentBinaryCache && (Date.now() - agentBinaryCache.at) < AGENT_BINARY_CACHE_TTL_MS;
+    if (fresh && providerIds.every((id) => agentBinaryCache.tools[id])) {
+        return agentBinaryCache.tools;
+    }
+    const detected = await Promise.all(providerIds.map((id) => detectAgentBinary(AGENT_PROVIDERS[id].binary)));
+    const tools = Object.fromEntries(providerIds.map((id, i) => [id, detected[i]]));
+    agentBinaryCache = { at: Date.now(), tools };
+    return tools;
+}
+/** 설치·로그인처럼 상태가 실제로 바뀌는 일을 한 뒤에는 기억을 버린다 */
+function invalidateAgentBinaryCache() {
+    agentBinaryCache = null;
+}
 electron_1.ipcMain.handle('agent-mode:get-status', async () => {
     try {
         const access = await getAgentModeAccessStatus();
@@ -11780,8 +11822,7 @@ electron_1.ipcMain.handle('agent-mode:get-status', async () => {
          * (사장님: "제미나이 cli가 배찌에는 연동되고 추가한것같은데 환경설정에는왜없니")
          */
         const providerIds = Object.keys(AGENT_PROVIDERS);
-        const detected = await Promise.all(providerIds.map((id) => detectAgentBinary(AGENT_PROVIDERS[id].binary)));
-        const tools = Object.fromEntries(providerIds.map((id, i) => [id, detected[i]]));
+        const tools = await detectAgentBinariesCached(providerIds);
         return {
             ok: true,
             ...access,
@@ -11906,6 +11947,8 @@ electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
     }
 });
 electron_1.ipcMain.handle('agent-mode:install-tool', async (_evt, args) => {
+    // v3.8.722: 설치하면 감지 결과가 달라진다 — 기억해 둔 값을 버리고 다시 재게 한다
+    invalidateAgentBinaryCache();
     try {
         const access = await getAgentModeAccessStatus();
         if (!access.allowed) {
@@ -11955,6 +11998,8 @@ electron_1.ipcMain.handle('agent-mode:install-tool', async (_evt, args) => {
     }
 });
 electron_1.ipcMain.handle('agent-mode:start-login', async (_evt, args) => {
+    // v3.8.722: 로그인하면 사용 가능 여부가 달라질 수 있다 — 기억해 둔 감지 결과를 버린다
+    invalidateAgentBinaryCache();
     try {
         const access = await getAgentModeAccessStatus();
         if (!access.allowed) {
