@@ -37,6 +37,14 @@ export interface WordPressCategory {
   slug: string;
   description: string;
   count: number;
+  /**
+   * v3.8.726 — 상위 카테고리 id (0 이면 최상위).
+   * 워드프레스는 원래 주던 값인데 타입에 없어서 화면이 못 썼다.
+   * 홈 화면은 보통 **하위 카테고리별로** 글을 불러오므로, 상위에만 넣으면 홈에서 빠진다
+   * (실측: leadernam 홈은 latest-posts 블록 20개가 전부 하위 카테고리를 가리키고 있었고,
+   *  상위 "지원금·복지"(3698)에 직접 넣은 38편은 어느 칸에도 안 걸렸다).
+   */
+  parent?: number;
 }
 
 export interface WordPressTag {

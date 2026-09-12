@@ -2154,9 +2154,26 @@ export class WordPressPublisher {
       }
       console.log(`[WP-PUBLISH] 발행 상태: ${options.status} → ${finalStatus}`);
 
+      /**
+       * 📦 v3.8.726 — **미리보기 그대로 나가게 한다.**
+       *
+       * 사장님: "미리보기 그대로 나오면 좋겠는데"
+       *
+       * 편집기(미리보기)는 워드프레스에 저장된 원본을 보여주는데, 실제 페이지는 거기에
+       * 워드프레스가 `wpautop` 을 한 번 더 씌운 결과였다. 그래서 둘이 갈렸다.
+       * 실측(발행글 5714): 저장 원본 `<p>48 </p>48` → 실제 화면 `<p>53 </p>78`.
+       * 짝 없는 `</p>` 25개가 빈 문단으로 그려지며 글 중간이 벌어졌다.
+       *
+       * 본문을 HTML 블록으로 감싸면 워드프레스가 그 안을 손대지 않는다.
+       * 같은 글로 실험해 확인했다 — 짝 없는 `</p>` **25개 → 0개**.
+       */
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { wrapAsHtmlBlock } = require('./wp-html-block');
+      const contentForPost = wrapAsHtmlBlock(optimizedContent);
+
       const postData: WordPressPost = {
         title: options.title,
-        content: optimizedContent,
+        content: contentForPost,
         excerpt: options.excerpt || this.extractExcerpt(options.content),
         status: finalStatus as 'publish' | 'draft' | 'private' | 'pending'
       };

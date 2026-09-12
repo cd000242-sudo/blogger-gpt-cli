@@ -1807,9 +1807,11 @@ class WordPressPublisher {
                 finalStatus = 'publish';
             }
             console.log(`[WP-PUBLISH] 발행 상태: ${options.status} → ${finalStatus}`);
+            const { wrapAsHtmlBlock } = require('./wp-html-block');
+            const contentForPost = wrapAsHtmlBlock(optimizedContent);
             const postData = {
                 title: options.title,
-                content: optimizedContent,
+                content: contentForPost,
                 excerpt: options.excerpt || this.extractExcerpt(options.content),
                 status: finalStatus
             };

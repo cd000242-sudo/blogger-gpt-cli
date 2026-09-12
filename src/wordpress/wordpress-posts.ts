@@ -2,6 +2,7 @@
 // Blogger(blogger-publisher.js의 listBloggerPosts/updateBloggerPost)와 응답 규격을 동일하게 맞춰
 // 렌더러가 플랫폼별 분기 없이 같은 흐름으로 목록 → 편집 → 수정발행을 처리할 수 있게 한다.
 import { loadEnvFromFile } from '../env';
+import { wrapAsHtmlBlock, unwrapHtmlBlock } from './wp-html-block';
 import type {
   PublishedPostItem,
   PublishedPostListResult,
@@ -158,7 +159,8 @@ function toPublishedPostItem(post: any): PublishedPostItem {
     url: String(post?.link || ''),
     published: String(post?.date_gmt ? `${post.date_gmt}Z` : (post?.date || '')),
     updated: String(post?.modified_gmt ? `${post.modified_gmt}Z` : (post?.modified || '')),
-    content: readRichField(post?.content),
+    // v3.8.726: 저장할 때 씌운 HTML 블록 주석을 벗겨 편집기에 깨끗한 HTML 을 준다
+    content: unwrapHtmlBlock(readRichField(post?.content)),
     imageUrl: readFeaturedImage(post),
     status: String(post?.status || 'publish'),
   };
@@ -282,7 +284,11 @@ export async function updateWordPressPost(options: {
 
   try {
     const auth = resolveWordPressAuth(options.payload || {});
-    const body: Record<string, any> = { content };
+    /**
+     * v3.8.726 — 워드프레스가 wpautop 으로 <p> 를 덧씌우지 못하게 HTML 블록으로 감싼다.
+     * 실측(5714): 감싸기 전 짝 없는 </p> 25개 → 감싼 뒤 0개. 미리보기와 실제가 같아진다.
+     */
+    const body: Record<string, any> = { content: wrapAsHtmlBlock(content) };
     if (title) body['title'] = title;
 
     /**

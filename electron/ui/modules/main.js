@@ -503,13 +503,62 @@ window.loadWpCategories = async function () {
 
     if (result.ok && result.categories) {
       if (categorySelect) {
+        /**
+         * 📂 v3.8.726 — **상위·하위를 보이게 그린다.**
+         *
+         * 사장님: "카테고리 드롭다운 말고 그냥 지원금 복지로 해놓고 발행했는데 이건 홈에 안 뜨네요?"
+         *
+         * 원인은 발행이 아니라 홈 구성이었다. 실측(leadernam): 홈 페이지는 latest-posts 블록
+         * 20개로 이뤄져 있고 **전부 하위 카테고리**를 가리킨다. 상위 "지원금·복지"(3698)에
+         * 직접 넣은 38편은 그 어느 칸에도 안 걸린다.
+         *
+         * 목록이 평평하면 무엇이 상위인지 알 수가 없다. 하위는 들여쓰고, 하위를 거느린
+         * 상위에는 그 사실을 적어 둔다. 고르는 순간 아래에서 한 번 더 알려 준다.
+         */
+        const cats = result.categories || [];
+        const childCount = new Map();
+        for (const c of cats) {
+          const p = Number(c.parent || 0);
+          if (p > 0) childCount.set(p, (childCount.get(p) || 0) + 1);
+        }
+
         categorySelect.innerHTML = '<option value="">카테고리 선택</option>';
-        result.categories.forEach(cat => {
+        const addOption = (cat, depth) => {
           const option = document.createElement('option');
           option.value = cat.id;
-          option.textContent = cat.name;
+          const kids = childCount.get(Number(cat.id)) || 0;
+          option.textContent = `${'　'.repeat(depth)}${depth > 0 ? '└ ' : ''}${cat.name}`
+            + (kids > 0 ? ` (하위 ${kids}개)` : '');
+          option.dataset.childCount = String(kids);
+          option.dataset.catName = cat.name;
           categorySelect.appendChild(option);
-        });
+          cats.filter((c) => Number(c.parent || 0) === Number(cat.id))
+            .forEach((child) => addOption(child, depth + 1));
+        };
+        cats.filter((c) => !Number(c.parent || 0)).forEach((top) => addOption(top, 0));
+
+        // 하위를 거느린 상위를 고르면 그 자리에서 알려 준다
+        if (!categorySelect.dataset.parentWarnWired) {
+          categorySelect.dataset.parentWarnWired = '1';
+          const noticeId = 'wpCategoryParentNotice';
+          categorySelect.addEventListener('change', () => {
+            const picked = categorySelect.selectedOptions?.[0];
+            const kids = Number(picked?.dataset?.childCount || 0);
+            let notice = document.getElementById(noticeId);
+            if (kids === 0) { if (notice) notice.remove(); return; }
+            if (!notice) {
+              notice = document.createElement('div');
+              notice.id = noticeId;
+              notice.style.cssText = 'margin-top:8px;padding:9px 12px;border-radius:8px;'
+                + 'background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);'
+                + 'color:#fcd34d;font-size:11.5px;line-height:1.6;';
+              categorySelect.parentElement?.parentElement?.appendChild(notice);
+            }
+            notice.textContent = `⚠️ "${picked.dataset.catName}" 는 하위 카테고리 ${kids}개를 거느린 상위입니다. `
+              + '홈 화면은 보통 하위 카테고리별로 글을 불러오므로, 상위에만 넣으면 홈에 안 보일 수 있습니다. '
+              + '하위 중 하나를 고르시는 편이 안전합니다.';
+          });
+        }
       }
       alert(`✅ ${result.categories.length}개의 카테고리를 불러왔습니다.`);
     } else {
