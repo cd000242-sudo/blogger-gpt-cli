@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WordPressPublisher = void 0;
+exports.stripLeadingImageMatching = stripLeadingImageMatching;
 exports.stripBodyThumbnailBox = stripBodyThumbnailBox;
 exports.wrapSectionsInCards = wrapSectionsInCards;
 exports.foldRepeatedInlineStyles = foldRepeatedInlineStyles;
@@ -12,6 +13,29 @@ const publish_verifier_1 = require("../core/publish-verifier");
 const tag_hygiene_1 = require("../core/tag-hygiene");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
+function stripLeadingImageMatching(html, featuredUrl) {
+    const source = String(html || '');
+    const target = String(featuredUrl || '');
+    if (!source || !target)
+        return source;
+    const fileOf = (url) => {
+        const clean = url.replace(/[?#].*$/, '').replace(/^https?:\/\/i0\.wp\.com\//i, 'https://');
+        const last = clean.split('/').filter(Boolean).pop() || '';
+        return last.toLowerCase();
+    };
+    const wanted = fileOf(target);
+    if (!wanted)
+        return source;
+    const lead = source.match(/^\s*(?:<div[^>]*class=["'][^"']*separator[^"']*["'][^>]*>\s*<img[\s\S]*?<\/div>|<figure[^>]*>\s*<img[\s\S]*?<\/figure>)/i);
+    if (!lead)
+        return source;
+    const src = lead[0].match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+    const dataSrc = lead[0].match(/data-(?:breeze|src|lazy-src)=["']([^"']+)["']/i)?.[1] || '';
+    const found = [src, dataSrc].map(fileOf).filter(Boolean);
+    if (!found.includes(wanted))
+        return source;
+    return source.replace(lead[0], '').trimStart();
+}
 function stripBodyThumbnailBox(html) {
     if (!html)
         return html;
@@ -1691,6 +1715,7 @@ class WordPressPublisher {
             }
             optimizedContent = await this.uploadInlineBase64Images(optimizedContent, options.title);
             let featuredMediaId;
+            let featuredSourceUrl = '';
             const resolveFeaturedUrl = () => {
                 if (options.featuredImageUrl)
                     return options.featuredImageUrl;
@@ -1755,6 +1780,7 @@ class WordPressPublisher {
                     const uploadedMedia = await this.wpApi.uploadMedia(imageBuffer, `${Date.now()}-thumbnail.jpg`, options.title);
                     if (uploadedMedia && uploadedMedia.id) {
                         featuredMediaId = uploadedMedia.id;
+                        featuredSourceUrl = candidate;
                         console.log(`[WP-PUBLISH] ✅ 대표 이미지 업로드 성공 (Media ID: ${featuredMediaId})`);
                     }
                 }
@@ -1771,6 +1797,13 @@ class WordPressPublisher {
                 optimizedContent = stripBodyThumbnailBox(optimizedContent);
                 if (optimizedContent.length < beforeLength) {
                     console.log(`[WP-PUBLISH] 🧹 본문 썸네일 블록 제거 (대표 이미지와 중복, ${beforeLength - optimizedContent.length}자)`);
+                }
+                if (featuredSourceUrl) {
+                    const before = optimizedContent;
+                    optimizedContent = stripLeadingImageMatching(optimizedContent, featuredSourceUrl);
+                    if (optimizedContent !== before) {
+                        console.log('[WP-PUBLISH] 🖼️ 대표 이미지로 쓴 본문 첫 그림을 뺐습니다 (두 장으로 보이던 문제)');
+                    }
                 }
             }
             optimizedContent = optimizedContent

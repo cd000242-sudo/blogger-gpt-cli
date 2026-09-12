@@ -19,6 +19,38 @@ import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
  * H2 섹션 이미지는 본문 콘텐츠이므로 절대 건드리지 않는다 —
  * 그래서 첫 <img>를 지우는 방식이 아니라 썸네일 전용 블록만 지목해서 제거한다.
  */
+/**
+ * 🖼️ v3.8.728 — 본문 **맨 앞**의 그림 한 덩이를, **그 주소가 대표 이미지와 같을 때만** 뗀다.
+ *
+ * 주소를 맞춰 보는 것이 핵심이다. 맨 앞 그림이라고 무조건 지우면 소제목 이미지가 사라질 수 있다.
+ * 워드프레스 이미지 CDN(i0.wp.com)을 거치면 주소가 감싸지므로, 파일 이름으로 견준다.
+ */
+export function stripLeadingImageMatching(html: string, featuredUrl: string): string {
+  const source = String(html || '');
+  const target = String(featuredUrl || '');
+  if (!source || !target) return source;
+
+  const fileOf = (url: string): string => {
+    const clean = url.replace(/[?#].*$/, '').replace(/^https?:\/\/i0\.wp\.com\//i, 'https://');
+    const last = clean.split('/').filter(Boolean).pop() || '';
+    return last.toLowerCase();
+  };
+  const wanted = fileOf(target);
+  if (!wanted) return source;
+
+  const lead = source.match(
+    /^\s*(?:<div[^>]*class=["'][^"']*separator[^"']*["'][^>]*>\s*<img[\s\S]*?<\/div>|<figure[^>]*>\s*<img[\s\S]*?<\/figure>)/i,
+  );
+  if (!lead) return source;
+
+  const src = lead[0].match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+  const dataSrc = lead[0].match(/data-(?:breeze|src|lazy-src)=["']([^"']+)["']/i)?.[1] || '';
+  const found = [src, dataSrc].map(fileOf).filter(Boolean);
+  if (!found.includes(wanted)) return source;   // 다른 그림이면 두 장이 아니다 — 건드리지 않는다
+
+  return source.replace(lead[0], '').trimStart();
+}
+
 export function stripBodyThumbnailBox(html: string): string {
   if (!html) return html;
   return html.replace(
@@ -1995,6 +2027,8 @@ export class WordPressPublisher {
       optimizedContent = await this.uploadInlineBase64Images(optimizedContent, options.title);
 
       let featuredMediaId: number | undefined;
+      // v3.8.728: 대표 이미지로 실제 쓰인 주소 — 본문에서 가져왔다면 그 그림을 본문에서 뺀다
+      let featuredSourceUrl = '';
 
       // v3.8.94/120: featuredImageUrl 누락 시 본문 첫 img 자동 채택 (http URL 또는 base64 data URL 모두 처리)
       const resolveFeaturedUrl = (): string => {
@@ -2079,6 +2113,7 @@ export class WordPressPublisher {
           const uploadedMedia = await this.wpApi.uploadMedia(imageBuffer, `${Date.now()}-thumbnail.jpg`, options.title);
           if (uploadedMedia && uploadedMedia.id) {
             featuredMediaId = uploadedMedia.id;
+            featuredSourceUrl = candidate;   // v3.8.728: 어느 그림이 대표가 됐는지 기억한다
             console.log(`[WP-PUBLISH] ✅ 대표 이미지 업로드 성공 (Media ID: ${featuredMediaId})`);
           }
         } catch (mediaError: any) {
@@ -2098,6 +2133,27 @@ export class WordPressPublisher {
         optimizedContent = stripBodyThumbnailBox(optimizedContent);
         if (optimizedContent.length < beforeLength) {
           console.log(`[WP-PUBLISH] 🧹 본문 썸네일 블록 제거 (대표 이미지와 중복, ${beforeLength - optimizedContent.length}자)`);
+        }
+
+        /**
+         * 🖼️ v3.8.728 — **대표 이미지를 본문에서 가져왔으면 본문 것은 뺀다.**
+         *
+         * v3.8.724 에서 "후보 하나 죽었다고 포기하지 않는다"를 넣으면서 생긴 빈틈이다.
+         * 지정한 썸네일 업로드가 실패하면 이제 **본문 첫 그림**이 대표 이미지가 된다.
+         * 그러면 같은 그림이 제목 위(대표)와 본문 맨 위에 두 번 보인다 —
+         * 사장님이 발행글 5714 에서 잡아낸 그 모습이다.
+         *
+         * 위의 stripBodyThumbnailBox 는 `bgpt-thumbnail-box` 클래스만 본다.
+         * 실제 본문은 `div.separator > img`(발행기 모양)나 `figure > img`(에이전트 글)로 들어온다.
+         *
+         * **주소가 같을 때만** 뺀다. 다른 그림이면 소제목 이미지일 수 있고, 그걸 지우면 글이 헐거워진다.
+         */
+        if (featuredSourceUrl) {
+          const before = optimizedContent;
+          optimizedContent = stripLeadingImageMatching(optimizedContent, featuredSourceUrl);
+          if (optimizedContent !== before) {
+            console.log('[WP-PUBLISH] 🖼️ 대표 이미지로 쓴 본문 첫 그림을 뺐습니다 (두 장으로 보이던 문제)');
+          }
         }
       }
 
