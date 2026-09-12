@@ -267,6 +267,18 @@ async function uploadFeaturedMedia(
   }
 }
 
+/**
+ * 본문 **맨 앞**의 썸네일 한 덩이만 뗀다 (v3.8.727).
+ *
+ * 발행기가 썸네일로 집는 모양은 `div.separator > img` 이고, 에이전트 글은 `<figure>` 로도 넣는다.
+ * 맨 앞의 한 개만 본다 — 본문 중간의 소제목 그림까지 지우면 글이 헐거워진다.
+ */
+export function stripLeadingThumbnail(html: string): string {
+  const source = String(html || '');
+  const lead = /^\s*(?:<div[^>]*class=["'][^"']*separator[^"']*["'][^>]*>\s*<img[\s\S]*?<\/div>|<figure[^>]*>\s*<img[\s\S]*?<\/figure>)/i;
+  return lead.test(source) ? source.replace(lead, '').trimStart() : source;
+}
+
 export async function updateWordPressPost(options: {
   postId?: string | number;
   title?: string;
@@ -288,15 +300,39 @@ export async function updateWordPressPost(options: {
      * v3.8.726 — 워드프레스가 wpautop 으로 <p> 를 덧씌우지 못하게 HTML 블록으로 감싼다.
      * 실측(5714): 감싸기 전 짝 없는 </p> 25개 → 감싼 뒤 0개. 미리보기와 실제가 같아진다.
      */
-    const body: Record<string, any> = { content: wrapAsHtmlBlock(content) };
-    if (title) body['title'] = title;
-
     /**
      * 썸네일이 넘어왔으면 대표 이미지로 올린다.
      * 본문에 이미 있는 주소(i0.wp.com 등 이 사이트가 이미 쓰는 그림)라도 다시 올려 둔다 —
      * 대표 이미지는 미디어 라이브러리의 항목을 가리켜야 하기 때문이다.
      */
     const mediaId = await uploadFeaturedMedia(auth, String(options.thumbnailUrl || ''), title);
+
+    /**
+     * 🖼️ v3.8.727 — **같은 그림이 두 번 보이지 않게 한다.**
+     *
+     * 사장님(실물 검수, 발행글 5714): "썸네일이 따로 있고 핵심요약 위에 썸네일이 하나 더 있다고"
+     *
+     * 내가 만든 문제다. v3.8.724 에서 대표 이미지를 붙이는 길을 열면서, 발행 경로에는 있는
+     * **본문 맨 위 썸네일 제거**(stripBodyThumbnailBox, v3.8.336)를 이쪽에 안 걸었다.
+     * 그래서 대표 이미지가 제목 위에 그려지고 본문 첫 그림도 그대로 남아 두 장이 됐다.
+     *
+     * 대표 이미지가 생길 때만 지운다 — 대표가 없으면 본문 것이 유일한 그림이라 지우면 안 된다.
+     */
+    let finalContent = content;
+    if (mediaId) {
+      const withoutLead = stripLeadingThumbnail(finalContent);
+      if (withoutLead !== finalContent) {
+        finalContent = withoutLead;
+        console.log('[WP-POSTS] 🖼️ 대표 이미지와 겹치는 본문 맨 위 그림을 뺐습니다 (두 장으로 보이던 문제)');
+      }
+    }
+
+    /**
+     * v3.8.726 — 워드프레스가 wpautop 으로 <p> 를 덧씌우지 못하게 HTML 블록으로 감싼다.
+     * 실측(5714): 감싸기 전 짝 없는 </p> 25개 → 감싼 뒤 0개. 미리보기와 실제가 같아진다.
+     */
+    const body: Record<string, any> = { content: wrapAsHtmlBlock(finalContent) };
+    if (title) body['title'] = title;
     if (mediaId) body['featured_media'] = mediaId;
 
     const response = await wpFetch(auth, `/posts/${encodeURIComponent(postId)}?context=edit`, {

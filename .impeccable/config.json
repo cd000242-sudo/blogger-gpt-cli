@@ -116,6 +116,15 @@
         ],
         "createdAt": "2026-09-12T02:53:36.499Z",
         "reason": "테스트 파일: 실제 <img> 태그가 아니라 퍼블리셔 정규식을 검사하는 문자열이다 (Claude 판단)"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/wordpress/wordpress-posts.ts"
+        ],
+        "createdAt": "2026-09-12T03:55:59.101Z",
+        "reason": "정규식 문자열이지 실제 <img> 태그가 아니다 — 본문 맨 앞 썸네일을 찾는 패턴 (Claude 판단)"
       }
     ]
   }

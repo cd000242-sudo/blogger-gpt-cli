@@ -61,7 +61,8 @@ describe('② 세 경로 모두 배선돼 있다', () => {
 
   it('⭐⭐ 수정발행도 감싼다 (여기를 빠뜨리면 고칠 때마다 되돌아간다)', () => {
     const posts = read('src/wordpress/wordpress-posts.ts');
-    expect(posts).toContain('wrapAsHtmlBlock(content)');
+    // v3.8.727: 중복 썸네일을 뗀 뒤의 본문(finalContent)을 감싼다
+    expect(posts).toContain('wrapAsHtmlBlock(finalContent)');
   });
 
   it('⭐⭐ 읽어 올 때는 벗긴다 (편집기가 주석을 보면 안 된다)', () => {
