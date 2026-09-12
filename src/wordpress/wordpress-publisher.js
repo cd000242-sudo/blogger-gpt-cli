@@ -1706,23 +1706,52 @@ class WordPressPublisher {
                 }
                 return '';
             };
-            const featuredSrc = resolveFeaturedUrl();
-            if (featuredSrc) {
-                console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${featuredSrc.substring(0, 50)}...`);
+            const featuredCandidates = (() => {
+                const list = [];
+                const push = (url) => {
+                    const clean = String(url || '').trim();
+                    if (clean && !list.includes(clean))
+                        list.push(clean);
+                };
+                if (options.featuredImageUrl)
+                    push(options.featuredImageUrl);
+                for (const m of String(optimizedContent || '').matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi)) {
+                    push(m[1]);
+                }
+                const dataMatch = String(optimizedContent || '').match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i);
+                if (dataMatch?.[1])
+                    push(dataMatch[1]);
+                for (const url of [...list]) {
+                    if (/^https?:\/\//i.test(url) && !/i0\.wp\.com/i.test(url)) {
+                        push(`https://i0.wp.com/${url.replace(/^https?:\/\//i, '')}?ssl=1`);
+                    }
+                }
+                return list.slice(0, 8);
+            })();
+            if (featuredCandidates.length === 0) {
+                console.log('[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 img 모두 비어있음)');
+                options.onLog?.('⚠️ 대표 이미지로 쓸 그림이 없어 목록에 썸네일이 안 보일 수 있습니다.');
+            }
+            for (const candidate of featuredCandidates) {
+                if (featuredMediaId)
+                    break;
+                console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${candidate.substring(0, 60)}...`);
                 try {
                     let imageBuffer;
-                    if (/^data:image\/[a-z+]+;base64,/i.test(featuredSrc)) {
-                        const base64Part = featuredSrc.replace(/^data:image\/[a-z+]+;base64,/i, '');
+                    if (/^data:image\/[a-z+]+;base64,/i.test(candidate)) {
+                        const base64Part = candidate.replace(/^data:image\/[a-z+]+;base64,/i, '');
                         const buf = Buffer.from(base64Part, 'base64');
                         imageBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
                         console.log(`[WP-PUBLISH] 🔄 base64 → ArrayBuffer 변환 완료 (${(imageBuffer.byteLength / 1024).toFixed(1)} KB)`);
                     }
                     else {
-                        const response = await fetch(featuredSrc);
+                        const response = await fetch(candidate, { signal: AbortSignal.timeout(20000) });
                         if (!response.ok)
                             throw new Error(`이미지 다운로드 실패: ${response.status}`);
                         imageBuffer = await response.arrayBuffer();
                     }
+                    if (!imageBuffer || imageBuffer.byteLength < 1024)
+                        throw new Error('내려받은 그림이 너무 작습니다');
                     const uploadedMedia = await this.wpApi.uploadMedia(imageBuffer, `${Date.now()}-thumbnail.jpg`, options.title);
                     if (uploadedMedia && uploadedMedia.id) {
                         featuredMediaId = uploadedMedia.id;
@@ -1730,11 +1759,12 @@ class WordPressPublisher {
                     }
                 }
                 catch (mediaError) {
-                    console.error(`[WP-PUBLISH] ❌ 대표 이미지 업로드 실패:`, mediaError.message);
+                    console.warn(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 실패 (다음 후보 시도): ${mediaError?.message || mediaError}`);
                 }
             }
-            else {
-                console.log(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 첫 img 모두 비어있음)`);
+            if (!featuredMediaId && featuredCandidates.length > 0) {
+                console.error(`[WP-PUBLISH] ❌ 대표 이미지 후보 ${featuredCandidates.length}개가 모두 실패했습니다`);
+                options.onLog?.(`⚠️ 대표 이미지를 넣지 못했습니다 (후보 ${featuredCandidates.length}개 모두 실패) — 글 목록과 홈에 썸네일이 안 보입니다. 이미지 호스팅 접속을 확인해 주세요.`);
             }
             if (featuredMediaId) {
                 const beforeLength = optimizedContent.length;

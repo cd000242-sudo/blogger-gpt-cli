@@ -5452,7 +5452,7 @@ ipcMain.handle('wordpress-list-posts', async (_evt, args?: { maxResults?: number
   }
 });
 
-ipcMain.handle('wordpress-update-post', async (_evt, args: { postId?: string; title?: string; content?: string }) => {
+ipcMain.handle('wordpress-update-post', async (_evt, args: { postId?: string; title?: string; content?: string; thumbnailUrl?: string }) => {
   try {
     const wordpressPosts = require('../dist/wordpress/wordpress-posts');
     if (typeof wordpressPosts.updateWordPressPost !== 'function') {

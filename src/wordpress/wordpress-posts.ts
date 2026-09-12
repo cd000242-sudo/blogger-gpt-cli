@@ -212,10 +212,65 @@ export async function listWordPressPosts(options: {
 /**
  * 수정발행 — 제목/본문만 갱신 (카테고리·태그·발행일 등은 보존).
  */
+/**
+ * 🖼️ v3.8.724 — 편집기에서 넣은 썸네일을 **대표 이미지로도** 올린다.
+ *
+ * 사장님: "썸네일을 넣기로 해서 넣었는데 생성된 글목록에서 썸네일로 안 보이고 썸네일 지정도 안 되네요"
+ *
+ * 워드프레스에서 목록·홈에 뜨는 그림은 본문 이미지가 아니라 **대표 이미지(featured_media)** 다.
+ * 그런데 수정발행은 `{ content, title }` 만 보냈다 — 편집기에서 썸네일을 아무리 갈아 끼워도
+ * 본문 맨 위 그림만 바뀌고 대표 이미지는 0 그대로였다(실측: 발행글 5714 featured_media=0).
+ *
+ * data:image 는 그대로 올리고, http 주소는 내려받아 올린다. 실패하면 **본문 수정은 그대로 진행**한다 —
+ * 그림 하나 때문에 고친 글이 안 올라가는 쪽이 더 나쁘다.
+ */
+async function uploadFeaturedMedia(
+  auth: ReturnType<typeof resolveWordPressAuth>,
+  imageUrl: string,
+  title: string,
+): Promise<number | null> {
+  const src = String(imageUrl || '').trim();
+  if (!src) return null;
+
+  try {
+    let buffer: Buffer;
+    if (/^data:image\/[a-z+]+;base64,/i.test(src)) {
+      buffer = Buffer.from(src.replace(/^data:image\/[a-z+]+;base64,/i, ''), 'base64');
+    } else if (/^https?:\/\//i.test(src)) {
+      const res = await fetch(src, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new Error(`내려받기 실패 ${res.status}`);
+      buffer = Buffer.from(await res.arrayBuffer());
+    } else {
+      return null;
+    }
+    if (buffer.byteLength < 1024) throw new Error('그림이 너무 작습니다');
+
+    const filename = `${Date.now()}-thumbnail.jpg`;
+    const response = await wpFetch(auth, '/media', {
+      method: 'POST',
+      headers: {
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Type': 'image/jpeg',
+      },
+      body: buffer as any,
+    });
+    if (!response.ok) throw await toHttpError(response);
+    const media = await response.json();
+    const id = Number(media?.id || 0);
+    if (id > 0) console.log(`[WP-POSTS] ✅ 대표 이미지 업로드: ID ${id} (${title.slice(0, 20)})`);
+    return id > 0 ? id : null;
+  } catch (error: any) {
+    console.warn(`[WP-POSTS] ⚠️ 대표 이미지 업로드 실패(본문 수정은 계속): ${error?.message || error}`);
+    return null;
+  }
+}
+
 export async function updateWordPressPost(options: {
   postId?: string | number;
   title?: string;
   content?: string;
+  /** v3.8.724: 편집기가 넘기는 썸네일 — 있으면 대표 이미지로 올린다 */
+  thumbnailUrl?: string;
   payload?: Record<string, any>;
 } = {}): Promise<PublishedPostUpdateResult> {
   const postId = String(options.postId ?? '').trim();
@@ -227,8 +282,16 @@ export async function updateWordPressPost(options: {
 
   try {
     const auth = resolveWordPressAuth(options.payload || {});
-    const body: Record<string, string> = { content };
+    const body: Record<string, any> = { content };
     if (title) body['title'] = title;
+
+    /**
+     * 썸네일이 넘어왔으면 대표 이미지로 올린다.
+     * 본문에 이미 있는 주소(i0.wp.com 등 이 사이트가 이미 쓰는 그림)라도 다시 올려 둔다 —
+     * 대표 이미지는 미디어 라이브러리의 항목을 가리켜야 하기 때문이다.
+     */
+    const mediaId = await uploadFeaturedMedia(auth, String(options.thumbnailUrl || ''), title);
+    if (mediaId) body['featured_media'] = mediaId;
 
     const response = await wpFetch(auth, `/posts/${encodeURIComponent(postId)}?context=edit`, {
       method: 'POST',

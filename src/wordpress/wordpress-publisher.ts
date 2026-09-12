@@ -2013,33 +2013,82 @@ export class WordPressPublisher {
         }
         return '';
       };
-      const featuredSrc = resolveFeaturedUrl();
+      /**
+       * 🖼️ v3.8.724 — **후보 하나가 죽었다고 대표 이미지를 포기하지 않는다.**
+       *
+       * 실측 사고(발행글 5714, 2026-09-12): 글 목록·홈에 썸네일이 안 보였다.
+       * `featured_media: 0` — 대표 이미지가 아예 없었다.
+       *
+       * 원인은 이미지가 아니라 **호스팅**이었다. 본문 이미지는 catbox.moe 에 올라갔는데
+       * 그 주소를 다시 내려받는 데서 막혔다(실측: `https://files.catbox.moe/...` → 연결 실패,
+       * 같은 파일을 i0.wp.com 경유로 받으면 HTTP 200). 첫 후보 하나만 보고 catch 로 빠지니
+       * 대표 이미지가 통째로 없어졌고, 로그만 남고 사용자는 몰랐다.
+       *
+       * 이제 쓸 수 있는 후보를 **순서대로 다 시도한다**:
+       *   ① 지정된 featuredImageUrl  ② 본문 첫 http 이미지  ③ 본문의 나머지 이미지들
+       *   ④ base64 이미지            ⑤ ①~③ 을 Photon(i0.wp.com) 경유로 — 원본이 막혔을 때의 우회로
+       * 전부 실패하면 **사용자에게 말한다.** 조용히 넘어가면 목록이 빈 채로 발행된다.
+       */
+      const featuredCandidates = ((): string[] => {
+        const list: string[] = [];
+        const push = (url: string) => {
+          const clean = String(url || '').trim();
+          if (clean && !list.includes(clean)) list.push(clean);
+        };
 
-      if (featuredSrc) {
-        console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${featuredSrc.substring(0, 50)}...`);
+        if (options.featuredImageUrl) push(options.featuredImageUrl);
+        for (const m of String(optimizedContent || '').matchAll(/<img[^>]+src=["'](https?:\/\/[^"']+)["'][^>]*>/gi)) {
+          push(m[1]!);
+        }
+        const dataMatch = String(optimizedContent || '').match(/<img[^>]+src=["'](data:image\/[a-z+]+;base64,[^"']+)["'][^>]*>/i);
+        if (dataMatch?.[1]) push(dataMatch[1]);
+
+        // 원본 호스트가 막혔을 때의 우회로 — 같은 파일을 워드프레스 이미지 CDN 으로 받는다
+        for (const url of [...list]) {
+          if (/^https?:\/\//i.test(url) && !/i0\.wp\.com/i.test(url)) {
+            push(`https://i0.wp.com/${url.replace(/^https?:\/\//i, '')}?ssl=1`);
+          }
+        }
+        return list.slice(0, 8);   // 너무 많이 시도하면 발행이 늦어진다
+      })();
+
+      if (featuredCandidates.length === 0) {
+        console.log('[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 img 모두 비어있음)');
+        options.onLog?.('⚠️ 대표 이미지로 쓸 그림이 없어 목록에 썸네일이 안 보일 수 있습니다.');
+      }
+
+      for (const candidate of featuredCandidates) {
+        if (featuredMediaId) break;
+        console.log(`[WP-PUBLISH] 🖼️ 대표 이미지 업로드 시도: ${candidate.substring(0, 60)}...`);
         try {
           let imageBuffer: ArrayBuffer;
-          if (/^data:image\/[a-z+]+;base64,/i.test(featuredSrc)) {
+          if (/^data:image\/[a-z+]+;base64,/i.test(candidate)) {
             // v3.8.120: base64 data URL을 직접 ArrayBuffer로 변환 (fetch 없이)
-            const base64Part = featuredSrc.replace(/^data:image\/[a-z+]+;base64,/i, '');
+            const base64Part = candidate.replace(/^data:image\/[a-z+]+;base64,/i, '');
             const buf = Buffer.from(base64Part, 'base64');
             imageBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
             console.log(`[WP-PUBLISH] 🔄 base64 → ArrayBuffer 변환 완료 (${(imageBuffer.byteLength / 1024).toFixed(1)} KB)`);
           } else {
-            const response = await fetch(featuredSrc);
+            // v3.8.724: 응답이 없어 20초 넘게 매달리는 일이 없도록 — 다음 후보로 넘어가는 편이 낫다
+            const response = await fetch(candidate, { signal: AbortSignal.timeout(20_000) });
             if (!response.ok) throw new Error(`이미지 다운로드 실패: ${response.status}`);
             imageBuffer = await response.arrayBuffer();
           }
+          if (!imageBuffer || imageBuffer.byteLength < 1024) throw new Error('내려받은 그림이 너무 작습니다');
+
           const uploadedMedia = await this.wpApi.uploadMedia(imageBuffer, `${Date.now()}-thumbnail.jpg`, options.title);
           if (uploadedMedia && uploadedMedia.id) {
             featuredMediaId = uploadedMedia.id;
             console.log(`[WP-PUBLISH] ✅ 대표 이미지 업로드 성공 (Media ID: ${featuredMediaId})`);
           }
         } catch (mediaError: any) {
-          console.error(`[WP-PUBLISH] ❌ 대표 이미지 업로드 실패:`, mediaError.message);
+          console.warn(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 실패 (다음 후보 시도): ${mediaError?.message || mediaError}`);
         }
-      } else {
-        console.log(`[WP-PUBLISH] ⚠️ 대표 이미지 후보 없음 (featuredImageUrl + 본문 첫 img 모두 비어있음)`);
+      }
+
+      if (!featuredMediaId && featuredCandidates.length > 0) {
+        console.error(`[WP-PUBLISH] ❌ 대표 이미지 후보 ${featuredCandidates.length}개가 모두 실패했습니다`);
+        options.onLog?.(`⚠️ 대표 이미지를 넣지 못했습니다 (후보 ${featuredCandidates.length}개 모두 실패) — 글 목록과 홈에 썸네일이 안 보입니다. 이미지 호스팅 접속을 확인해 주세요.`);
       }
 
       // v3.8.336: 같은 썸네일이 대표 이미지 자리와 본문 상단에 둘 다 보이던 문제.

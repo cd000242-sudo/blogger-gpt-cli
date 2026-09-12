@@ -1861,6 +1861,8 @@ async function saveCurrentSession(saveAs) {
         postId: session.postId,
         title,
         content: html,
+        // v3.8.724: 대표 이미지도 같이 보낸다 — 안 보내면 목록·홈 썸네일이 안 바뀐다
+        thumbnailUrl: computeThumbnailUrl(),
         // 티스토리는 블로그 주소(화면 설정)가 있어야 편집기 URL을 만들 수 있다 — 목록 조회와 같은 소스를 쓴다
         payload: await platformPayloadFor(session.kind),
       });

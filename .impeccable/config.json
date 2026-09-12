@@ -92,6 +92,30 @@
         ],
         "createdAt": "2026-09-01T21:34:39.391Z",
         "reason": "이 파일은 렌더링되는 마크업이 아니라 판정 로직이다: L134 는 이미지 개수를 세는 정규식 IMG_RE, L469 는 AI 에게 '<img> 태그를 그대로 두라'고 지시하는 프롬프트 문자열. 화면에 나가는 <img> 가 없어 깨진 이미지가 생길 수 없다. 세션 내 4회 반복 오탐."
+      },
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "docs/site-kit/render/template-b.html"
+        ],
+        "createdAt": "2026-09-06T15:44:23.474Z",
+        "reason": "detailed.com 실측 그림자 8겹 재현(02-design-spec-detailed.md §7) — 벤치마크 값 그대로 옮긴 픽스처"
+      },
+      {
+        "rule": "side-tab",
+        "value": "border-left:5px solid #94a3b8",
+        "createdAt": "2026-09-07T06:14:49.948Z",
+        "reason": "인용문(blockquote) 서식 버튼이 사용자 글에 넣는 왼쪽 괘선. 앱 UI 카드가 아니라 블로그 본문의 인용 표기이고, 이는 웹 타이포그래피의 표준 관례다. v3.8.440 부터 있던 코드로 이번 CTA 작업과 무관."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "__tests__/v3-8-724-featured-image.test.ts"
+        ],
+        "createdAt": "2026-09-12T02:53:36.499Z",
+        "reason": "테스트 파일: 실제 <img> 태그가 아니라 퍼블리셔 정규식을 검사하는 문자열이다 (Claude 판단)"
       }
     ]
   }
