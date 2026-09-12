@@ -96,19 +96,25 @@ describe('④ 표 넣기', () => {
     expect(editor).toContain('data-vefmt="table"');
     const fmt = braceBlock(editor, 'function applyFormat(doc, kind)');
     expect(fmt).toContain("case 'table':");
-    expect(fmt).toContain('buildTableHtml(rows, cols)');
+    // v3.8.725: 내용·색을 함께 넘긴다
+    expect(fmt).toContain('buildTableHtml(result.rows, result.cols,');
     // 구분선과 같은 자리 규칙: 커서 문단 아래
     expect(blockBetween(fmt, "case 'table':", '표를 넣었습니다')).toContain("insertAdjacentElement('afterend', table)");
   });
 
   it('표는 인라인 스타일 · 첫 줄 머리글 · 행열 상한', () => {
-    const build = braceBlock(editor, 'export function buildTableHtml(rows, cols)');
+    /**
+     * braceBlock 은 쓸 수 없다 — 표식 뒤 첫 { 가 매개변수 기본값(options = {})이라
+     * 함수 본문이 아니라 그 조각을 돌려준다 (v3.8.722 에서 겪은 것과 같은 함정).
+     */
+    const build = blockBetween(editor, 'export function buildTableHtml', 'export function applyTableTheme');
     expect(build).toContain('border-collapse:collapse');
     expect(build).toContain('<thead>');
     expect(build).toContain('border:1px solid');
-    const fmt = braceBlock(editor, 'function applyFormat(doc, kind)');
-    expect(fmt).toContain('Math.min(20, Math.max(1, Number(m[1])))');
-    expect(fmt).toContain('Math.min(10, Math.max(1, Number(m[2])))');
+    // v3.8.725: 행열 상한은 표 대화상자가 지킨다 (행 30 · 열 10)
+    const dialog = blockBetween(editor, 'function askTableSetup', 'function askMultiLine');
+    expect(dialog).toContain('Math.min(30, Math.max(1, rows))');
+    expect(dialog).toContain('Math.min(10, Math.max(1, cols))');
   });
 
   it('안내줄이 알려준다 (도구가 있어도 모르면 못 쓴다)', () => {

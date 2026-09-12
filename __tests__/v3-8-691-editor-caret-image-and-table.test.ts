@@ -65,7 +65,8 @@ describe('⑥ 표·링크 버튼이 Electron 에서 실제로 뜬다', () => {
 
   test('⭐ 표 버튼이 자체 대화상자를 쓴다', () => {
     const table = bodyOf(editor, "case 'table': {", "default: return;");
-    expect(table).toContain('askOneLine({');
+    // v3.8.725: 표는 크기·내용·색을 받는 전용 대화상자로 바뀌었다
+    expect(table).toContain('askTableSetup({');
     expect(table).toContain('표 넣기');
   });
 
@@ -76,7 +77,8 @@ describe('⑥ 표·링크 버튼이 Electron 에서 실제로 뜬다', () => {
 
   test('⭐ 표는 넣을 자리를 대화상자보다 먼저 잡는다 — 열면 선택이 풀린다', () => {
     const table = bodyOf(editor, "case 'table': {", "default: return;");
-    expect(table.indexOf('const block =')).toBeLessThan(table.indexOf('askOneLine({'));
+    // v3.8.725: 자리 변수 이름이 targetBlock 으로 바뀌었다 (대화상자보다 먼저 잡는 규칙은 그대로)
+    expect(table.indexOf('const targetBlock =')).toBeLessThan(table.indexOf('askTableSetup({'));
   });
 
   test('⭐ 링크는 범위를 먼저 붙잡았다가 되살린다 — 안 그러면 엉뚱한 곳에 걸린다', () => {

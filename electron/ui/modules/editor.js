@@ -242,6 +242,8 @@ function ensureEditorModal() {
       <span style="${DIVIDER}"></span>
       <span style="${GROUP_LABEL}">되돌리기</span>
       <button id="veUndoImageOpBtn" class="ve-visual-only" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 이미지·링크·광고 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 되돌리기</button>
+      <button id="veAskFixBtn" style="${BTN_BASE}background:#164e63;color:#a5f3fc;border:1px solid #155e75;" title="고칠 내용을 직접 적으면 그대로 반영합니다 (비평을 거치지 않습니다)">✍️ 이렇게 고쳐줘</button>
+      <button id="veUndoBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 작업을 한 단계 되돌립니다 (Ctrl+Z). 표 넣기·이미지 넣기처럼 도구로 한 일도 되돌아갑니다" disabled>↩️ 되돌리기</button>
       <button id="veRevertBtn" style="${BTN_BASE}background:#334155;color:#fbbf24;" title="편집을 모두 버리고 처음 상태로 돌아갑니다">🔄 처음으로</button>
 
       <span style="${DIVIDER}"></span>
@@ -381,6 +383,8 @@ function ensureEditorModal() {
     hostImagesChk: overlay.querySelector('#veHostImagesChk'),
     insertImageBtn: overlay.querySelector('#veInsertImageBtn'),
     undoImageOpBtn: overlay.querySelector('#veUndoImageOpBtn'),
+    askFixBtn: overlay.querySelector('#veAskFixBtn'),           // v3.8.725
+    undoBtn: overlay.querySelector('#veUndoBtn'),               // v3.8.725
     revertBtn: overlay.querySelector('#veRevertBtn'),
     copyHtmlBtn: overlay.querySelector('#veCopyHtmlBtn'),
     sourceBtn: overlay.querySelector('#veSourceBtn'),           // v3.8.687
@@ -753,6 +757,7 @@ ${err?.message || err}
       const block = `<div class="separator" style="clear:both;text-align:center;margin:18px 0;">`
         + `<img src="${dataUrl}" data-bgpt-user-image="1" alt="${alt}" style="max-width:100%;height:auto;border-radius:12px;" /></div>`;
 
+      pushUndo('썸네일 넣기');
       const wrap = doc.createElement('div');
       wrap.innerHTML = block;
       const node = wrap.firstElementChild;
@@ -776,9 +781,73 @@ ${err?.message || err}
   modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
   modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));
 
+  modalRefs.undoBtn?.addEventListener('click', () => {
+    if (!undoOnce()) setStatus('되돌릴 작업이 없습니다.');
+  });
+
+  /**
+   * ✍️ v3.8.725 — **고칠 내용을 직접 적으면 그대로 고친다.**
+   *
+   * 사장님: "비평 개선이 있는데 LLM 에서 물어보는 거보다 너무 조잡해.
+   *          차라리 수정사항을 직접 작성해서 요청하면 그대로 다시 수정해주도록 가능하니?"
+   *
+   * 비평은 모델이 **문제를 찾는 단계**부터 시작한다. 사장님이 무엇을 고칠지 이미 알 때는
+   * 그 단계가 군더더기이고, 엉뚱한 것을 지적하면 오히려 방해가 된다.
+   * 여기서는 찾는 단계를 건너뛰고 **적어 주신 지시를 그대로 고쳐 쓰기에 넘긴다.**
+   *
+   * 고쳐 쓰는 엔진(improveDraft)은 그대로 쓴다 — 구간을 나눠 고치고, 고친 뒤 다시 재는
+   * 안전장치가 거기 들어 있다. 새로 만들면 그 장치를 잃는다.
+   */
+  modalRefs.askFixBtn?.addEventListener('click', async () => {
+    if (!session) return;
+    const request = await askMultiLine({
+      title: '✍️ 이렇게 고쳐줘',
+      hint: '고칠 내용을 그대로 적어 주세요. 찾아내는 단계 없이 적은 대로 고칩니다.',
+      label: '수정 요청',
+      placeholder: '예)\n첫 문단이 너무 딱딱합니다. 상황을 먼저 그리고 결론을 뒤에 놓아주세요.\n3번 소제목의 표는 지우고 문장으로 풀어 주세요.\n"신청하세요" 같은 명령형 문장을 줄여 주세요.',
+    });
+    if (!request) return;
+
+    const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
+    lockDraftButtons(true);
+    setStatus('✍️ 적어 주신 대로 고쳐 쓰는 중… (몇 분 걸립니다)');
+    try {
+      const payload = await editorPayload();
+      /**
+       * 고쳐 쓰기 엔진은 「지적 목록」을 받는다. 사장님이 적은 글을 그 모양으로 감싸 보낸다 —
+       * 없는 문제를 지어내지 않고, 적힌 것만 한다.
+       */
+      const issues = [{
+        id: `user-request-${Date.now()}`,
+        area: 'whole',
+        severity: 'high',
+        title: '작성자가 직접 요청한 수정',
+        detail: request,
+        evidence: '',
+      }];
+      const res = await window.electronAPI.invoke('improve-editor-html', {
+        title, html: serializeEditor(), issues, payload,
+      });
+      if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+      if (res.html && res.revised > 0) {
+        pushUndo('요청대로 고치기');
+        const parts = splitDocument(res.html);
+        loadIntoFrame(parts.bodyHtml);
+        setStatus(`✅ 요청하신 대로 ${res.revised}개 구간을 고쳤습니다. 마음에 안 들면 [↩️ 되돌리기] 를 누르세요.`);
+      } else {
+        setStatus('ℹ️ 고친 곳이 없습니다 — 요청을 조금 더 구체적으로 적어 주시면 반영하기 쉽습니다.');
+      }
+    } catch (err) {
+      setStatus(`❌ 수정 실패: ${err?.message || err}`);
+    } finally {
+      lockDraftButtons(false);
+    }
+  });
+
   modalRefs.revertBtn.addEventListener('click', () => {
     if (!session) return;
     if (!confirm('모든 편집을 취소하고 원본으로 되돌릴까요?')) return;
+    clearUndo();
     const parts = splitDocument(session.originalHtml);
     session.styles = parts.styles;
     session.isFullDocument = parts.isFullDocument;
@@ -988,6 +1057,194 @@ function setStatus(text) {
  * 같은 이유로 서식 바의 **🔗 링크** 버튼도 함께 죽어 있었다 — 둘 다 이 함수로 바꾼다.
  * 취소하면 null 을 돌려준다(빈 문자열과 구별해야 호출부가 조용히 넘어가지 않는다).
  */
+/**
+ * ↩️ v3.8.725 — **도구로 한 일도 되돌아가게 한다.**
+ *
+ * 사장님: "표를 넣었는데 삭제하고 싶다면 그냥 지워도 되지만 되돌리기해도 되돌려지게끔 해주고"
+ *
+ * 브라우저의 실행취소(Ctrl+Z)는 **사람이 친 글자**만 기억한다. 표 넣기·이미지 넣기처럼
+ * 우리가 코드로 DOM 을 바꾼 것은 그 기록에 안 남아서, 되돌리기를 눌러도 표가 그대로 있었다.
+ *
+ * 그래서 도구를 쓰기 **직전에 본문을 통째로 찍어 두고**, 되돌리기는 그 사진으로 되돌린다.
+ * 20단계까지 기억한다 — 그보다 오래된 것은 「🔄 처음으로」가 있다.
+ */
+const UNDO_LIMIT = 20;
+let undoStack = [];
+
+function refreshUndoButton() {
+  const btn = modalRefs?.undoBtn;
+  if (!btn) return;
+  btn.disabled = undoStack.length === 0;
+  btn.style.opacity = undoStack.length === 0 ? '0.45' : '1';
+  btn.title = undoStack.length === 0
+    ? '되돌릴 작업이 없습니다'
+    : `방금 한 작업을 되돌립니다 (Ctrl+Z) — ${undoStack.length}단계 남음: ${undoStack[undoStack.length - 1].label}`;
+}
+
+/** 도구가 본문을 바꾸기 **전에** 부른다. 라벨은 사람이 읽을 말로. */
+export function pushUndo(label) {
+  const doc = getFrameDoc();
+  if (!doc) return;
+  undoStack.push({ label: String(label || '작업'), html: doc.body.innerHTML });
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  refreshUndoButton();
+}
+
+function undoOnce() {
+  const doc = getFrameDoc();
+  if (!doc || undoStack.length === 0) return false;
+  const last = undoStack.pop();
+  doc.body.innerHTML = last.html;
+  // 되돌린 뒤에도 썸네일 블록 보호는 다시 걸어 준다 (innerHTML 로 갈아 끼우면 표시가 날아간다)
+  try { protectSeparators(doc); } catch { /* 보호 실패가 되돌리기를 막을 이유는 없다 */ }
+  refreshUndoButton();
+  setStatus(`↩️ "${last.label}" 을(를) 되돌렸습니다.`);
+  return true;
+}
+
+function clearUndo() {
+  undoStack = [];
+  refreshUndoButton();
+}
+
+/**
+ * 📊 v3.8.725 — 표 만들기·고치기 창.
+ *
+ * 크기만 묻던 자리를 넓혔다: **크기 · 내용 · 색**. 커서가 이미 표 안이면 그 표를 고치는 창이 된다.
+ * 내용은 엑셀에서 복사한 그대로(탭 구분) 붙여넣어도 되고, 쉼표로 적어도 된다.
+ */
+function askTableSetup({ existingTable = null } = {}) {
+  return new Promise((resolve) => {
+    document.getElementById('veTableDialog')?.remove();
+
+    const editing = !!existingTable;
+    const currentTheme = existingTable?.getAttribute('data-ve-table-theme') || 'gray';
+    const themeOptions = Object.entries(TABLE_THEMES)
+      .map(([key, t]) => `<option value="${key}"${key === currentTheme ? ' selected' : ''}>${t.label}</option>`)
+      .join('');
+
+    const wrap = document.createElement('div');
+    wrap.id = 'veTableDialog';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(2,6,23,.72);'
+      + 'display:flex;align-items:center;justify-content:center;padding:24px;';
+    wrap.innerHTML = `
+      <div style="width:min(94vw,520px);background:#1e293b;border:1px solid #334155;border-radius:14px;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,.55);max-height:88vh;overflow:auto;">
+        <div style="font-size:15px;font-weight:800;color:#e2e8f0;margin-bottom:4px;">📊 ${editing ? '표 고치기' : '표 넣기'}</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:16px;">
+          ${editing ? '커서가 있는 표를 고칩니다. 색만 바꾸거나 표를 지울 수 있습니다.' : '커서가 있는 문단 아래에 넣습니다. 첫 줄은 머리글이 됩니다.'}
+        </div>
+
+        ${editing ? '' : `
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin-bottom:5px;">표 크기 (행x열)</label>
+        <input id="veTblSize" type="text" value="3x3" placeholder="3x3"
+          style="width:100%;padding:10px 12px;border:1px solid #475569;border-radius:9px;background:#0f172a;color:#f1f5f9;font-size:13.5px;box-sizing:border-box;" />
+
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin:14px 0 5px;">표에 넣을 내용 <span style="font-weight:600;color:#94a3b8;">(선택 — 비우면 빈 표)</span></label>
+        <textarea id="veTblContent" rows="6" placeholder="한 줄이 한 행입니다. 칸은 쉼표로 나눕니다.&#10;엑셀에서 복사해 붙여넣어도 됩니다.&#10;&#10;구분, 3개월, 6개월&#10;지원금, 30만원, 60만원&#10;신청기한, 9월 15일, 12월 15일"
+          style="width:100%;padding:10px 12px;border:1px solid #475569;border-radius:9px;background:#0f172a;color:#f1f5f9;font-size:13px;line-height:1.6;box-sizing:border-box;resize:vertical;"></textarea>
+        <div id="veTblHint" style="font-size:11.5px;color:#94a3b8;margin-top:6px;">내용을 넣으면 크기가 그 내용에 맞춰집니다.</div>
+        `}
+
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin:14px 0 5px;">표 색</label>
+        <select id="veTblTheme" style="width:100%;padding:10px 12px;border:1px solid #475569;border-radius:9px;background:#0f172a;color:#f1f5f9;font-size:13.5px;box-sizing:border-box;">${themeOptions}</select>
+
+        <div style="display:flex;gap:8px;justify-content:${editing ? 'space-between' : 'flex-end'};margin-top:20px;align-items:center;">
+          ${editing ? '<button id="veTblDelete" style="padding:9px 16px;border:1px solid rgba(248,113,113,.4);border-radius:9px;background:rgba(127,29,29,.28);color:#fecaca;font-size:13px;font-weight:800;cursor:pointer;">🗑️ 표 지우기</button>' : ''}
+          <div style="display:flex;gap:8px;">
+            <button id="veTblCancel" style="padding:9px 16px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.06);color:#cbd5e1;font-size:13px;font-weight:700;cursor:pointer;">취소</button>
+            <button id="veTblOk" style="padding:9px 18px;border:none;border-radius:9px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:13px;font-weight:800;cursor:pointer;">${editing ? '색 적용' : '표 넣기'}</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+
+    const close = (result) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(result); };
+    const onKey = (e) => { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', onKey);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(null); });
+
+    const themeSel = wrap.querySelector('#veTblTheme');
+    wrap.querySelector('#veTblCancel').addEventListener('click', () => close(null));
+    wrap.querySelector('#veTblDelete')?.addEventListener('click', () => close({ action: 'delete' }));
+
+    const contentEl = wrap.querySelector('#veTblContent');
+    const sizeEl = wrap.querySelector('#veTblSize');
+    const hintEl = wrap.querySelector('#veTblHint');
+
+    // 내용을 적는 동안 크기를 따라 맞춰 준다 — 사람이 두 번 세지 않게
+    contentEl?.addEventListener('input', () => {
+      const grid = parseTableContent(contentEl.value);
+      if (grid.length === 0) { if (hintEl) hintEl.textContent = '내용을 넣으면 크기가 그 내용에 맞춰집니다.'; return; }
+      const cols = Math.max(...grid.map((r) => r.length));
+      sizeEl.value = `${grid.length}x${cols}`;
+      if (hintEl) hintEl.textContent = `읽은 내용: ${grid.length}행 ${cols}열 — 첫 줄이 머리글이 됩니다.`;
+    });
+
+    wrap.querySelector('#veTblOk').addEventListener('click', () => {
+      if (editing) { close({ action: 'recolor', themeKey: themeSel.value }); return; }
+
+      const grid = parseTableContent(contentEl.value);
+      let rows; let cols;
+      if (grid.length > 0) {
+        rows = grid.length;
+        cols = Math.max(...grid.map((r) => r.length));
+      } else {
+        const m = String(sizeEl.value || '').match(/^(\d{1,2})\s*[x×*]\s*(\d{1,2})$/i);
+        if (!m) { if (hintEl) hintEl.textContent = '표 크기는 "3x3" 처럼 적어 주세요.'; return; }
+        rows = Number(m[1]);
+        cols = Number(m[2]);
+      }
+      close({
+        action: 'insert',
+        rows: Math.min(30, Math.max(1, rows)),
+        cols: Math.min(10, Math.max(1, cols)),
+        grid,
+        themeKey: themeSel.value,
+      });
+    });
+  });
+}
+
+/** ✍️ v3.8.725 — 여러 줄을 받는 창 (수정 요청처럼 문장이 긴 입력용) */
+function askMultiLine({ title, hint = '', label, value = '', placeholder = '' }) {
+  return new Promise((resolve) => {
+    document.getElementById('veAskMultiDialog')?.remove();
+
+    const wrap = document.createElement('div');
+    wrap.id = 'veAskMultiDialog';
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(2,6,23,.72);'
+      + 'display:flex;align-items:center;justify-content:center;padding:24px;';
+    wrap.innerHTML = `
+      <div style="width:min(94vw,560px);background:#1e293b;border:1px solid #334155;border-radius:14px;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,.55);">
+        <div style="font-size:15px;font-weight:800;color:#e2e8f0;margin-bottom:4px;">${title}</div>
+        ${hint ? `<div style="font-size:12px;color:#94a3b8;margin-bottom:16px;">${hint}</div>` : '<div style="height:10px;"></div>'}
+        <label style="display:block;font-size:12px;font-weight:800;color:#cbd5e1;margin-bottom:5px;">${label}</label>
+        <textarea id="veAskMultiInput" rows="8"
+          style="width:100%;padding:11px 13px;border:1px solid #475569;border-radius:9px;background:#0f172a;color:#f1f5f9;font-size:13.5px;line-height:1.7;box-sizing:border-box;resize:vertical;"></textarea>
+        <div style="font-size:11.5px;color:#94a3b8;margin-top:6px;">Ctrl+Enter 로 보냅니다.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+          <button id="veAskMultiCancel" style="padding:9px 16px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:rgba(255,255,255,.06);color:#cbd5e1;font-size:13px;font-weight:700;cursor:pointer;">취소</button>
+          <button id="veAskMultiOk" style="padding:9px 18px;border:none;border-radius:9px;background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff;font-size:13px;font-weight:800;cursor:pointer;">이대로 고치기</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+
+    const input = wrap.querySelector('#veAskMultiInput');
+    input.value = value;
+    input.placeholder = placeholder;
+    const close = (result) => { wrap.remove(); document.removeEventListener('keydown', onKey); resolve(result); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') close(null);
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); close(input.value.trim()); }
+    };
+    document.addEventListener('keydown', onKey);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(null); });
+    wrap.querySelector('#veAskMultiCancel').addEventListener('click', () => close(null));
+    wrap.querySelector('#veAskMultiOk').addEventListener('click', () => close(input.value.trim()));
+    setTimeout(() => { try { input.focus(); } catch { /* noop */ } }, 30);
+  });
+}
+
 function askOneLine({ title, hint = '', label, value = '', placeholder = '' }) {
   return new Promise((resolve) => {
     const prev = document.getElementById('veAskDialog');
@@ -1271,31 +1528,47 @@ function applyFormat(doc, kind) {
        */
       case 'table': {
         if (!sel?.anchorNode) { setStatus('표를 넣을 위치(문단)를 먼저 클릭하세요.'); return; }
-        /**
-         * v3.8.691 — prompt() 가 Electron 에서 안 떠서 이 버튼이 통째로 죽어 있었다.
-         * 넣을 자리(block)는 **대화상자를 열기 전에** 잡아 둔다 — 열고 나면 선택이 풀린다.
-         */
-        const el = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
-        const block = el?.closest?.('p,h1,h2,h3,h4,li,blockquote,div,table') || doc.body.lastElementChild;
-        askOneLine({
-          title: '📊 표 넣기',
-          hint: '커서가 있는 문단 아래에 넣습니다. 첫 줄은 머리글이 됩니다.',
-          label: '표 크기 (행x열)',
-          value: '3x3',
-          placeholder: '3x3',
-        }).then((size) => {
-          if (!size) return;
-          const m = size.match(/^(\d{1,2})\s*[x×*]\s*(\d{1,2})$/i);
-          if (!m) { setStatus('표 크기는 "3x3" 처럼 적어 주세요.'); return; }
-          const rows = Math.min(20, Math.max(1, Number(m[1])));
-          const cols = Math.min(10, Math.max(1, Number(m[2])));
-          const table = doc.createRange().createContextualFragment(buildTableHtml(rows, cols)).firstElementChild;
-          if (block && block !== doc.body) block.insertAdjacentElement('afterend', table);
-          else doc.body.appendChild(table);
-          try { table.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
-          setStatus(`${rows}행 ${cols}열 표를 넣었습니다 — 칸을 클릭해 내용을 적으세요`);
-        });
-        return;
+        {
+          /**
+           * 📊 v3.8.725 — 크기만 묻고 빈 표를 뱉던 것을 고친다.
+           *
+           * 사장님: "지금은 필드 하나에 5x2 이런 식으로 하면 표만 생기거든.
+           *          이러지 말고 그 필드 아래에 표에 어떤 내용을 넣을 건지 표 색상이나 수정도 가능하게 해줘"
+           *
+           * 커서가 표 안이면 **그 표를 고치는** 창으로 연다 — 색 바꾸기·삭제가 거기 있다.
+           */
+          const anchorEl = sel.anchorNode.nodeType === Node.ELEMENT_NODE ? sel.anchorNode : sel.anchorNode.parentElement;
+          const existingTable = anchorEl?.closest?.('table');
+          const targetBlock = anchorEl?.closest?.('p,h1,h2,h3,h4,li,blockquote,div,table') || doc.body.lastElementChild;
+
+          askTableSetup({ existingTable }).then((result) => {
+            if (!result) return;
+
+            if (result.action === 'delete' && existingTable) {
+              pushUndo('표 삭제');
+              existingTable.remove();
+              setStatus('🗑️ 표를 지웠습니다. 되돌리려면 [↩️ 되돌리기] 를 누르세요.');
+              return;
+            }
+            if (result.action === 'recolor' && existingTable) {
+              pushUndo('표 색 바꾸기');
+              applyTableTheme(existingTable, result.themeKey);
+              setStatus(`🎨 표 색을 "${TABLE_THEMES[result.themeKey]?.label || result.themeKey}" 로 바꿨습니다.`);
+              return;
+            }
+
+            pushUndo('표 넣기');
+            const html = buildTableHtml(result.rows, result.cols, { grid: result.grid, themeKey: result.themeKey });
+            const table = doc.createRange().createContextualFragment(html).firstElementChild;
+            if (targetBlock && targetBlock !== doc.body) targetBlock.insertAdjacentElement('afterend', table);
+            else doc.body.appendChild(table);
+            try { table.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
+            setStatus(result.grid.length > 0
+              ? `${result.rows}행 ${result.cols}열 표를 넣었습니다 (내용 채움) — 칸을 클릭해 고칠 수 있습니다`
+              : `${result.rows}행 ${result.cols}열 표를 넣었습니다 — 칸을 클릭해 내용을 적으세요`);
+          });
+          return;
+        }
       }
       default: return;
     }
@@ -1358,14 +1631,73 @@ function protectSeparators(doc) {
   doc.querySelectorAll('div.separator').forEach((el) => el.setAttribute('contenteditable', 'false'));
 }
 
-/** 📊 v3.8.687 — 인라인 스타일 표 (첫 줄 머리글). 발행 플랫폼 스킨에 기대지 않는다. */
-export function buildTableHtml(rows, cols) {
-  const th = '<th style="border:1px solid #cbd5e1;background:#f1f5f9;padding:10px 12px;text-align:left;font-weight:700;">항목</th>';
-  const td = '<td style="border:1px solid #e2e8f0;padding:10px 12px;">내용</td>';
-  const head = `<thead><tr>${th.repeat(cols)}</tr></thead>`;
+/**
+ * 🎨 v3.8.725 — 표 색상. 이름은 사람이 고르는 말로, 값은 발행 스킨에 기대지 않는 인라인 색이다.
+ * 사장님: "표 색상이나 수정도 가능하게 해줘"
+ */
+export const TABLE_THEMES = {
+  gray: { label: '기본 (회색)', headBg: '#f1f5f9', headColor: '#0f172a', border: '#cbd5e1', cellBorder: '#e2e8f0' },
+  blue: { label: '파랑', headBg: '#dbeafe', headColor: '#1e3a8a', border: '#93c5fd', cellBorder: '#bfdbfe' },
+  green: { label: '초록', headBg: '#dcfce7', headColor: '#14532d', border: '#86efac', cellBorder: '#bbf7d0' },
+  amber: { label: '노랑', headBg: '#fef3c7', headColor: '#78350f', border: '#fcd34d', cellBorder: '#fde68a' },
+  slate: { label: '진회색 (머리글 어둡게)', headBg: '#334155', headColor: '#f8fafc', border: '#475569', cellBorder: '#cbd5e1' },
+};
+
+/**
+ * 붙여넣은 표 내용을 격자로 바꾼다.
+ * 줄바꿈이 행, 탭이나 쉼표가 칸이다 — 엑셀에서 복사하면 탭으로 들어온다.
+ */
+export function parseTableContent(text) {
+  const lines = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+  return lines.map((line) => (line.includes('\t') ? line.split('\t') : line.split(/\s*[,|]\s*/)).map((c) => c.trim()));
+}
+
+function escapeCell(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * 📊 v3.8.687 — 인라인 스타일 표 (첫 줄 머리글). 발행 플랫폼 스킨에 기대지 않는다.
+ * v3.8.725 — 내용(grid)과 색상(themeKey)을 받는다. 안 주면 예전처럼 빈 표가 나온다.
+ */
+export function buildTableHtml(rows, cols, options = {}) {
+  const theme = TABLE_THEMES[options.themeKey] || TABLE_THEMES.gray;
+  const grid = Array.isArray(options.grid) ? options.grid : [];
+
+  const cellAt = (r, c, fallback) => {
+    const value = grid[r]?.[c];
+    return value === undefined || value === '' ? fallback : escapeCell(value);
+  };
+
+  const headCells = Array.from({ length: cols }, (_, c) => `<th style="border:1px solid ${theme.border};background:${theme.headBg};color:${theme.headColor};padding:10px 12px;text-align:left;font-weight:700;">${cellAt(0, c, '항목')}</th>`).join('');
+  const head = `<thead><tr>${headCells}</tr></thead>`;
+
   const bodyRows = Math.max(0, rows - 1);
-  const body = bodyRows ? `<tbody>${`<tr>${td.repeat(cols)}</tr>`.repeat(bodyRows)}</tbody>` : '';
-  return `<table style="width:100%;border-collapse:collapse;margin:18px 0;font-size:15px;line-height:1.6;">${head}${body}</table>`;
+  const body = bodyRows
+    ? `<tbody>${Array.from({ length: bodyRows }, (_, r) => `<tr>${Array.from({ length: cols }, (_, c) => `<td style="border:1px solid ${theme.cellBorder};padding:10px 12px;">${cellAt(r + 1, c, '내용')}</td>`).join('')}</tr>`).join('')}</tbody>`
+    : '';
+
+  return `<table data-ve-table-theme="${options.themeKey || 'gray'}" style="width:100%;border-collapse:collapse;margin:18px 0;font-size:15px;line-height:1.6;">${head}${body}</table>`;
+}
+
+/** 이미 들어 있는 표의 색만 바꾼다 — 내용은 그대로 둔다 */
+export function applyTableTheme(table, themeKey) {
+  const theme = TABLE_THEMES[themeKey] || TABLE_THEMES.gray;
+  if (!table) return false;
+  table.setAttribute('data-ve-table-theme', themeKey || 'gray');
+  table.querySelectorAll('th').forEach((th) => {
+    th.style.border = `1px solid ${theme.border}`;
+    th.style.background = theme.headBg;
+    th.style.color = theme.headColor;
+  });
+  table.querySelectorAll('td').forEach((td) => {
+    td.style.border = `1px solid ${theme.cellBorder}`;
+  });
+  return true;
 }
 
 // ─────────────────────────────────────────────
@@ -1544,6 +1876,14 @@ function loadIntoFrame(rawBodyHtml) {
   protectSeparators(doc);
   doc.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') requestClose();
+    /**
+     * ↩️ v3.8.725 — 도구로 한 일이 쌓여 있으면 Ctrl+Z 를 **우리 기록**으로 처리한다.
+     * 쌓인 게 없으면 손대지 않는다 — 브라우저가 글자 입력을 되돌리게 둔다.
+     */
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && undoStack.length > 0) {
+      e.preventDefault();
+      undoOnce();
+    }
   });
   initImageEditing(refs.frame, doc, {
     setStatus,
