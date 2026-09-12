@@ -10,6 +10,8 @@ import { generatePreview, displayPreviewInModal, showPreviewModal, closePreviewM
 import { loadSettings, saveSettings, loadSettingsContent, updateApiKeyStatus, updatePlatformStatus, loadLicenseInfo, buildLicenseLabel, daysUntil, isLicenseValid, checkPlatformConnection, startBloggerOAuth, closeBloggerAuthCodeModal } from './settings.js';
 import { updateKeywordCount, addKeyword, removeKeyword, getAllKeywords, getH2ImageSections, updateRealtimeClock, updateRealtimeDate, initializeProgressSteps, resetProgressSteps, updateProgressStep, onCalendarDateClick, toggleCalendarMemoComplete } from './utils.js';
 import { onLog, onProgress } from './api.js';
+// 📁 v3.8.723: 내 폴더 이미지 배치 → 상세설정 잠금 (import 만으로 window 에 붙는다)
+import './folder-image-lock.js';
 import { renderCalendar, showWorkDiary, saveWorkRecord, getWorkRecords, formatDateKey, toggleWorkRecordCompletion, deleteWorkRecord, addTodayWorkRecord, addQuickWorkRecord, addWorkRecordTemplate, saveWorkRecordFromModal, addScheduleFromModal, editScheduleFromModal, cancelScheduleEdit, saveScheduleEdit, initWorkDiary } from './calendar.js';
 import { downloadExcelTemplate, runExcelBatch, downloadExcelResults, clearExcelResults } from './excel.js';
 import { generateTextThumbnail, generateTextThumbnailWithBackground, downloadThumbnail, applyPreset, updateThumbnailPreview } from './thumbnail.js';

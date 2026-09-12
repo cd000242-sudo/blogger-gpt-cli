@@ -158,7 +158,13 @@ function getH2ImageSections() {
   // H2 이미지 소스와 섹션 정보 가져오기 (select 드롭다운 또는 라디오 버튼 모두 호환)
   const selectElement = document.getElementById('h2ImageSource');
   const radioElement = document.querySelector('input[name="h2ImageSource"]:checked');
-  const selectedSource = (selectElement ? selectElement.value : (radioElement ? radioElement.value : '')) || 'nanobanana2';
+  const rawSource = (selectElement ? selectElement.value : (radioElement ? radioElement.value : '')) || 'nanobanana2';
+  /**
+   * 📁 v3.8.723 — 「내 폴더 이미지 배치」는 **화면에 보여주기 위한 값**이지 엔진 이름이 아니다.
+   * 그대로 payload 에 실으면 백엔드가 모르는 엔진을 받는다. 배치본을 쓸 것이므로 'none' 으로 번역한다
+   * (이미 배치한 이미지는 preGeneratedImagesForArticle 로 따로 전달된다).
+   */
+  const selectedSource = rawSource === '__folder-images__' ? 'none' : rawSource;
   let selectedSections = Array.from(document.querySelectorAll('input[name="h2Sections"]:checked'))
     .map(input => parseInt(input.value));
 
@@ -2354,6 +2360,15 @@ window.startBatchImageGeneration = async function () {
 // v3.6.5+v3.7.4: 메인 폼 상단 "미리 생성한 이미지 N장 사용 중" 배지 갱신
 //   매핑 모드(수동/자동 순서)에 따라 표식 + 발행 안내 메시지 다르게 표시
 window.refreshPreGeneratedBadge = function () {
+  /**
+   * 📁 v3.8.723 — 배지를 새로 그릴 때마다 **상세설정도 같이 맞춘다.**
+   *
+   * 사장님: "완료시켰는데 상세설정에 이미지는 인식을 안 하고 있네요??"
+   * 배치 완료·배치 비움·큐에서 항목을 바꿀 때 모두 이 함수를 지나므로 여기 한 곳에 붙이면
+   * 어느 경로로 들어와도 화면과 실제 배치가 어긋나지 않는다.
+   */
+  try { window.syncFolderImageLock?.(); } catch (lockErr) { console.warn('[FOLDER-IMG] 설정 잠금 스킵:', lockErr); }
+
   const arr = window.__preGeneratedImagesForArticle || [];
   const thumbnail = window.__preGeneratedThumbnailForArticle;
   const totalCount = arr.length + (thumbnail?.dataUrl ? 1 : 0);
