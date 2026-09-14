@@ -128,7 +128,11 @@ describe('⑤ 배선 — main.ts 가 실제로 이 스위치를 넘긴다', () =
   const handler = main.slice(main.indexOf("ipcMain.handle('apply-post-improvement'"));
 
   it('구간 판정과 전체 관문 둘 다 cutting 을 받는다', () => {
-    expect(handler).toMatch(/acceptRevisedSection\(raw, section, \{ cutting/);
+    // v3.8.729: 구간 판정은 editor-draft.improveDraft 로 통일됐다 — 거기서 cutting 을 넘긴다
+    expect(handler).toContain("require('../dist/core/final/editor-draft')");
+    const draft = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'final', 'editor-draft.ts'), 'utf8');
+    expect(draft).toContain('cutting: selected.some(isCuttingIssue)');
+    expect(draft).toContain('acceptRevisedSection(raw, section, gate)');
     expect(handler).toMatch(/judgeImproved\(nextHtml, previousHtml, \{\s*cutting/);
     expect(handler).toContain('isCuttingIssue');
   });

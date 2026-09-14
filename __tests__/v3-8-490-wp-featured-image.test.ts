@@ -162,7 +162,8 @@ describe('⑤ 편집기 미리보기·도구', () => {
   });
 
   it('⭐ 버튼 기능은 그대로다 (정리하다 배선이 끊기면 안 된다)', () => {
-    for (const id of ['veInsertImageBtn', 'veInsertAdBtn', 'veUndoImageOpBtn', 'veRevertBtn', 'veCopyHtmlBtn', 'veSaveBtn', 'veCancelBtn']) {
+    // v3.8.729: veUndoImageOpBtn 은 통합 되돌리기(veUndoBtn) 하나로 합쳐졌다 — 사장님: "작동하는 버튼만 남기고 하나는 없애줘"
+    for (const id of ['veInsertImageBtn', 'veInsertAdBtn', 'veUndoBtn', 'veRevertBtn', 'veCopyHtmlBtn', 'veSaveBtn', 'veCancelBtn']) {
       expect(editor).toContain(`id="${id}"`);
       expect(editor).toContain(id);
     }

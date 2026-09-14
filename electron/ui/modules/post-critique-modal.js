@@ -60,12 +60,19 @@ function sectionLabel(issue, sections) {
 function issueCard(issue, index, sections) {
   const tone = SEVERITY[issue.severity] || SEVERITY.low;
   const status = STATUS[issue.status];
+  /**
+   * 🚫 v3.8.729 — **수정 버튼으로 못 고치는 지적은 잠근다.**
+   * 사장님: "수정을 시켰는데도 똑같은 지적이 또 나와 … API 비용이 들기 때문에 이러면 절대 안 되는데"
+   * "이미지가 0장"은 글을 다시 써서는 절대 안 풀린다(규칙이 "새 이미지 넣지 마세요"). 고르게 두면 비용만 나가고
+   * 다음 비평에 또 나온다. 체크박스를 잠그고 **어느 버튼으로 고치는지**를 그 자리에 적는다.
+   */
+  const locked = issue.fixable === false;
   // 반드시 고칠 것만 미리 체크해 둔다 — 참고 항목까지 켜두면 사장님이 다 끄게 된다.
-  const checked = issue.severity === 'high' ? 'checked' : '';
+  const checked = !locked && issue.severity === 'high' ? 'checked' : '';
   return `
-    <label style="display:flex;gap:12px;align-items:flex-start;padding:13px 14px;background:${tone.bg};border:1px solid ${tone.border};border-radius:11px;margin-bottom:9px;cursor:pointer;">
-      <input type="checkbox" class="pcIssue" data-index="${index}" ${checked}
-        style="margin-top:3px;width:17px;height:17px;accent-color:#6366f1;cursor:pointer;flex-shrink:0;">
+    <label style="display:flex;gap:12px;align-items:flex-start;padding:13px 14px;background:${tone.bg};border:1px solid ${tone.border};border-radius:11px;margin-bottom:9px;cursor:${locked ? 'default' : 'pointer'};${locked ? 'opacity:0.72;' : ''}">
+      <input type="checkbox" class="pcIssue" data-index="${index}" ${checked} ${locked ? 'disabled' : ''}
+        style="margin-top:3px;width:17px;height:17px;accent-color:#6366f1;cursor:${locked ? 'not-allowed' : 'pointer'};flex-shrink:0;">
       <div style="flex:1;min-width:0;">
         <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:5px;">
           <span style="padding:2px 8px;border-radius:999px;background:rgba(15,23,42,0.55);color:${tone.fg};font-size:10.5px;font-weight:800;">${tone.label}</span>
@@ -79,6 +86,7 @@ function issueCard(issue, index, sections) {
         ${issue.detail ? `<div style="color:#cbd5f5;font-size:12px;line-height:1.6;margin-top:5px;">${esc(issue.detail)}</div>` : ''}
         ${issue.evidence ? `<div style="margin-top:7px;padding:8px 11px;background:rgba(15,23,42,0.5);border-radius:6px;color:#94a3b8;font-size:11.5px;line-height:1.55;">"${esc(issue.evidence)}"</div>` : ''}
         ${issue.fix ? `<div style="margin-top:7px;color:#86efac;font-size:12px;line-height:1.55;">→ ${esc(issue.fix)}</div>` : ''}
+        ${locked ? `<div class="pcFixHint" style="margin-top:7px;padding:7px 10px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);border-radius:6px;color:#fcd34d;font-size:11.5px;line-height:1.55;">🚫 수정 버튼으로는 못 고칩니다 — ${esc(issue.fixHint || '다른 도구로 고치세요.')}</div>` : ''}
       </div>
     </label>
   `;
@@ -129,13 +137,13 @@ function resultView(res, picked, editorMode = false) {
     </div>` : '';
 
   const skippedRows = skipped.length ? `
-    <div style="margin-top:14px;color:#94a3b8;font-size:12px;font-weight:700;">그대로 둔 구간 ${skipped.length}개</div>
+    <div style="margin-top:14px;color:#94a3b8;font-size:12px;font-weight:700;">손대지 않은 것 ${skipped.length}건 (이유는 각 줄에)</div>
     <div style="color:#7c8aa5;font-size:11.5px;line-height:1.7;margin-top:5px;">
       ${skipped.map((line) => `· ${esc(line)}`).join('<br>')}
     </div>
     <div style="margin-top:7px;color:#7c8aa5;font-size:11px;line-height:1.55;">
-      규칙(이미지·링크·소제목 유지, 분량 유지)을 지키게 <b style="color:#cbd5f5;">두 번</b> 시켰는데도
-      어겨서, 원본을 지켰습니다. 이 구간의 지적은 다음 비평에도 나옵니다.
+      "2회 시도"는 규칙(이미지·링크·소제목·분량 유지)을 지키게 두 번 시켰는데도 어겨서 원본을 지킨 것입니다.
+      버튼을 가리키는 줄은 <b style="color:#cbd5f5;">API 를 부르지 않고</b> 그 버튼으로 고치라는 안내입니다.
     </div>` : '';
 
   return `

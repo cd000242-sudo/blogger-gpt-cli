@@ -37,26 +37,29 @@ describe('① 고쳤다고 말하기 전에 다시 잰다', () => {
   });
 
   test('⭐ 재는 데 실패하면 "고쳤다"고 단정하지 않는다', () => {
-    const fn = blockBetween(draft, 'function measureRemaining', 'export async function improveDraft');
-    expect(fn).toContain('return wanted;');   // 모르면 남은 것으로 둔다
+    const fn = blockBetween(draft, 'function measureRemaining', 'const plainLength');
+    expect(fn).toContain('return issues;');   // 모르면 남은 것으로 둔다
+    // v3.8.729: 제목이 아니라 이름표로 잰다 — 숫자만 바뀐 지적을 "고쳤다"고 하지 않게
+    expect(fn).toContain('.map(issueKey)');
   });
 
   test('⭐ 남아 있으면 그 구간만 한 번 더 고친다 — 처방을 함께 준다', () => {
-    const fn = blockBetween(draft, 'let stillPresent = measureRemaining', 'const actuallyFixed');
+    const fn = blockBetween(draft, 'let remaining = measureRemaining', 'const fixedKeys');
     expect(fn).toContain('그대로 남아 있습니다');
     expect(fn).toContain('처방:');
-    expect(fn).toContain('acceptRevisedSection');
+    expect(fn).toContain('await revise(index, html, stuck');
   });
 
   test('⭐ 재시도 뒤 다시 재서 결과를 갱신한다', () => {
-    const fn = blockBetween(draft, 'let stillPresent = measureRemaining', 'const actuallyFixed');
-    expect(fn).toContain('stillPresent = measureRemaining(title, html, wanted)');
+    const fn = blockBetween(draft, 'let remaining = measureRemaining', 'const fixedKeys');
+    expect(fn).toContain('remaining = measureRemaining(title, html, codeIssues)');
   });
 
   test('⭐ 실제로 사라진 것과 남은 것을 나눠 돌려준다', () => {
     expect(draft).toContain('actuallyFixed: string[];');
     expect(draft).toContain('stillPresent: string[];');
-    expect(draft).toContain('const actuallyFixed = wanted.filter((t) => !stillPresent.includes(t))');
+    expect(draft).toContain('const actuallyFixed = workable.filter((issue) => fixedKeys.has(issueKey(issue)))');
+    expect(draft).toContain('const stillPresent = issues.filter((issue) => !fixedKeys.has(issueKey(issue)))');
   });
 });
 

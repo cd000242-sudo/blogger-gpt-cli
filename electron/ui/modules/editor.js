@@ -2,7 +2,7 @@
 // 소스: appstate(생성 직후) / republish(재발행 대기열) / file(외부 HTML/TXT)
 //       + 생성된 글목록 탭의 발행된 글(blogger / wordpress / tistory) 수정발행
 import { getAppState, addLog, getTextLength } from './core.js';
-import { initImageEditing, detachImageEditing, hostPendingImages, undoImageOp, hasImageOps, insertImagesAtCaret, insertHtmlAtCaret, findCaretBlock } from './editor-images.js';
+import { initImageEditing, detachImageEditing, hostPendingImages, insertImagesAtCaret, insertHtmlAtCaret, findCaretBlock } from './editor-images.js';
 import { loadAdUnits, makeAdSlotHtml, expandAdSlots, collapseAdBlocks, AD_SLOT_STYLE } from './ad-slots.js';
 import { openRegenModal, engineOverrides, startRegenTask } from './regen-modal.js';
 
@@ -122,6 +122,8 @@ function splitDocument(html) {
     return {
       isFullDocument: true,
       headHtml: doc.head ? doc.head.innerHTML : '',
+      htmlAttributes: Array.from(doc.documentElement.attributes, (a) => [a.name, a.value]),
+      bodyAttributes: Array.from(doc.body.attributes, (a) => [a.name, a.value]),
       styles: [],
       bodyHtml: doc.body ? doc.body.innerHTML : raw,
     };
@@ -184,7 +186,12 @@ export function serializeEditor() {
   const bodyHtml = expanded.html;
 
   if (session.isFullDocument) {
-    return '<!doctype html>\n<html><head>' + session.originalHeadHtml + '</head><body>' + bodyHtml + '</body></html>';
+    const shell = new DOMParser().parseFromString('<!doctype html><html><head></head><body></body></html>', 'text/html');
+    for (const [name, value] of session.htmlAttributes || []) shell.documentElement.setAttribute(name, value);
+    for (const [name, value] of session.bodyAttributes || []) shell.body.setAttribute(name, value);
+    shell.head.innerHTML = session.originalHeadHtml;
+    shell.body.innerHTML = bodyHtml;
+    return '<!doctype html>\n' + shell.documentElement.outerHTML;
   }
   const stylePart = session.styles.length ? session.styles.join('\n') + '\n' : '';
   return stylePart + bodyHtml;
@@ -241,7 +248,6 @@ function ensureEditorModal() {
 
       <span style="${DIVIDER}"></span>
       <span style="${GROUP_LABEL}">되돌리기</span>
-      <button id="veUndoImageOpBtn" class="ve-visual-only" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 이미지·링크·광고 작업을 한 단계 되돌립니다 (글자 수정은 Ctrl+Z)">↩️ 되돌리기</button>
       <button id="veAskFixBtn" style="${BTN_BASE}background:#164e63;color:#a5f3fc;border:1px solid #155e75;" title="고칠 내용을 직접 적으면 그대로 반영합니다 (비평을 거치지 않습니다)">✍️ 이렇게 고쳐줘</button>
       <button id="veUndoBtn" style="${BTN_BASE}background:#334155;color:#e2e8f0;" title="방금 한 작업을 한 단계 되돌립니다 (Ctrl+Z). 표 넣기·이미지 넣기처럼 도구로 한 일도 되돌아갑니다" disabled>↩️ 되돌리기</button>
       <button id="veRevertBtn" style="${BTN_BASE}background:#334155;color:#fbbf24;" title="편집을 모두 버리고 처음 상태로 돌아갑니다">🔄 처음으로</button>
@@ -293,7 +299,6 @@ function ensureEditorModal() {
           쓰려면 별도의 자리가 필요하다.
         -->
         <button id="veThumbInsertBtn" style="${BTN_BASE}background:#334155;color:#fcd34d;border:1px solid #475569;" title="내 PC 이미지를 골라 글 맨 위 썸네일(대표 이미지)로 넣습니다. 이미 있으면 바꿔 끼웁니다">🖼️ 썸네일 넣기</button>
-        <button id="veSectionImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="커서가 있는 소제목 영역에 맞는 이미지를 만들어 그 자리에 넣습니다 (본문을 먼저 클릭해 영역을 고르세요)">🖼️ 이 영역 이미지</button>
         <!--
           🔗 v3.8.688 — 사장님: "글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
           발행글 전용인 veRegenWrap 이 아니라 여기 둔다 — 붙여넣기·대기열 글에도 버튼은 필요하다.
@@ -382,7 +387,6 @@ function ensureEditorModal() {
     hostImagesLabel: overlay.querySelector('#veHostImagesLabel'),
     hostImagesChk: overlay.querySelector('#veHostImagesChk'),
     insertImageBtn: overlay.querySelector('#veInsertImageBtn'),
-    undoImageOpBtn: overlay.querySelector('#veUndoImageOpBtn'),
     askFixBtn: overlay.querySelector('#veAskFixBtn'),           // v3.8.725
     undoBtn: overlay.querySelector('#veUndoBtn'),               // v3.8.725
     revertBtn: overlay.querySelector('#veRevertBtn'),
@@ -399,7 +403,7 @@ function ensureEditorModal() {
     critiqueBtn: overlay.querySelector('#veCritiqueBtn'),
     thumbBtn: overlay.querySelector('#veThumbBtn'),
     thumbInsertBtn: overlay.querySelector('#veThumbInsertBtn'),   // v3.8.696
-    sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
+    // v3.8.729: [이 영역 이미지] 버튼은 뺐다 — 사장님: "이미 이미지 넣는 버튼이 있으니까 그걸 활용하면 될 것 같아"
     regenCtaBtn: overlay.querySelector('#veRegenCtaBtn'),       // v3.8.688
     textEngine: overlay.querySelector('#veTextEngine'),          // v3.8.691
     imageEngine: overlay.querySelector('#veImageEngine'),        // v3.8.691
@@ -508,7 +512,7 @@ ${err?.message || err}
    * 사장님: "비평 개선 버튼 구현해서 누르면 비평할 부분 알려주고 수정하기 버튼 누르면 알아서 그 위치가 수정 개선되게."
    * postId 가 없어도 된다 — 붙여넣기·파일 글도 같은 버튼이다. 발행된 글은 postId 로 비평 이력을 남기는 기존 경로가 따로 있다.
    */
-  draftButtons = () => [modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn, modalRefs.regenCtaBtn].filter(Boolean);
+  draftButtons = () => [modalRefs.askFixBtn, modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.regenCtaBtn].filter(Boolean);
   lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
   editorPayload = async () => {
     const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
@@ -552,8 +556,8 @@ ${err?.message || err}
         const res = await window.electronAPI.invoke('improve-editor-html', { title, html: serializeEditor(), issues, payload });
         if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
         if (res.html && res.revised > 0) {
-          const parts = splitDocument(res.html);
-          loadIntoFrame(parts.bodyHtml);
+          pushUndo('비평 개선');
+          applyRevisedHtml(res.html);
           /**
            * ✅ v3.8.700 — **다시 재서 정말 사라진 것만** 기억한다.
            *
@@ -779,7 +783,6 @@ ${err?.message || err}
   });
 
   modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
-  modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));
 
   modalRefs.undoBtn?.addEventListener('click', () => {
     if (!undoOnce()) setStatus('되돌릴 작업이 없습니다.');
@@ -819,10 +822,13 @@ ${err?.message || err}
        */
       const issues = [{
         id: `user-request-${Date.now()}`,
-        area: 'whole',
+        area: 'style',
+        sectionIndex: -1,
+        origin: 'ai',
         severity: 'high',
         title: '작성자가 직접 요청한 수정',
         detail: request,
+        fix: request,
         evidence: '',
       }];
       const res = await window.electronAPI.invoke('improve-editor-html', {
@@ -831,11 +837,15 @@ ${err?.message || err}
       if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
       if (res.html && res.revised > 0) {
         pushUndo('요청대로 고치기');
-        const parts = splitDocument(res.html);
-        loadIntoFrame(parts.bodyHtml);
-        setStatus(`✅ 요청하신 대로 ${res.revised}개 구간을 고쳤습니다. 마음에 안 들면 [↩️ 되돌리기] 를 누르세요.`);
+        applyRevisedHtml(res.html);
+        const remaining = Array.isArray(res.stillPresent) ? res.stillPresent.length : 0;
+        setStatus(remaining
+          ? '⚠️ 본문은 고쳤지만 검수에서 요청이 다 반영됐다고 확인되지 않았습니다 — 내용을 보시고, 부족하면 [↩️ 되돌리기] 뒤 더 구체적으로 적어 주세요.'
+          : '✅ 요청하신 대로 고쳤습니다 (검수 통과). 마음에 안 들면 [↩️ 되돌리기] 를 누르세요.');
       } else {
-        setStatus('ℹ️ 고친 곳이 없습니다 — 요청을 조금 더 구체적으로 적어 주시면 반영하기 쉽습니다.');
+        // v3.8.729 — 왜 안 고쳤는지(반려 사유)를 그대로 보여준다. "고친 곳이 없습니다"만 띄우면 요청이 무시된 줄 안다.
+        const why = Array.isArray(res.skipped) && res.skipped.length ? ` (${res.skipped[0]})` : '';
+        setStatus(`ℹ️ 고치지 못했습니다${why} — 요청을 조금 더 구체적으로 적어 다시 눌러 주세요.`);
       }
     } catch (err) {
       setStatus(`❌ 수정 실패: ${err?.message || err}`);
@@ -848,11 +858,8 @@ ${err?.message || err}
     if (!session) return;
     if (!confirm('모든 편집을 취소하고 원본으로 되돌릴까요?')) return;
     clearUndo();
-    const parts = splitDocument(session.originalHtml);
-    session.styles = parts.styles;
-    session.isFullDocument = parts.isFullDocument;
-    session.originalHeadHtml = parts.headHtml;
-    loadIntoFrame(parts.bodyHtml);
+    applyRevisedHtml(session.originalHtml);
+    session.resolvedIssues = [];
     modalRefs.titleInput.value = session.originalTitle || '';
     setStatus('원본으로 되돌렸습니다.');
   });
@@ -888,8 +895,8 @@ ${err?.message || err}
   const toolbar = modalRefs.overlay.querySelector('#veToolbar');
   if (toolbar) {
     toolbar.addEventListener('mousedown', (e) => {
-      // v3.8.691 — 영역 이미지도 커서 자리에 넣으므로 같은 가드가 필요하다(안 걸면 선택이 풀린다)
-      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn, #veSectionImgBtn')) e.preventDefault();
+      // 커서 자리에 넣는 버튼들은 mousedown 에서 선택이 풀리지 않게 막는다
+      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn')) e.preventDefault();
     });
   }
 
@@ -1002,14 +1009,6 @@ ${err?.message || err}
       applyFormat(doc, btn.getAttribute('data-vefmt'));
     });
   }
-  modalRefs.undoImageOpBtn.addEventListener('click', () => {
-    const doc = getFrameDoc();
-    if (!doc) return;
-    if (!hasImageOps()) { setStatus('되돌릴 이미지·링크 작업이 없습니다.'); return; }
-    undoImageOp(doc);
-    protectSeparators(doc);
-    setStatus('이미지·링크 작업을 한 단계 되돌렸습니다.');
-  });
   // 🎯 v3.8.556: 발행할 곳을 바꾸면 버튼 문구와 안내를 그 자리에서 바꾼다
   modalRefs.targetPlatform?.addEventListener('change', () => {
     if (!session) return;
@@ -1085,7 +1084,7 @@ function refreshUndoButton() {
 export function pushUndo(label) {
   const doc = getFrameDoc();
   if (!doc) return;
-  undoStack.push({ label: String(label || '작업'), html: doc.body.innerHTML });
+  undoStack.push({ label: String(label || '작업'), html: serializeEditor(), at: Date.now() });
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   refreshUndoButton();
 }
@@ -1094,7 +1093,8 @@ function undoOnce() {
   const doc = getFrameDoc();
   if (!doc || undoStack.length === 0) return false;
   const last = undoStack.pop();
-  doc.body.innerHTML = last.html;
+  applyRevisedHtml(last.html);
+  session.resolvedIssues = [];
   // 되돌린 뒤에도 썸네일 블록 보호는 다시 걸어 준다 (innerHTML 로 갈아 끼우면 표시가 날아간다)
   try { protectSeparators(doc); } catch { /* 보호 실패가 되돌리기를 막을 이유는 없다 */ }
   refreshUndoButton();
@@ -1105,6 +1105,18 @@ function undoOnce() {
 function clearUndo() {
   undoStack = [];
   refreshUndoButton();
+}
+
+function applyRevisedHtml(html) {
+  const baseline = session.baseline;
+  const parts = splitDocument(html);
+  session.isFullDocument = parts.isFullDocument;
+  session.originalHeadHtml = parts.headHtml;
+  session.htmlAttributes = parts.htmlAttributes || [];
+  session.bodyAttributes = parts.bodyAttributes || [];
+  session.styles = parts.styles;
+  loadIntoFrame(parts.bodyHtml);
+  session.baseline = baseline;
 }
 
 /**
@@ -1739,6 +1751,7 @@ function applySourceToFrame() {
   const src = modalRefs.sourceArea.value;
   if (src === session.sourceLoaded) return false;
   const keep = session.baseline;
+  pushUndo('HTML 편집');
   loadIntoFrame(src);
   session.baseline = keep;
   session.sourceLoaded = src;
@@ -1853,7 +1866,7 @@ function loadIntoFrame(rawBodyHtml) {
   doc.write(`<!doctype html><html><head><meta charset="utf-8">${baseHref}
     ${session.isFullDocument ? session.originalHeadHtml : session.styles.join('\n')}
     <style data-bgpt-editor="1">
-      body{margin:0;padding:28px 24px;background:#fff;min-height:100vh;box-sizing:border-box;}
+      ${needsFallbackStyle ? 'body{margin:0;padding:28px 24px;background:#fff;min-height:100vh;box-sizing:border-box;}' : ''}
       img{cursor:pointer;}
       .ve-img-selected{outline:3px solid #6366f1!important;outline-offset:2px;}
       .ve-link-selected{outline:2px dashed #f59e0b!important;outline-offset:3px;}
@@ -1870,10 +1883,24 @@ function loadIntoFrame(rawBodyHtml) {
     </style>
   </head><body></body></html>`);
   doc.close();
+  for (const [name, value] of session.htmlAttributes || []) doc.documentElement.setAttribute(name, value);
+  for (const [name, value] of session.bodyAttributes || []) doc.body.setAttribute(name, value);
   doc.body.innerHTML = bodyHtml;
   doc.body.contentEditable = 'true';
   try { doc.execCommand('defaultParagraphSeparator', false, 'p'); } catch { /* 일부 환경 미지원 */ }
   protectSeparators(doc);
+  /**
+   * ⌨️ v3.8.729 — 글자 편집도 되돌리기 한 단계가 된다. 단 **한 글자마다 한 칸을 쓰지 않는다.**
+   * 글자마다 전체 본문을 찍으면 스무 글자에 [표 넣기] 기록이 밀려 나가고(UNDO_LIMIT 20), 느린 PC 에서 타자가 굼떠진다.
+   * 1.5초 안에 이어 친 글자는 한 단계로 묶는다.
+   */
+  doc.addEventListener('beforeinput', (e) => {
+    if (String(e.inputType || '').startsWith('history')) return;
+    const now = Date.now();
+    const top = undoStack[undoStack.length - 1];
+    if (top && top.label === '글자 편집' && now - (top.at || 0) < 1500) { top.at = now; return; }
+    pushUndo('글자 편집');
+  });
   doc.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') requestClose();
     /**
@@ -1887,6 +1914,7 @@ function loadIntoFrame(rawBodyHtml) {
   });
   initImageEditing(refs.frame, doc, {
     setStatus,
+    onBeforeChange: () => pushUndo('이미지·링크·광고 편집'),
     onAfterRestore: () => protectSeparators(doc),
     onRegenerateImage: (img) => regenerateOneImage(img),   // 🎨 v3.8.691
   });
@@ -2007,6 +2035,8 @@ export async function openVisualEditor(source) {
       postUrl,
       isFullDocument: parts.isFullDocument,
       originalHeadHtml: parts.headHtml,
+      htmlAttributes: parts.htmlAttributes || [],
+      bodyAttributes: parts.bodyAttributes || [],
       styles: parts.styles,
       baseline: '',
       // 🎯 v3.8.556: 발행할 곳 — 대기열 글과 이미 발행된 글에서만 고를 수 있다.
@@ -2018,6 +2048,7 @@ export async function openVisualEditor(source) {
     };
 
     const refs = ensureEditorModal();
+    clearUndo();
     refs.titleInput.value = title;
     refs.titleInput.style.display = '';   // v3.8.683: 파일 글도 제목이 있어야 발행한다
     refs.hostImagesLabel.style.display = kind === 'file' || kind === 'paste' ? 'inline-flex' : 'none';
@@ -2088,6 +2119,17 @@ async function saveCurrentSession(saveAs) {
       return;
     }
     const title = refs.titleInput.value.trim() || session.originalTitle || '';
+    /**
+     * 🎨 v3.8.729 — **밖에서 가져온 HTML 은 그 스킨 그대로 발행한다.**
+     *
+     * 사장님: "외부에서 가져온 글이 있다면 억지로 앱에 있는 스킨으로 씌우려 하지 말고
+     *          외부에서 가져온 스킨을 그대로 쓰게 냅둬. 충돌하니까 스킨이 이상해지고 깨져 버려"
+     *
+     * 파일·붙여넣기 글에만 표를 단다. 앱이 만든 글(appstate·대기열)은 예전처럼 발행기의 스킨을 거친다 —
+     * 발행글 수정은 표를 달지 않고 발행기가 본문의 <style> 로 알아서 가린다(style-preservation.ts).
+     */
+    const externalSkin = session.kind === 'file' || session.kind === 'paste';
+    const skinFlag = externalSkin ? { preserveOriginalStyles: true } : {};
 
     if (session.kind === 'appstate') {
       const appState = getAppState();
@@ -2176,6 +2218,7 @@ async function saveCurrentSession(saveAs) {
           platform: target,
           targetPlatform: target,
           blogPlatform: target,
+          ...skinFlag,
         },
       });
       if (res?.ok || res?.url) {
@@ -2204,7 +2247,7 @@ async function saveCurrentSession(saveAs) {
         // v3.8.724: 대표 이미지도 같이 보낸다 — 안 보내면 목록·홈 썸네일이 안 바뀐다
         thumbnailUrl: computeThumbnailUrl(),
         // 티스토리는 블로그 주소(화면 설정)가 있어야 편집기 URL을 만들 수 있다 — 목록 조회와 같은 소스를 쓴다
-        payload: await platformPayloadFor(session.kind),
+        payload: { ...(await platformPayloadFor(session.kind)), ...skinFlag },
       });
       if (res?.ok) {
         addLog(`🚀 ${published.label} 수정발행 완료: ${res.url || title}`, 'success');
@@ -2237,6 +2280,7 @@ async function saveCurrentSession(saveAs) {
           platform: target,
           targetPlatform: target,
           blogPlatform: target,
+          ...skinFlag,
         },
       });
       if (res?.ok || res?.url) {

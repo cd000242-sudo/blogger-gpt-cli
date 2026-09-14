@@ -750,6 +750,8 @@ export function parseCritiqueIssues(raw: string, sectionCount: number): Critique
  * 빼는 수정은 짧아지는 게 정상이므로 분량 바닥을 따로 둔다.
  */
 const CUTTING_IDS = new Set(['redundancy-repeat', 'substance-vague', 'substance-cliche']);
+// "삭제"는 넣지 않는다 — "모르는 수치는 그 문장을 삭제합니다"(substance-facts)는 채우는 수정이다(v3.8.623 그물).
+// 사장님이 직접 적은 "지워 줘" 는 manual-revision.isCuttingRequest 가 따로 본다.
 const CUTTING_WORDS = /되풀이|반복|중복|군더더기|장황|늘어지|얼버무|상투|회피/;
 
 export function isCuttingIssue(issue: Pick<CritiqueIssue, 'id' | 'title' | 'fix'>): boolean {
@@ -768,6 +770,11 @@ export function buildSectionRevisionPrompt(input: {
   section: PostSection;
   issues: CritiqueIssue[];
   wholePostIssues: CritiqueIssue[];
+  /**
+   * v3.8.729 — "앞 절과 같은 말을 합니다" 같은 지적은 **상대 절을 봐야** 고칠 수 있다.
+   * 글 전체 HTML 을 매번 실으면 구간 수만큼 비용이 곱해지므로, 부르는 쪽이 필요한 절의 평문만 추려 준다.
+   */
+  contextText?: string;
 }): string {
   const all = [...input.issues, ...input.wholePostIssues];
   const list = all
@@ -786,12 +793,13 @@ export function buildSectionRevisionPrompt(input: {
     `# 지적된 문제\n${list}`,
     '',
     `# 지금 이 구간의 HTML\n${clip(input.section.html, 12000)}`,
+    ...(input.contextText ? ['', `# 지적이 가리키는 다른 구간의 내용 (비교용 — 이 부분은 출력하지 마세요)\n${clip(input.contextText, 3000)}`] : []),
     '',
     '# 규칙 (어기면 그 결과는 버려집니다)',
     '· 원본에 있는 <img> 태그는 **속성까지 그대로** 유지하세요. 지우거나 주소를 바꾸지 마세요.',
     '· 원본에 있는 <a href> 링크도 그대로 유지하세요.',
     '· 본문에 글자로 적힌 주소(https://… , www.…)는 **한 글자도 바꾸지 마세요.** 마침표·물음표 뒤에 공백을 넣지 마세요 — 주소가 깨집니다.',
-    `· 첫 줄의 <h2> 소제목은 그대로 두세요. 검색 색인이 걸려 있습니다.`,
+    '· 소제목과 답변 블록은 유지하되, 선택한 지적이 그 내용을 고치라고 요구하면 해당 내용도 수정하세요.',
     lengthRule,
     // v3.8.670 실측: 다시 쓴 구간이 합니다체로 돌아와 해요체 본문 한가운데 섬이 됐다
     `· 말투는 원본 구간과 같게 — ${require('./generation').toneEndingRule()}. 강조 문장(<strong>, <blockquote>)도 같은 말투로 씁니다.`,
@@ -821,7 +829,13 @@ export function answerBlockText(html: string): string {
 export function acceptRevisedSection(
   raw: string,
   original: PostSection,
-  opts: { cutting?: boolean } = {},
+  /**
+   * v3.8.729 —
+   *   allowAnswerEdit: 답변 블록의 **글은** 바꿔도 된다(답 관련 지적을 고칠 때). 블록 자체가 사라지면 여전히 반려.
+   *   allowMediaLoss: 이미지·링크가 줄어도 받는다 — 사장님이 "이 이미지 빼 줘"라고 직접 적었을 때만.
+   *   preserveMarkup: 줄바꿈·표 정리를 걸지 않는다 — 외부 HTML 의 서식을 그대로 둘 때.
+   */
+  opts: { cutting?: boolean; allowAnswerEdit?: boolean; allowMediaLoss?: boolean; preserveMarkup?: boolean } = {},
 ): { html: string; accepted: boolean; reason: string } {
   /**
    * v3.8.714 — 고쳐 온 구간에도 **같은 정리**를 건다.
@@ -836,9 +850,12 @@ export function acceptRevisedSection(
     .replace(/```[a-z]*\s*/gi, '')
     .replace(/```/g, '')
     .trim();
-  const cleaned = tidyTableCells(joinMidSentenceBreaks(stripped).html).html.trim();
+  const cleaned = opts.preserveMarkup ? stripped : tidyTableCells(joinMidSentenceBreaks(stripped).html).html.trim();
 
   if (!cleaned) return { html: original.html, accepted: false, reason: '빈 응답' };
+  if (cleaned.replace(/>\s+</g, '><') === original.html.trim().replace(/>\s+</g, '><')) {
+    return { html: original.html, accepted: false, reason: '바뀐 것이 없습니다' };
+  }
 
   const beforeText = textOf(original.html);
   const afterText = textOf(cleaned);
@@ -849,16 +866,31 @@ export function acceptRevisedSection(
       : `분량이 줄었습니다 (${beforeText.length}자 → ${afterText.length}자)`;
     return { html: original.html, accepted: false, reason };
   }
-  if (countTag(cleaned, IMG_RE) < countTag(original.html, IMG_RE)) {
+  if (!opts.allowMediaLoss && countTag(cleaned, IMG_RE) < countTag(original.html, IMG_RE)) {
     return { html: original.html, accepted: false, reason: '이미지가 사라졌습니다' };
   }
-  if (countTag(cleaned, LINK_RE) < countTag(original.html, LINK_RE)) {
+  if (!opts.allowMediaLoss && countTag(cleaned, LINK_RE) < countTag(original.html, LINK_RE)) {
     return { html: original.html, accepted: false, reason: '링크가 사라졌습니다' };
   }
-  // v3.8.664 — 답변 블록(질문·답)은 다시 쓰는 대상이 아니다
+  /**
+   * v3.8.664 — 답변 블록(질문·답)은 다시 쓰는 대상이 아니다.
+   *
+   * v3.8.729 — 단, **답을 고치라는 지적**일 때는 글을 바꿔도 된다.
+   * 사장님: "지적을 하면 그 지적한 걸 말끔히 해결해야 되는데 수정을 시켰는데도 똑같은 지적이 또 나와"
+   * "답 상자가 판정문이 아닙니다"·"제목이 물었는데 답이 없습니다" 는 답 블록을 고쳐야 풀리는데,
+   * 이 관문이 답 블록의 글자 하나라도 바뀌면 통째로 반려해 **고쳐질 수 없는 지적**이었다.
+   * 그래서 두 가지로 나눈다 — 블록이 **사라지면** 언제나 반려, 글만 바뀌는 것은 허락받았을 때만 통과.
+   */
   const answerBefore = answerBlockText(original.html);
-  if (answerBefore && answerBlockText(cleaned) !== answerBefore) {
-    return { html: original.html, accepted: false, reason: '답변 블록이 바뀌었습니다' };
+  if (answerBefore) {
+    const partsBefore = (original.html.match(ANSWER_PART_RE) || []).length;
+    const partsAfter = (cleaned.match(ANSWER_PART_RE) || []).length;
+    if (partsAfter < partsBefore) {
+      return { html: original.html, accepted: false, reason: '답변 블록이 사라졌습니다' };
+    }
+    if (!opts.allowAnswerEdit && answerBlockText(cleaned) !== answerBefore) {
+      return { html: original.html, accepted: false, reason: '답변 블록이 바뀌었습니다' };
+    }
   }
   /**
    * v3.8.665 — 숫자 앞 띄어쓰기가 뭉개지면 원본 유지.
@@ -931,10 +963,122 @@ export function groupIssuesBySection(issues: CritiqueIssue[]): {
   const bySection = new Map<number, CritiqueIssue[]>();
   const wholePost: CritiqueIssue[] = [];
   for (const issue of issues) {
-    if (issue.sectionIndex < 0) { wholePost.push(issue); continue; }
+    if (!Number.isInteger(issue.sectionIndex) || issue.sectionIndex < 0) { wholePost.push(issue); continue; }
     const list = bySection.get(issue.sectionIndex) || [];
     list.push(issue);
     bySection.set(issue.sectionIndex, list);
   }
   return { bySection, wholePost };
+}
+
+// ─────────────────────────────────────────────────────────────
+// v3.8.729 — 같은 지적이 또 나오는 것을 막는 부품 셋
+//
+// 사장님: "지적을 하면 그 지적한 걸 말끔히 해결해야 되는데 수정을 시켰는데도 똑같은 지적이
+//          또 나와. 수정하는데도 API 비용이 들기 때문에 이러면 절대 안 되는데"
+//
+// 되풀이의 원인은 셋이었고 하나씩 부품을 둔다:
+//   ① 고친 뒤 "남았는지" 재는 기준이 **제목 문자열**이라 `"환급"가 12번 → 9번` 처럼 숫자만 바뀌면
+//      고쳐졌다고 잘못 판정했다 → issueKey (숫자·순번을 뺀 안정된 이름표)
+//   ② 구간을 다시 써서는 **절대 풀 수 없는** 지적(이미지 0장 — 규칙이 "새 이미지 넣지 마세요")에도
+//      모델을 불렀고, 당연히 다음 비평에 또 나왔다 → rewriteAbility (수정 대상에서 빼고 이유를 보여준다)
+//   ③ AI 비평은 "이미 고쳤으니 말하지 마세요"를 줘도 **말만 바꿔** 다시 지적한다
+//      → dropResolvedLookalikes (고친 지적과 낱말이 절반 넘게 겹치면 코드가 걸러낸다, 호출 0회)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 회차가 바뀌어도 같은 지적이면 같은 값이 나오는 이름표.
+ *
+ * audit 지적의 id 는 `audit-<kind>-<순번>` 이라 앞 지적 하나가 사라지면 순번이 밀리고,
+ * 제목에는 `12번`·`해요체 3건` 같은 개수가 들어 있어 고치다 만 것도 "다른 지적"이 된다.
+ * 순번과 숫자를 빼면 둘 다 안정된다. 같은 종류가 여러 절에서 나면 인용된 근거의 앞부분으로 가른다.
+ */
+export function issueKey(issue: Pick<CritiqueIssue, 'id' | 'title' | 'evidence'>): string {
+  const id = String(issue?.id || '').replace(/^(audit-[a-z-]+?)-\d+$/, '$1');
+  const title = String(issue?.title || '').replace(/[\d,.]+/g, '#').replace(/\s+/g, ' ').trim();
+  if (id.startsWith('audit-')) {
+    // 근거 문장은 고쳐 쓰면 바뀌므로 짧게만 — 어느 절인지 가를 정도면 된다
+    const evidence = String(issue?.evidence || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 24);
+    return `${id}|${title}|${evidence}`;
+  }
+  return `${id}|${title}`;
+}
+
+export interface RewriteAbility {
+  /** 구간 다시 쓰기로 고칠 수 있는가 */
+  fixable: boolean;
+  /** 못 고치면 **무엇으로** 고치는지 — 화면이 그대로 보여준다 */
+  hint: string;
+}
+
+/**
+ * 이 지적을 "수정" 버튼(구간 다시 쓰기)으로 고칠 수 있는가.
+ *
+ * 다시 쓰기 규칙이 "새 이미지를 넣지 마세요 · 링크를 지키세요" 인데 지적은 "이미지가 0장"·"링크가 0개" 다.
+ * 이런 것은 아무리 시켜도 안 풀리고 API 비용만 나간다. 도구가 따로 있으니 그쪽을 가리킨다.
+ */
+export function rewriteAbility(issue: Pick<CritiqueIssue, 'id' | 'title'>): RewriteAbility {
+  const id = String(issue?.id || '');
+  if (id === 'structure-noimage') return { fixable: false, hint: '글을 다시 써서는 그림이 생기지 않습니다 — [🖼️ 이미지] 또는 [🖼️ 썸네일 넣기] 버튼으로 넣으세요.' };
+  if (id === 'cta-none') return { fixable: false, hint: '링크는 지어 넣지 않습니다 — [🔗 CTA 다시 생성] 버튼으로 목적지를 찾아 넣으세요.' };
+  if (id === 'quality-internalLinks') return { fixable: false, hint: '내부 링크는 발행할 때 자동으로 붙습니다 — 본문 수정으로는 채워지지 않습니다.' };
+  if (id === 'quality-imageAlt') return { fixable: false, hint: '이미지 설명(alt)은 본문이 아니라 이미지 속성입니다 — 발행 시 소제목으로 자동 채워집니다.' };
+  if (/^audit-broken-title/.test(id)) return { fixable: false, hint: '제목의 문제입니다 — 위 제목 칸에서 직접 고치세요.' };
+  return { fixable: true, hint: '' };
+}
+
+/** 지적 목록에 fixable·fixHint 를 붙인다 — 화면은 이 값으로 체크박스를 잠근다 */
+export function annotateFixability<T extends Pick<CritiqueIssue, 'id' | 'title'>>(issues: T[]): (T & { fixable: boolean; fixHint: string })[] {
+  return (issues || []).map((issue) => {
+    const ability = rewriteAbility(issue);
+    return { ...issue, fixable: ability.fixable, fixHint: ability.hint };
+  });
+}
+
+/**
+ * 두 글자 조각(바이그램) 집합 — 낱말 경계가 없는 한국어에서 겹침을 재는 가장 싼 방법.
+ * "~습니다"·"~없습니다" 같은 어미는 모든 지적에 붙어 있어 겹침을 부풀린다 — 먼저 뗀다.
+ */
+function bigrams(text: string): Set<string> {
+  const s = String(text || '')
+    .replace(/(습니다|입니다|합니다|됩니다|없습니다|있습니다|니다|이다|하다)(?=[\s.,]|$)/g, '')
+    .replace(/[\s\d"'“”‘’()\[\]·.,:;!?~\-]/g, '');
+  const out = new Set<string>();
+  for (let i = 0; i + 1 < s.length; i += 1) out.add(s.slice(i, i + 2));
+  return out;
+}
+
+/** 0~1 (Dice) — 1 이면 같은 말 */
+export function issueSimilarity(a: string, b: string): number {
+  const x = bigrams(a);
+  const y = bigrams(b);
+  if (x.size === 0 || y.size === 0) return 0;
+  let both = 0;
+  for (const g of x) if (y.has(g)) both += 1;
+  return (2 * both) / (x.size + y.size);
+}
+
+/**
+ * 이미 고친 지적과 **말만 다른** AI 지적을 걸러낸다. 호출 0회.
+ *
+ * 프롬프트의 "다시 말하지 마세요"는 지켜질 때도, 안 지켜질 때도 있다 — 모델은 같은 문제를
+ * "결론이 약합니다" → "마무리에 판정이 없습니다" 로 바꿔 말한다. 제목(과 제목+처방)을 재서
+ * 낱말 조각이 55% 넘게 겹치면 같은 지적으로 본다. 걸러낸 것은 로그로 남긴다.
+ */
+export function dropResolvedLookalikes<T extends Pick<CritiqueIssue, 'title' | 'fix' | 'origin'>>(
+  issues: T[],
+  resolved: string[],
+  threshold = 0.55,
+): { kept: T[]; dropped: T[] } {
+  const done = (resolved || []).map((t) => String(t || '').trim()).filter(Boolean);
+  if (done.length === 0) return { kept: [...(issues || [])], dropped: [] };
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  for (const issue of issues || []) {
+    if (issue.origin !== 'ai') { kept.push(issue); continue; }
+    const mine = `${issue.title || ''} ${issue.fix || ''}`;
+    const twin = done.some((t) => issueSimilarity(issue.title || '', t) >= threshold || issueSimilarity(mine, t) >= threshold);
+    (twin ? dropped : kept).push(issue);
+  }
+  return { kept, dropped };
 }

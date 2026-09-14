@@ -69,7 +69,8 @@ describe('② 코드 → 프레임 → 저장', () => {
 
 describe('③ 코드 모드에서는 프레임 전용 도구를 잠근다', () => {
   it('서식 바·이미지·광고·버튼·되돌리기·비평·재생성이 ve-visual-only 다', () => {
-    for (const id of ['veInsertImageBtn', 'veAdUnitSelect', 'veInsertAdBtn', 'veInsertCtaBtn', 'veUndoImageOpBtn', 'veDraftWrap', 'veRegenWrap', 'veFormatBar']) {
+    // v3.8.729: veUndoImageOpBtn 은 통합 되돌리기(veUndoBtn, v3.8.725)에 합쳐져 사라졌다
+    for (const id of ['veInsertImageBtn', 'veAdUnitSelect', 'veInsertAdBtn', 'veInsertCtaBtn', 'veDraftWrap', 'veRegenWrap', 'veFormatBar']) {
       const tag = editor.slice(editor.indexOf(`id="${id}"`), editor.indexOf(`id="${id}"`) + 60);
       expect(tag).toContain('class="ve-visual-only"');
     }

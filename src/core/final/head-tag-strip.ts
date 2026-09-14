@@ -44,10 +44,13 @@ export function stripHeadOnlyTags(html: string): HeadTagStripResult {
   const src = String(html || '');
   if (!src) return { html: src, removed: 0 };
 
-  const matches = src.match(HEAD_ONLY);
+  // Stylesheet links are part of the author's design, unlike SEO metadata.
+  const isStylesheet = (tag: string) => /^<\s*link\b/i.test(tag)
+    && /\brel\s*=\s*(?:"[^"]*\bstylesheet\b[^"]*"|'[^']*\bstylesheet\b[^']*'|stylesheet\b)/i.test(tag);
+  const matches = (src.match(HEAD_ONLY) || []).filter(tag => !isStylesheet(tag));
   if (!matches || matches.length === 0) return { html: src, removed: 0 };
 
-  let out = src.replace(HEAD_ONLY, '');
+  let out = src.replace(HEAD_ONLY, tag => isStylesheet(tag) ? tag : '');
 
   /**
    * 태그가 빠지면 `<p><br /><br /></p>` 만 남는다 — 그게 그대로 빈 줄이다.

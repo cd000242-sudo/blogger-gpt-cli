@@ -18,8 +18,9 @@ const draft = read('src/core/final/editor-draft.ts');
 const updater = read('electron/updater.ts');
 const tistoryPosts = read('src/tistory/tistory-posts.ts');
 
+// v3.8.729 에서 improveDraft 가 다시 짜였다 — 구간 고르기 규칙(근거 문장 → 구간, 상한 6, 폴백 두 구간)은 그대로다
 describe('① "글 전체" 지적이 본문 전체에 닿는다', () => {
-  const fn = blockBetween(draft, 'const MAX_TARGETS = 6', 'const plain = (v: string)');
+  const fn = blockBetween(draft, '// ③ 구간 정하기', '// ④ 구간마다 고친다');
 
   test('⭐ 구간 지정 지적만 대상으로 삼던 옛 규칙이 사라졌다', () => {
     // 옛 코드: bySection.size > 0 ? [...bySection.keys()] : (짧은 구간 2개)
@@ -28,9 +29,9 @@ describe('① "글 전체" 지적이 본문 전체에 닿는다', () => {
   });
 
   test('⭐ 근거 문장이 있는 구간을 찾아 함께 대상에 넣는다', () => {
-    expect(fn).toContain('evidenceHits');
-    expect(fn).toContain('stripText(section.html).includes(evidence)');
-    expect(fn).toContain('[...new Set([...bySection.keys(), ...fromEvidence])]');
+    expect(fn).toContain('evidenceTargets');
+    expect(fn).toContain('plainText(s.html).includes(evidence)');
+    expect(fn).toContain('[...new Set([...bySection.keys(), ...[...evidenceTargets.values()].flat()])]');
   });
 
   test('⭐ 너무 짧은 근거로는 아무 구간에나 걸지 않는다', () => {
@@ -43,12 +44,12 @@ describe('① "글 전체" 지적이 본문 전체에 닿는다', () => {
   });
 
   test('⭐ 상한에 걸리면 구간 지정 지적을 먼저 지킨다', () => {
-    expect(fn).toContain('const named = [...bySection.keys()]');
-    expect(fn).toContain('[...new Set([...named, ...rest])].slice(0, MAX_TARGETS)');
+    expect(fn).toContain('[...new Set([...bySection.keys(), ...targets])].slice(0, MAX_TARGETS)');
   });
 
   test('아무것도 못 찾으면 예전 폴백을 쓴다 (빈손으로 끝내지 않는다)', () => {
     expect(fn).toContain('if (targets.length === 0)');
+    expect(fn).toContain('.slice(0, 2).map((s) => s.index)');
   });
 
   test('⭐ 몇 건을 몇 구간으로 고치는지 화면에 말한다 — 어긋나면 바로 보이게', () => {

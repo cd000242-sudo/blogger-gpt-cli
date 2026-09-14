@@ -22,7 +22,7 @@ function makeImageBlockHtml(dataUrl) {
  *   생성은 IPC·엔진 선택을 쥐고 있는 editor.js 가 한다 — 이 모듈은 눌렸다고 알려만 준다
  *   (여기서 직접 부르면 이미지 편집 모듈이 생성 파이프라인까지 알게 된다).
  */
-export function initImageEditing(frame, doc, { setStatus, onAfterRestore, onRegenerateImage }) {
+export function initImageEditing(frame, doc, { setStatus, onAfterRestore, onRegenerateImage, onBeforeChange }) {
   detachImageEditing();
 
   const veBody = frame.parentElement;
@@ -89,7 +89,7 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore, onRege
   }
 
   state = {
-    frame, doc, setStatus, onAfterRestore, onRegenerateImage,
+    frame, doc, setStatus, onAfterRestore, onRegenerateImage, onBeforeChange,
     imgToolbar, insertMarker, linkToolbar,
     selectedImg: null, selectedLink: null, hoverBlock: null,
     // v3.8.440: 마지막으로 커서가 있던 블록을 기억한다 (아래 주석 참고)
@@ -534,6 +534,7 @@ async function pickAndInsertImages(insertFn, atCaret = false) {
 
 function pushImageOp() {
   if (!state) return;
+  if (state.onBeforeChange) { state.onBeforeChange(); return; }
   state.opStack.push(state.doc.body.innerHTML);
   if (state.opStack.length > 20) state.opStack.shift();
 }

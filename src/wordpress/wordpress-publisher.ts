@@ -3,6 +3,8 @@ import { WordPressAPI, WordPressConfig, WordPressPost, WordPressTag } from './wo
 //   replace(/<[^>]*>/g,'') 는 태그만 벗기고 <script> 안의 JSON-LD 본문을 남긴다 —
 //   그 결과 메타디스크립션에 {"@context":"https://schema.org"… 가 그대로 저장됐다(2026-07-26, 11편).
 import { stripNonProse } from '../core/publish-verifier';
+// v3.8.729 — 밖에서 가져온 HTML 의 스킨을 지킨다 (사장님: "외부에서 가져온 스킨을 그대로 쓰게 냅둬")
+import { shouldPreserveOriginalStyles, flattenDocumentForPost } from '../core/final/style-preservation';
 import { sanitizeTagNames, matchExistingTag } from '../core/tag-hygiene';
 import { Provider } from '../core/index';
 import { callGeminiWithRetry } from '../core/final/gemini-engine';
@@ -489,8 +491,9 @@ export function neutralizeWpAutop(html: string): string {
   return flattened.replace(/ WPKEEP(\d+) /g, (_m, i) => kept[Number(i)] || '');
 }
 
-export function applyWordPressInlineStyles(html: string): string {
+export function applyWordPressInlineStyles(html: string, preserveOriginalStyles?: boolean): string {
   if (!html) return html;
+  if (shouldPreserveOriginalStyles(html, preserveOriginalStyles)) return html;
   if (/\bdata-bgpt-wp-ready\s*=\s*["']true["']|\bbgpt-wp-ready\b/i.test(html)) return html;
   html = repairBrokenText('본문', html);
 
@@ -1776,6 +1779,7 @@ export class WordPressPublisher {
   async publish(options: {
     title: string;
     content: string;
+    preserveOriginalStyles?: boolean;
     featuredImageUrl?: string; // 🔥 대표 이미지 URL 추가
     excerpt?: string;
     metaDescription?: string;
@@ -1871,9 +1875,12 @@ export class WordPressPublisher {
 
       // 🔥 항상 금색 프리미엄 스킨 + 모바일 최적화 인라인 스타일 적용
       // 워드프레스 테마와 관계없이 일관된 스타일 보장
-      console.log(`[WP-PUBLISH] 🎨 금색 프리미엄 스킨 + 모바일 최적화 적용 중...`);
-      optimizedContent = applyWordPressInlineStyles(options.content);
-      console.log(`[WP-PUBLISH] ✅ 블로거와 동일한 금색 프리미엄 스킨 적용 완료`);
+      // v3.8.729 — 밖에서 가져온 HTML 은 그 스킨 그대로 (style-preservation.ts). 통째 문서면 본문 모양으로 편다.
+      const preserveOriginalStyles = shouldPreserveOriginalStyles(options.content, options.preserveOriginalStyles);
+      optimizedContent = preserveOriginalStyles
+        ? flattenDocumentForPost(options.content).html
+        : applyWordPressInlineStyles(options.content, preserveOriginalStyles);
+      console.log(preserveOriginalStyles ? '[WP-PUBLISH] 🎨 원본 HTML 스타일 보존 (앱 스킨 생략)' : '[WP-PUBLISH] 기본 스킨 적용 완료');
 
       console.log('[WP-PUBLISH] 워드프레스 연결 테스트 시작...');
       const isConnected = await this.wpApi.testConnection();
@@ -1893,7 +1900,7 @@ export class WordPressPublisher {
       console.log('[WP-PUBLISH] ✅ 연결 성공');
 
       // 1. CSS가 있는 경우 WordPress 핵 옵션 적용
-      if (cssLength > 0) {
+      if (cssLength > 0 && !preserveOriginalStyles) {
         console.log(`[WP-PUBLISH] ✅ CSS 발견됨 (${cssLength.toLocaleString()}자) - WordPress 핵 옵션 적용`);
 
         // WordPress 핵 옵션: 모든 WordPress 테마/플러그인 CSS 오버라이드
@@ -2896,6 +2903,7 @@ export async function publishToWordPress(
   options: {
     title: string;
     content: string;
+    preserveOriginalStyles?: boolean;
     status?: 'publish' | 'draft' | 'schedule';
     categories?: number[];
     tags?: string[]; // 🔧 태그 배열 추가
@@ -3088,9 +3096,12 @@ export async function publishToWordPress(
     let contentToStyle = options.content;
 
     // 🔥 WordPress 인라인 스타일 적용
-    onLog?.('[WP] WordPress 스킨 적용 중...');
-    const styledContent = applyWordPressInlineStyles(contentToStyle);
-    onLog?.('✅ WordPress 클린 모던 스킨 적용 완료');
+    // v3.8.729 — 밖에서 가져온 HTML 은 그 스킨 그대로 (style-preservation.ts). 통째 문서면 본문 모양으로 편다.
+    const preserveOriginalStyles = shouldPreserveOriginalStyles(contentToStyle, options.preserveOriginalStyles);
+    const styledContent = preserveOriginalStyles
+      ? flattenDocumentForPost(contentToStyle).html
+      : applyWordPressInlineStyles(contentToStyle, preserveOriginalStyles);
+    onLog?.(preserveOriginalStyles ? '[WP] 🎨 원본 HTML 스타일 보존 (앱 스킨 생략)' : '[WP] 기본 스킨 적용 완료');
 
     // 포스트 생성
     onLog?.('[WP] 포스트 생성 중...');

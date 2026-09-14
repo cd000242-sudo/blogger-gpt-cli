@@ -43,11 +43,12 @@ describe('① [이 영역 이미지] 는 커서 자리에 넣는다', () => {
     expect(fn).not.toMatch(/if \(kind === 'section' && anchor\) \{\s*anchor\.insertAdjacentElement/);
   });
 
-  test('⭐ 커서를 잃지 않게 mousedown 가드에 버튼이 들어 있다', () => {
+  test('⭐ 커서를 잃지 않게 mousedown 가드가 커서 삽입 버튼들을 막는다', () => {
     // 이 가드가 없으면 버튼을 누르는 순간 본문 선택이 풀려 늘 글 끝으로 간다
-    expect(editor).toContain('#veSectionImgBtn');
+    // v3.8.729: [이 영역 이미지] 버튼은 뺐다(사장님: "이미지 넣는 버튼이 있으니까 그걸 활용") — 가드는 남은 버튼들을 지킨다
+    expect(editor).not.toContain('id="veSectionImgBtn"');
     const guard = bodyOf(editor, "toolbar.addEventListener('mousedown'", '});');
-    expect(guard).toContain('#veSectionImgBtn');
+    for (const id of ['#veInsertImageBtn', '#veInsertAdBtn', '#veInsertCtaBtn']) expect(guard).toContain(id);
   });
 
   test('어디에 들어갔는지 사장님께 말해 준다 — 조용히 넘기지 않는다', () => {

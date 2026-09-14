@@ -93,7 +93,8 @@ describe('v3.8.683 편집기 초안 — 붙여넣기 서식 · 비평 · 수정 
     for (const ch of ['normalize-editor-paste', 'critique-editor-html', 'improve-editor-html', 'generate-editor-image']) expect(m).toContain(`ipcMain.handle('${ch}'`);
     expect(m).toContain("require('../dist/core/final/editor-draft')");
     const e = read('electron/ui/modules/editor.js');
-    for (const id of ['veCritiqueBtn', 'veThumbBtn', 'veSectionImgBtn']) expect(e).toContain(`id="${id}"`);
+    // v3.8.729: [이 영역 이미지](veSectionImgBtn) 는 뺐다 — 사장님: "이미 이미지 넣는 버튼이 있으니까 그걸 활용하면 될 것 같아"
+    for (const id of ['veCritiqueBtn', 'veThumbBtn', 'veInsertImageBtn']) expect(e).toContain(`id="${id}"`);
     for (const ch of ['critique-editor-html', 'improve-editor-html', 'generate-editor-image', 'publish-content']) expect(e).toContain(`invoke('${ch}'`);
     expect(e).toContain("kind === 'paste'");
     expect(e).toContain("platformPickable: kind === 'republish' || kind === 'file' || kind === 'paste'");

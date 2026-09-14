@@ -11,9 +11,10 @@
 import {
   diagnosePost, shouldCallAiCritique, buildCritiquePrompt, parseCritiqueIssues, splitSections,
   groupIssuesBySection, buildSectionRevisionPrompt, acceptRevisedSection, isCuttingIssue, applySectionRevisions,
-  scoreIssues, summarizeCritique,
+  scoreIssues, summarizeCritique, issueKey, rewriteAbility, annotateFixability, dropResolvedLookalikes,
 } from './post-critique';
-import type { CritiqueIssue, CompetitorPost } from './post-critique';
+import type { CritiqueIssue, CompetitorPost, PostSection } from './post-critique';
+import { verifySelectedIssues, type SectionChange } from './revision-verification';
 
 /* ────────────────────────────────────────────────────────────────
  * ① 붙여넣은 글을 앱 서식으로
@@ -160,13 +161,23 @@ export async function critiqueDraft(input: {
       if (resolved.length) input.log?.(`   🧾 이미 고친 ${resolved.length}건은 다시 지적하지 않도록 알려줍니다`);
       const raw = await input.callModel(buildCritiquePrompt({ title, html, codeIssues, competitors, resolved }));
       aiIssues = parseCritiqueIssues(raw, splitSections(html).length);
+      /**
+       * v3.8.729 — "다시 말하지 마세요"를 프롬프트로만 맡기지 않는다.
+       * 고친 지적과 말만 다른 AI 지적은 코드가 걸러낸다 (post-critique.dropResolvedLookalikes).
+       */
+      const sieve = dropResolvedLookalikes(aiIssues, resolved);
+      if (sieve.dropped.length) {
+        input.log?.(`   🧾 이미 고친 것과 같은 말인 AI 지적 ${sieve.dropped.length}건을 걸렀습니다: ${sieve.dropped.map((d) => d.title).join(' · ').slice(0, 120)}`);
+        aiIssues = sieve.kept;
+      }
     } catch (error: any) {
       input.log?.(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(error?.message || error).slice(0, 80)}`);
     }
   } else if (!decision.call) {
     input.log?.(`   ✅ ${decision.reason}`);
   }
-  const issues = [...codeIssues, ...aiIssues];
+  // v3.8.729 — 수정 버튼으로 못 고치는 지적에는 그 이유(어느 버튼으로 고치는지)를 붙여 보낸다
+  const issues = annotateFixability([...codeIssues, ...aiIssues]);
   return {
     ok: true,
     title,
@@ -216,17 +227,51 @@ export interface DraftImprovement {
  * 진짜 구멍은 따로 있었다: **고친 뒤 정말 고쳐졌는지 아무도 확인하지 않았다.**
  * 여기서 다시 재고, 아직 남은 것은 숨기지 않고 그대로 알린다.
  */
-function measureRemaining(title: string, html: string, wanted: string[]): string[] {
-  if (!wanted.length) return [];
+function measureRemaining(title: string, html: string, issues: CritiqueIssue[]): CritiqueIssue[] {
+  if (!issues.length) return [];
   try {
-    const now = diagnosePost({ title, html, competitors: [] }).map((issue) => String(issue?.title || ''));
-    return wanted.filter((t) => now.includes(t));
+    // v3.8.729 — 제목이 아니라 이름표(issueKey)로 잰다. `"환급"가 12번` → `9번` 은 같은 지적이다.
+    const now = new Set(diagnosePost({ title, html, competitors: [] }).map(issueKey));
+    return issues.filter((issue) => now.has(issueKey(issue)));
   } catch {
     // 재는 데 실패하면 "고쳤다"고 단정하지 않는다 — 모른다고 두는 편이 정직하다
-    return wanted;
+    return issues;
   }
 }
 
+const plainLength = (html: string): number => String(html || '').replace(/<[^>]+>/g, '').trim().length;
+const plainText = (html: string): string => String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * "앞 절과 같은 말을 합니다" 류는 상대 절을 봐야 고칠 수 있다. 지적 제목에 인용된 소제목으로 상대 절을 찾아
+ * 그 절의 **평문만** 돌려준다 — 글 전체 HTML 을 구간마다 싣던 초안은 비용이 구간 수만큼 곱해졌다.
+ */
+function counterpartText(issue: CritiqueIssue, section: PostSection, sections: PostSection[]): string {
+  if (!/audit-(cross-section-echo|procedure-repeat)|redundancy-repeat/.test(String(issue.id || ''))) return '';
+  const quoted = [...String(issue.title || '').matchAll(/"([^"]{2,60})"/g)].map((m) => m[1]!.trim());
+  const others = sections.filter((s) => s.index !== section.index && plainLength(s.html) > 0);
+  const named = others.filter((s) => quoted.some((q) => s.heading.includes(q) || q.includes(s.heading)));
+  const picked = named.length ? named : others.filter((s) => issue.evidence && plainText(s.html).includes(plainText(issue.evidence).slice(0, 30)));
+  return picked.slice(0, 2).map((s) => `[${s.index === 0 ? '도입부' : s.heading}]\n${plainText(s.html).slice(0, 1400)}`).join('\n\n');
+}
+
+/**
+ * 고른 지적을 반영해 **구간만** 다시 쓴다. 발행하지 않는다.
+ *
+ * ## v3.8.729 — 사장님: "지적을 하면 그 지적한 걸 말끔히 해결해야 되는데 … 똑같은 지적이 또 나와.
+ *                        수정하는데도 API 비용이 들기 때문에 이러면 절대 안 되는데"
+ *
+ * 호출 예산은 정해져 있다: 구간마다 최대 2회(반려·미해결 시 이유를 붙여 한 번 더) + 코드로 못 재는
+ * 지적이 있을 때만 검수 1회. 못 고치는 지적(이미지 0장 등)은 **부르지 않고** 이유를 돌려준다.
+ *
+ * 순서:
+ *   ① 사장님이 직접 적은 요청(user-request-*)이면 글 전체를 한 번에 고치는 manual-revision 으로 보낸다.
+ *   ② 수정으로 못 고치는 지적은 뺀다(호출 0회, skipped 에 이유).
+ *   ③ 구간을 정한다 — 구간 지정 지적은 그 구간, 글 전체 지적은 근거 문장이 있는 구간, 둘 다 없으면 가장 얇은 두 구간.
+ *   ④ 구간마다 고치고 관문(acceptRevisedSection)을 지나면 받는다. 반려면 이유를 붙여 한 번 더.
+ *   ⑤ 코드로 재는 지적은 다시 재서 남았으면 그 구간만 한 번 더(예산 안에서).
+ *   ⑥ 코드로 못 재는 지적은 바뀐 구간만 넘겨 검수 1회 — "표현만 바뀐 것"은 해결로 치지 않는다.
+ */
 export async function improveDraft(input: {
   title: string;
   html: string;
@@ -237,170 +282,179 @@ export async function improveDraft(input: {
   const title = String(input.title || '').trim();
   const previousHtml = String(input.html || '');
   const sections = splitSections(previousHtml);
-  const { bySection, wholePost } = groupIssuesBySection(input.issues || []);
-  /**
-   * 🎯 v3.8.702 — **"글 전체" 지적이 한 구간에만 딸려 들어가던 문제.**
-   *
-   * 사장님: "지적이 7개라서 7건 모두수정 발행버튼눌렀으면 전부 수정해야되는거아니니?
-   *          1개구간만 수정했다뜨고 그대로인데?"
-   *
-   * 예전 규칙은 `bySection.size > 0` 이면 **구간 번호가 붙은 지적만** 대상으로 삼았다.
-   * 고른 7건 중 6건이 "글 전체"(sectionIndex < 0)이고 1건만 구간 지정이면
-   * 대상은 그 한 구간뿐이고, 나머지 6건은 그 구간에 딸려 들어갈 뿐 **본문 나머지에는 닿지 않았다.**
-   * 화면에는 "1개 구간 수정"이라고 뜨는데 사장님은 7건을 고른 상태다 — 어긋난다.
-   *
-   * 글 전체 지적에도 **어디가 문제인지 단서가 있다** — 진단이 붙여 준 근거 문장(evidence)이다.
-   * 그 문장이 들어 있는 구간을 찾아 함께 대상에 넣는다. 근거가 없는 지적은 어쩔 수 없이
-   * 예전처럼 대표 구간에 맡긴다.
-   *
-   * 상한을 두는 이유는 비용이다(구간마다 모델을 부른다). 근거가 많이 걸린 구간부터 채운다.
-   */
-  const MAX_TARGETS = 6;
-  const stripText = (v: unknown) => String(v ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const issues: CritiqueIssue[] = (input.issues || []).filter(Boolean).map((issue, index) => ({
+    ...issue,
+    id: String(issue.id || `request-${index}`),
+    title: String(issue.title || ''),
+    fix: String(issue.fix || issue.detail || ''),
+    // 편집기가 sectionIndex 없이 보내면 undefined < 0 이 false 라 없는 구간을 고치려다 아무것도 안 했다 (v3.8.725~728 실사고)
+    sectionIndex: Number.isInteger(issue.sectionIndex) && sections.some((s) => s.index === issue.sectionIndex)
+      ? issue.sectionIndex : -1,
+  }));
 
-  const evidenceHits = new Map<number, number>();
-  for (const issue of wholePost) {
-    const evidence = stripText((issue as any)?.evidence).slice(0, 60);
-    if (evidence.length < 12) continue;   // 너무 짧으면 아무 구간에나 걸린다
-    for (const section of sections) {
-      if (section.index <= 0) continue;
-      if (stripText(section.html).includes(evidence)) {
-        evidenceHits.set(section.index, (evidenceHits.get(section.index) || 0) + 1);
-      }
-    }
+  // ① 직접 적은 요청은 구간 단위가 아니라 글 전체다 — "도입부를", "마지막 표를" 처럼 위치를 말로 가리킨다
+  if (issues.some((issue) => issue.id.startsWith('user-request-'))) {
+    const { reviseByRequest } = require('./manual-revision');
+    return reviseByRequest({ ...input, title, html: previousHtml, issues });
   }
 
-  const fromEvidence = [...evidenceHits.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([index]) => index);
+  const skipped: string[] = [];
+  const empty: DraftImprovement = {
+    ok: true, html: previousHtml, revised: 0, length: plainLength(previousHtml), skipped, revisedDetail: [],
+    actuallyFixed: [], stillPresent: issues.map((i) => i.title),
+  };
 
-  let targets: number[] = [...new Set([...bySection.keys(), ...fromEvidence])].sort((a, b) => a - b);
+  // ② 다시 써서는 못 고치는 지적 — 부르지 않는다
+  const unfixable = issues.filter((issue) => !rewriteAbility(issue).fixable);
+  for (const issue of unfixable) skipped.push(`${issue.title}: ${rewriteAbility(issue).hint}`);
+  const workable = issues.filter((issue) => rewriteAbility(issue).fixable);
+  if (unfixable.length) input.log?.(`   ⏭️ 수정 버튼으로 못 고치는 지적 ${unfixable.length}건은 부르지 않습니다 (이유를 창에 적습니다)`);
+  if (!workable.length) return empty;
+
+  // ③ 구간 정하기
+  const { bySection, wholePost } = groupIssuesBySection(workable);
+  const evidenceTargets = new Map<string, number[]>();
+  for (const issue of wholePost) {
+    const evidence = plainText(issue.evidence).slice(0, 60);
+    if (evidence.length < 12) continue;   // 너무 짧으면 아무 구간에나 걸린다
+    const hit = sections.filter((s) => s.index > 0 && plainText(s.html).includes(evidence)).map((s) => s.index);
+    if (hit.length) evidenceTargets.set(issue.id, hit.slice(0, 2));
+  }
+  const MAX_TARGETS = 6;
+  let targets = [...new Set([...bySection.keys(), ...[...evidenceTargets.values()].flat()])].sort((a, b) => a - b);
   if (targets.length === 0) {
+    // 근거 문장도 구간도 없는 글 전체 지적뿐이다 — 가장 얇은 두 구간부터 손본다 (v3.8.683 규칙)
     targets = sections.filter((s) => s.index > 0)
-      .sort((a, b) => String(a.html).length - String(b.html).length)
-      .slice(0, 2).map((s) => s.index);
+      .sort((a, b) => plainLength(a.html) - plainLength(b.html))
+      .slice(0, 2).map((s) => s.index).sort((a, b) => a - b);
+    if (targets.length === 0 && sections.length) targets = [sections[0]!.index];
   }
   if (targets.length > MAX_TARGETS) {
-    // 구간 지정 지적을 먼저 지키고, 남는 자리를 근거가 많이 걸린 구간으로 채운다
-    const named = [...bySection.keys()];
-    const rest = fromEvidence.filter((i) => !named.includes(i));
-    targets = [...new Set([...named, ...rest])].slice(0, MAX_TARGETS).sort((a, b) => a - b);
+    skipped.push(`호출 상한으로 ${targets.length - MAX_TARGETS}개 구간은 이번에 손대지 않았습니다 — 다시 비평해 이어서 고치세요.`);
+    targets = [...new Set([...bySection.keys(), ...targets])].slice(0, MAX_TARGETS).sort((a, b) => a - b);
   }
-  input.log?.(`   🎯 고친 지적 ${(input.issues || []).length}건 → 손볼 구간 ${targets.length}개`
-    + `${wholePost.length ? ` (글 전체 지적 ${wholePost.length}건은 근거 문장이 있는 구간으로 내려보냅니다)` : ''}`);
-  const plain = (v: string) => String(v || '').replace(/<[^>]+>/g, '').trim().length;
-  const revisions: { index: number; html: string }[] = [];
-  const skipped: string[] = [];
-  const revisedDetail: DraftImprovement['revisedDetail'] = [];
-  for (let i = 0; i < targets.length; i += 1) {
-    const index = targets[i]!;
-    const section = sections.find((s) => s.index === index);
-    if (!section) continue;
-    input.log?.(`[PROGRESS] ${10 + Math.floor((i / targets.length) * 75)}% - ✍️ ${i + 1}/${targets.length} "${String(section.heading).slice(0, 26)}" 구간을 고치는 중…`);
-    const sectionIssues = [...(bySection.get(index) || []), ...wholePost];
-    const cutting = sectionIssues.some((it) => isCuttingIssue(it));
+  /** 이 구간에 붙는 지적 — 구간 지정 + 근거가 이 구간에 있는 글 전체 지적 + 근거 없는 글 전체 지적(모든 구간에) */
+  const issuesFor = (index: number): CritiqueIssue[] => [
+    ...(bySection.get(index) || []),
+    ...wholePost.filter((issue) => {
+      const at = evidenceTargets.get(issue.id);
+      return at ? at.includes(index) : true;
+    }),
+  ];
+  input.log?.(`   🎯 고칠 지적 ${workable.length}건 → 손볼 구간 ${targets.length}개${wholePost.length ? ` (글 전체 지적 ${wholePost.length}건은 근거 문장이 있는 구간으로 내려보냅니다)` : ''}`);
+
+  // ④ 구간마다 고친다 — 반려면 이유를 붙여 한 번 더. 구간당 예산 2회.
+  const revisions = new Map<number, string>();
+  const attempts = new Map<number, number>();
+  const revisedIssues = new Map<number, string[]>();
+  const revise = async (index: number, current: string, selected: CritiqueIssue[], note: string): Promise<boolean> => {
+    const live = splitSections(current);
+    const section = live.find((s) => s.index === index);
+    if (!section || selected.length === 0 || (attempts.get(index) || 0) >= 2) return false;
+    attempts.set(index, (attempts.get(index) || 0) + 1);
+    const contextText = selected.map((issue) => counterpartText(issue, section, live)).filter(Boolean).join('\n\n');
+    const basePrompt = buildSectionRevisionPrompt({
+      title, section,
+      issues: selected.filter((issue) => issue.sectionIndex === index),
+      wholePostIssues: selected.filter((issue) => issue.sectionIndex !== index),
+      ...(contextText ? { contextText } : {}),
+    });
+    const prompt = note ? `${basePrompt}\n\n${note}` : basePrompt;
+    const gate = {
+      cutting: selected.some(isCuttingIssue),
+      allowAnswerEdit: selected.some((issue) => issue.area === 'answer' || /답 상자|판정문|답변|FAQ/.test(issue.title)),
+    };
     try {
-      const basePrompt = buildSectionRevisionPrompt({ title, section, issues: bySection.get(index) || [], wholePostIssues: wholePost });
-      let raw = await input.callModel(basePrompt);
-      let verdict = acceptRevisedSection(raw, section, { cutting });
-
-      /**
-       * 🔁 v3.8.693 — 규칙을 어겼으면 **한 번 더 시킨다. 어긴 이유를 알려주고.**
-       *
-       * 사장님: "비평개선해서 고치고 다시 비평누르면 똑같은 지적이 또뜨는데 …
-       *          한번 수정할떄 확실하게 수정되게하라고"
-       *
-       * 예전에는 한 번 시켜 보고 규칙(분량·이미지·링크·주소 유지)을 어기면 **그냥 포기**하고
-       * 원본을 그대로 뒀다. 그러면 그 구간의 지적은 다음 비평에 **반드시 또 나온다** —
-       * 고쳐진 게 없으니까. 사장님이 겪은 무한루프가 이것이다.
-       *
-       * 모델은 무엇을 어겼는지 모른 채 한 번에 끝내야 했다. 어긴 이유를 붙여 다시 시키면
-       * 대개 두 번째에 통과한다. 추가 호출은 **실패했을 때만** 1회다(성공하면 0회).
-       */
-      if (!verdict.accepted) {
-        input.log?.(`   ↻ "${String(section.heading).slice(0, 20)}" 1차 거절(${verdict.reason}) — 이유를 알려주고 한 번 더`);
-        const retryPrompt = `${basePrompt}
-
-# ⚠️ 방금 쓴 답이 반려됐습니다 — 이유: ${verdict.reason}
+      const raw = await input.callModel(prompt);
+      const verdict = acceptRevisedSection(raw, section, gate);
+      if (verdict.accepted) {
+        revisions.set(index, verdict.html);
+        revisedIssues.set(index, [...new Set([...(revisedIssues.get(index) || []), ...selected.map((i) => i.title)])]);
+        return true;
+      }
+      if (verdict.reason === '바뀐 것이 없습니다') {
+        // 같은 답을 또 사지 않는다
+        attempts.set(index, 2);
+        skipped.push(`${section.heading}: 모델이 바꾼 것이 없습니다`);
+        return false;
+      }
+      if ((attempts.get(index) || 0) < 2) {
+        input.log?.(`   ↻ "${String(section.heading).slice(0, 20)}" 1차 반려(${verdict.reason}) — 이유를 알려주고 한 번 더`);
+        return revise(index, current, selected, `# ⚠️ 방금 쓴 답이 반려됐습니다 — 이유: ${verdict.reason}
 다시 쓰되 이번에는 아래를 반드시 지키세요.
 · 원문의 이미지(<img>)와 링크(<a>)를 하나도 빼지 마세요. 개수가 줄면 또 반려됩니다.
 · 분량을 원문보다 줄이지 마세요. 지적을 반영하되 문장을 덜어내지 말고 고쳐 쓰세요.
 · 본문에 글자로 적힌 주소(https://…)는 공백 없이 그대로 두세요.
-· 소제목(<h2>·<h3>)과 답변 블록은 원문 그대로 두세요.`;
-        raw = await input.callModel(retryPrompt);
-        verdict = acceptRevisedSection(raw, section, { cutting });
+· 소제목(<h2>·<h3>)은 원문 그대로 두세요.`);
       }
-
-      if (verdict.accepted) {
-        revisions.push({ index, html: verdict.html });
-        revisedDetail.push({ index, heading: String(section.heading || ''), before: plain(section.html), after: plain(verdict.html), issues: sectionIssues.map((it) => String(it?.title || '')).filter(Boolean) });
-      } else {
-        // 두 번 다 어겼다 — 여기서 멈춘다. 세 번째는 값어치보다 비용이 크다.
-        skipped.push(`${section.heading}: ${verdict.reason} (2회 시도)`);
-      }
+      skipped.push(`${section.heading}: ${verdict.reason} (2회 시도)`);
+      return false;
     } catch (error: any) {
-      skipped.push(`${section.heading}: ${String(error?.message || error).slice(0, 80)}`);
+      skipped.push(`${section.heading}: ${String(error?.message || error).slice(0, 100)}`);
+      return false;
     }
+  };
+  const assembled = () => applySectionRevisions(previousHtml, [...revisions].map(([index, html]) => ({ index, html })));
+
+  for (let i = 0; i < targets.length; i += 1) {
+    const index = targets[i]!;
+    const heading = sections.find((s) => s.index === index)?.heading || `구간 ${index}`;
+    input.log?.(`[PROGRESS] ${10 + Math.floor((i / targets.length) * 70)}% - ✍️ ${i + 1}/${targets.length} "${String(heading).slice(0, 26)}" 구간을 고치는 중…`);
+    await revise(index, assembled(), issuesFor(index), '');
   }
-  let html = revisions.length ? applySectionRevisions(previousHtml, revisions) : previousHtml;
+  let html = assembled();
 
-  /**
-   * ✅ v3.8.700 — **고쳤다고 말하기 전에 다시 잰다.**
-   *
-   * 사장님: "지적한걸 수정하고 다시비평을했는데 또 똑같은 지적이 나오면 어쩌란거냐고
-   *          이거 고치랫는데 왜안고치냐 한번고칠때 완벽히 고쳐야되는거아니니?"
-   *
-   * 코드 진단은 프롬프트로 입막음이 안 된다(measureRemaining 주석 참고).
-   * 그러니 고친 본문을 다시 재서, 아직 남은 지적이 있으면 **그 구간만 한 번 더** 고친다.
-   * 이번에는 "이 지적이 아직 남아 있다"는 사실과 진단이 준 처방을 함께 준다 —
-   * 무엇이 부족한지 모른 채 다시 쓰면 같은 결과가 나온다.
-   */
-  const wanted = [...new Set((input.issues || []).map((it) => String(it?.title || '')).filter(Boolean))];
-  let stillPresent = measureRemaining(title, html, wanted);
-
-  if (stillPresent.length && revisions.length) {
-    input.log?.(`[PROGRESS] 88% - 🔁 아직 남은 지적 ${stillPresent.length}건 — 그 구간만 한 번 더 고칩니다`);
-    const stuck = (input.issues || []).filter((it) => stillPresent.includes(String(it?.title || '')));
-    const retryTargets = [...new Set(stuck
-      .map((it) => (Number.isInteger(it?.sectionIndex) && it.sectionIndex >= 0 ? it.sectionIndex : null))
-      .filter((v): v is number => v !== null))];
-
-    const freshSections = splitSections(html);
-    const extra: { index: number; html: string }[] = [];
-    for (const index of retryTargets) {
-      const section = freshSections.find((s) => s.index === index);
-      if (!section) continue;
-      const sectionStuck = stuck.filter((it) => it.sectionIndex === index);
-      const prompt = `${buildSectionRevisionPrompt({ title, section, issues: sectionStuck, wholePostIssues: [] })}
-
-# ⚠️ 이 지적들은 방금 고쳤는데도 **그대로 남아 있습니다**
-${sectionStuck.map((it) => `· ${it.title}\n  처방: ${String(it.fix || '').slice(0, 160)}`).join('\n')}
+  // ⑤ 코드로 재는 지적은 다시 잰다 — 남았으면 그 구간만 한 번 더 (구간당 예산 안에서)
+  const baselineKeys = new Set(diagnosePost({ title, html: previousHtml, competitors: [] }).map(issueKey));
+  const codeIssues = workable.filter((issue) => issue.origin === 'code' && baselineKeys.has(issueKey(issue)));
+  const semanticIssues = workable.filter((issue) => !codeIssues.includes(issue));
+  let remaining = measureRemaining(title, html, codeIssues);
+  if (remaining.length && revisions.size) {
+    input.log?.(`[PROGRESS] 82% - 🔁 아직 남은 지적 ${remaining.length}건 — 그 구간만 한 번 더 고칩니다`);
+    for (const index of targets) {
+      const stuck = issuesFor(index).filter((issue) => remaining.some((r) => issueKey(r) === issueKey(issue)));
+      if (!stuck.length || (attempts.get(index) || 0) >= 2) continue;
+      const changed = await revise(index, html, stuck, `# ⚠️ 이 지적들은 방금 고쳤는데도 **그대로 남아 있습니다**
+${stuck.map((it) => `· ${it.title}\n  처방: ${String(it.fix || '').slice(0, 160)}`).join('\n')}
 말을 바꾸는 것으로는 안 됩니다. 지적이 가리키는 **그 부분을 실제로 손보세요**
-(겹치는 문장은 지우고, 근거를 못 찾으면 그 주장을 빼고, 답이 어긋나면 답을 다시 쓰세요).`;
-      try {
-        const raw = await input.callModel(prompt);
-        const verdict = acceptRevisedSection(raw, section, { cutting: sectionStuck.some((it) => isCuttingIssue(it)) });
-        if (verdict.accepted) extra.push({ index, html: verdict.html });
-        else skipped.push(`${section.heading}: 재시도도 규칙 위반(${verdict.reason})`);
-      } catch (error: any) {
-        skipped.push(`${section.heading}: 재시도 실패(${String(error?.message || error).slice(0, 60)})`);
+(겹치는 문장은 지우고, 근거를 못 찾으면 그 주장을 빼고, 답이 어긋나면 답을 다시 쓰세요).`);
+      if (changed) {
+        html = assembled();
+        remaining = measureRemaining(title, html, codeIssues);
+        if (!remaining.length) break;
       }
     }
-    if (extra.length) {
-      html = applySectionRevisions(html, extra);
-      stillPresent = measureRemaining(title, html, wanted);
-    }
   }
 
-  const actuallyFixed = wanted.filter((t) => !stillPresent.includes(t));
-  if (stillPresent.length) {
-    input.log?.(`   ⚠️ 두 번 고쳤는데도 남은 지적 ${stillPresent.length}건 — 화면에 그대로 알립니다`);
+  // ⑥ 코드로 못 재는 지적은 검수 1회 — 바뀐 구간만 넘긴다 (표현만 바뀐 것은 해결이 아니다)
+  let verified: string[] = [];
+  if (revisions.size && semanticIssues.length) {
+    const after = splitSections(html);
+    const changes: SectionChange[] = [...revisions.keys()].map((index) => ({
+      heading: sections.find((s) => s.index === index)?.heading || `구간 ${index}`,
+      before: plainText(sections.find((s) => s.index === index)?.html || ''),
+      after: plainText(after.find((s) => s.index === index)?.html || ''),
+    }));
+    input.log?.('[PROGRESS] 90% - 🔎 코드로 못 재는 지적은 바뀐 구간만 넘겨 검수합니다 (1회)');
+    verified = await verifySelectedIssues({ title, changes, issues: semanticIssues, callModel: input.callModel });
   }
 
-  return {
-    ok: true, html, revised: revisions.length, length: plain(html), skipped, revisedDetail,
-    actuallyFixed, stillPresent,
-  };
+  const fixedKeys = new Set([
+    ...codeIssues.filter((issue) => revisions.size > 0 && !remaining.some((r) => issueKey(r) === issueKey(issue))).map(issueKey),
+    ...semanticIssues.filter((issue) => verified.includes(issue.id)).map(issueKey),
+  ]);
+  const actuallyFixed = workable.filter((issue) => fixedKeys.has(issueKey(issue))).map((issue) => issue.title);
+  const stillPresent = issues.filter((issue) => !fixedKeys.has(issueKey(issue))).map((issue) => issue.title);
+  if (stillPresent.length) input.log?.(`   ⚠️ 고친 뒤에도 남은 지적 ${stillPresent.length}건 — 화면에 그대로 알립니다`);
+
+  const revisedDetail = [...revisions].map(([index, changed]) => ({
+    index,
+    heading: sections.find((s) => s.index === index)?.heading || '',
+    before: plainLength(sections.find((s) => s.index === index)?.html || ''),
+    after: plainLength(changed),
+    issues: revisedIssues.get(index) || [],
+  }));
+  return { ok: true, html, revised: revisions.size, length: plainLength(html), skipped, revisedDetail, actuallyFixed, stillPresent };
 }
 
 /* ────────────────────────────────────────────────────────────────

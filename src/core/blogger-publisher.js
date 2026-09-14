@@ -1,4 +1,6 @@
 const { GoogleAuth } = require('google-auth-library');
+// v3.8.729 — 밖에서 가져온 HTML 의 스킨을 지킨다 (style-preservation.ts)
+const { shouldPreserveOriginalStyles, flattenDocumentForPost } = require('./final/style-preservation');
 
 // Blogger 에러 타입 정의
 const BLOGGER_ERROR_TYPES = {
@@ -683,6 +685,7 @@ function preCleanupBloggerBody(html) {
 
 function applyInlineStyles(html) {
   if (!html) return html;
+  if (shouldPreserveOriginalStyles(html)) return html;
   console.log(`[BODY-TRACE] applyInlineStyles 진입: ${(html || '').length}자`);
 
   try {
@@ -2668,6 +2671,19 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
 
   title = repairBrokenText('Blogger title', title);
   html = repairBrokenText('Blogger content', html);
+  /**
+   * 🎨 v3.8.729 — 밖에서 가져온 HTML(파일·붙여넣기)은 앱 스킨을 씌우지 않는다 (style-preservation.ts).
+   * 사장님: "외부에서 가져온 스킨을 그대로 쓰게 냅둬. 충돌하니까 스킨이 이상해지고 깨져 버려"
+   * 통째 문서면 head 의 스타일시트만 살리고 body 만 본문으로 편다 — <title>·<meta> 가 본문에 박히지 않게.
+   */
+  const preserveOriginalStyles = shouldPreserveOriginalStyles(html, payload?.preserveOriginalStyles);
+  if (preserveOriginalStyles) {
+    const flat = flattenDocumentForPost(html);
+    if (flat.flattened) {
+      html = flat.html;
+      onLog?.('[PUBLISH] 🎨 통째 문서를 본문 모양으로 폈습니다 (head 의 <style>·stylesheet 만 유지)');
+    }
+  }
 
   const textLength = calculateTextLength(html).length;
   const htmlLength = html?.length || 0;
@@ -3514,6 +3530,16 @@ async function publishToBlogger(payload, title, html, thumbnailUrl, onLog, posti
     // 중요: replies 필드는 Blogger API v3에서 지원하지 않거나 다른 형식이 필요함
     // replies 필드를 제거하여 400 오류 방지
 
+    // Styled imports bypass the app's reset CSS, wrappers and inline restyling.
+    // Sanitization, image hosting and platform validation still run below.
+    let finalHtmlContent = html;
+    if (preserveOriginalStyles && processedThumbnailUrl && !html.includes(processedThumbnailUrl)) {
+      const thumbSrc = processedThumbnailUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      const thumbAlt = title.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      finalHtmlContent = `<div class="separator"><img src="${thumbSrc}" alt="${thumbAlt}" /></div>\n${html}`;
+    }
+    if (preserveOriginalStyles) onLog?.('[PUBLISH] 원본 HTML 스타일 보존');
+    if (!preserveOriginalStyles) {
     // ⚠️ 중요: CSS 보호 및 HTML 크기 제한 (CSS는 절대 잘리지 않도록)
     // 1. CSS 추출 (style 태그 내용)
     let cssContent = '';
@@ -4269,7 +4295,7 @@ html body .content-inner {
     }
 
     // ⚠️ 최종 HTML 조립 (더 안전한 Blogger HTML 구조)
-    let finalHtmlContent = '';
+    finalHtmlContent = '';
 
     // Blogger에서 HTML을 제대로 렌더링하기 위한 안전한 구조 + Schema.org BlogPosting Microdata
     const safeTitle = (title || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -4543,6 +4569,8 @@ html body .content-inner {
       }
     }
 
+    } // App styling only; author styles keep their original order and attributes.
+
     // 🛡️ [안전 최우선] HTML 태그 검증 - 자동 수정 없음 (텍스트 손상 방지)
     const tagWarnings = [];
     const selfClosingTags = new Set(['img', 'br', 'hr', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'source', 'track', 'wbr']);
@@ -4695,6 +4723,7 @@ html body .content-inner {
     // 모든 텍스트 요소에 인라인 스타일을 추가하여 무조건 보이도록 함
     // ⚠️ responsiveLayoutCSS 제거됨 — Blogger가 <div> 내부의 <style> 태그를 strip하여
     //    CSS 텍스트가 본문에 노출되는 버그 수정 (applyInlineStyles()의 CSS가 이미 충분)
+    if (!preserveOriginalStyles) {
     console.log('[PUBLISH] 🔥 인라인 스타일 강제 주입 시작...');
 
     // v3.8.24: 이미 inline style을 가진 요소는 LLM/저자 의도 보존 — publisher가 덮어쓰지 않음.
@@ -4822,6 +4851,8 @@ html body .content-inner {
       }
     }
 
+    } // Do not merge media-scoped style blocks or wrap imported sections in cards.
+
     // 3. HTML 태그 불일치 검증 (안전 모드 - 자동 수정 없음)
     commonTags.forEach(tag => {
       const openTags = (finalHtmlContent.match(new RegExp(`<${tag}[^>]*>`, 'gi')) || []).length;
@@ -4901,6 +4932,7 @@ html body .content-inner {
 
     // === 1. FAQ 섹션 자동 생성 (H2에서 Q&A 추출, FAQPage schema 포함) ===
     // 🛡️ 중복 방지: 콘텐츠 생성 단계에서 이미 FAQ가 포함된 경우 스킵
+    if (!preserveOriginalStyles) {
     const hasFaqAlready = /자주\s*묻는\s*질문|FAQ/i.test(finalHtmlContent);
     if (hasFaqAlready) {
       console.log(`[PUBLISH] ✅ [FAQ] 콘텐츠에 이미 FAQ 섹션이 포함되어 있습니다. 중복 생성 스킵.`);
@@ -5017,6 +5049,8 @@ html body .content-inner {
         console.log(`[PUBLISH] ✅ [NUCLEAR] <img>(${firstImgIdx})가 이미 <style>(${firstStyleIdx})보다 앞에 있음 → 추가 삽입 불필요`);
       }
     }
+
+    } // Imported articles do not acquire app FAQ cards, banners or duplicate image layouts.
 
     // 🛡️ S-7 (v3.5.84): 발행 직전 콘텐츠 sanitizer
     //   data:image/ 잔존 시 1MB 폭주 → Blogger 400. 이미지 호스팅 6단계 폴백 모두 실패 시 잔존 가능.
@@ -5654,7 +5688,7 @@ html body .content-inner {
       // 🛡️ S-8 (v3.5.84): API 호출 직전 인라인 스타일 적용 (Blogger 테마 무시)
       //   기존: 위에서 1-2회 호출 + 여기서 또 1회 = 최대 3회 중복 → 콘텐츠 크기 폭증, 500KB 제한 직격
       //   변경: 같은 함수가 idempotent하지 않으므로, "max-mode-article 클래스 + bgpt-inline-applied 마커"가 있으면 skip
-      if (body.content && !body.content.includes('data-bgpt-inline-applied="true"')) {
+      if (!preserveOriginalStyles && body.content && !body.content.includes('data-bgpt-inline-applied="true"')) {
         console.log('[PUBLISH] 🔥 [긴급] 강제 인라인 스타일 적용 시작 (테마 CSS 무시)');
         onLog?.('[PUBLISH] 🔥 강제 인라인 스타일 적용 중... (테마 호환성 강화)');
         body.content = applyInlineStyles(body.content);
@@ -6717,6 +6751,4 @@ module.exports = {
   listBloggerPosts,
   updateBloggerPost,
 };
-
-
 

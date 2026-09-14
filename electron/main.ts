@@ -5230,12 +5230,19 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
           }
         }
         aiIssues = critique.parseCritiqueIssues(raw, sectionCount);
+        // v3.8.729 — 고친 지적과 말만 다른 AI 지적은 코드가 걸러낸다 (편집기 경로와 같은 체)
+        const sieve = critique.dropResolvedLookalikes(aiIssues, alreadyFixed);
+        if (sieve.dropped.length) {
+          send(`   🧾 이미 고친 것과 같은 말인 AI 지적 ${sieve.dropped.length}건을 걸렀습니다: ${sieve.dropped.map((d: any) => d.title).join(' · ').slice(0, 120)}`);
+          aiIssues = sieve.kept;
+        }
       } catch (critiqueError: any) {
         send(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(critiqueError?.message || critiqueError).slice(0, 80)}`);
       }
     }
 
-    const rawIssues = [...codeIssues, ...aiIssues];
+    // v3.8.729 — 수정 버튼으로 못 고치는 지적에는 어느 버튼으로 고치는지를 붙인다
+    const rawIssues = critique.annotateFixability([...codeIssues, ...aiIssues]);
     const sections = critique.splitSections(html).map((s: any) => ({
       index: s.index,
       heading: s.heading,
@@ -5308,7 +5315,6 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
 
     const critique = require('../dist/core/final/post-critique');
     const history = require('../dist/core/final/critique-history');
-    const { callGeminiWithRetry } = require('../dist/core/final/gemini-engine');
     const envData = loadEnvFromFile() as any;
     const creds = loadPlatformCredsFromEnv(envData, { platform: args?.platform as any });
     const axios = (await import('axios')).default;
@@ -5321,79 +5327,17 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     const previousHtml = String(current.content || '');
     const title = String(args?.title || current.title || '').trim();
 
-    const sections = critique.splitSections(previousHtml);
-    const { bySection, wholePost } = critique.groupIssuesBySection(selected);
-
-    // 구간별 지적이 없고 글 전체 지적만 있으면, 가장 얇은 구간부터 손본다.
-    const targets: number[] = bySection.size > 0
-      ? [...bySection.keys()].sort((a: number, b: number) => a - b)
-      : sections
-        .filter((s: any) => s.index > 0)
-        .sort((a: any, b: any) => String(a.html).length - String(b.html).length)
-        .slice(0, 2)
-        .map((s: any) => s.index);
-
-    if (targets.length === 0) return { ok: false, error: '고칠 구간을 정하지 못했습니다.' };
-
-    const revisions: { index: number; html: string }[] = [];
-    const skipped: string[] = [];
-    /**
-     * v3.8.622 — 무엇을 어떻게 고쳤는지 **모달에 그대로 보여주려고** 모은다.
-     * 사장님: "고쳤으면 결과도 모달에 보여줘야"
-     * 로그 한 줄로 흘려보내면 다음 비평에서 새 지적이 왜 나왔는지 이어 붙일 수가 없다.
-     */
-    const revisedDetail: { index: number; heading: string; before: number; after: number; issues: string[] }[] = [];
-    const plain = (value: string): number => String(value || '').replace(/<[^>]+>/g, '').trim().length;
-
-    for (let i = 0; i < targets.length; i += 1) {
-      const index = targets[i]!;
-      const section = sections.find((s: any) => s.index === index);
-      if (!section) continue;
-
-      const percent = 10 + Math.floor((i / targets.length) * 75);
-      send(`[PROGRESS] ${percent}% - ✍️ ${i + 1}/${targets.length} "${String(section.heading).slice(0, 26)}" 구간을 고치는 중…`);
-
-      // v3.8.623 — 되풀이·얼버무림처럼 빼는 게 답인 지적이 붙었으면 이 구간은 짧아져도 된다
-      const sectionIssues = [...(bySection.get(index) || []), ...wholePost];
-      const cutting = sectionIssues.some((it: any) => critique.isCuttingIssue(it));
-
-      try {
-        const raw = await callGeminiWithRetry(
-          critique.buildSectionRevisionPrompt({
-            title,
-            section,
-            issues: bySection.get(index) || [],
-            wholePostIssues: wholePost,
-          }),
-          1,
-          { timeoutMs: 180000 },
-        );
-        const verdict = critique.acceptRevisedSection(raw, section, { cutting });
-        if (verdict.accepted) {
-          revisions.push({ index, html: verdict.html });
-          revisedDetail.push({
-            index,
-            heading: String(section.heading || ''),
-            before: plain(section.html),
-            after: plain(verdict.html),
-            issues: sectionIssues.map((it: any) => String(it?.title || '')).filter(Boolean),
-          });
-        } else {
-          skipped.push(`${section.heading}: ${verdict.reason}`);
-          send(`   ⚠️ "${String(section.heading).slice(0, 20)}" 구간은 그대로 둡니다 — ${verdict.reason}`);
-        }
-      } catch (sectionError: any) {
-        const reason = String(sectionError?.message || sectionError).slice(0, 80);
-        skipped.push(`${section.heading}: ${reason}`);
-        send(`   ⚠️ "${String(section.heading).slice(0, 20)}" 구간 실패 — 원본을 그대로 둡니다 (${reason})`);
-      }
+    const { improveDraft } = require('../dist/core/final/editor-draft');
+    const improvement = await improveDraft({
+      title, html: previousHtml, issues: selected,
+      callModel: (prompt: string) => callEditorModel(args?.payload, prompt, send, 180000),
+      log: send,
+    });
+    const { revisedDetail, skipped, actuallyFixed, stillPresent } = improvement;
+    if (improvement.revised === 0) {
+      return { ...improvement, ok: false, error: `고쳐 쓴 구간이 하나도 없습니다. 기존 글은 그대로입니다.\n${skipped.join('\n')}` };
     }
-
-    if (revisions.length === 0) {
-      return { ok: false, error: `고쳐 쓴 구간이 하나도 없습니다. 기존 글은 그대로입니다.\n${skipped.join('\n')}` };
-    }
-
-    const nextHtml = critique.applySectionRevisions(previousHtml, revisions);
+    const nextHtml = improvement.html;
     const verdict = critique.judgeImproved(nextHtml, previousHtml, {
       cutting: selected.some((it: any) => critique.isCuttingIssue(it)),
     });
@@ -5404,7 +5348,7 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
 
     send('[PROGRESS] 92% - 💾 같은 주소에 수정 발행 중...');
     await adapter.updatePost(postId, { content: nextHtml });
-    send(`[PROGRESS] 100% - ✅ 개선 발행 완료 (${revisions.length}개 구간 · ${verdict.length}자)`);
+    send(`[PROGRESS] 100% - ✅ 개선 발행 완료 (${improvement.revised}개 구간 · ${verdict.length}자)`);
 
     /**
      * v3.8.622 — 무엇을 고쳤는지 이력에 남긴다.
@@ -5415,8 +5359,8 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     try {
       const file = history.loadHistoryFile(critiqueHistoryPath());
       history.saveHistoryFile(critiqueHistoryPath(), history.recordApplied(file, postId, {
-        issues: selected,
-        revisedSections: revisions.map((r) => r.index),
+        issues: selected.filter((issue: any) => actuallyFixed.includes(issue.title)),
+        revisedSections: revisedDetail.map((r: any) => r.index),
         skipped,
       }));
     } catch (historyError: any) {
@@ -5425,7 +5369,8 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
 
     return {
       ok: true,
-      revised: revisions.length,
+      revised: improvement.revised,
+      actuallyFixed, stillPresent,
       revisedDetail,
       skipped,
       length: verdict.length,

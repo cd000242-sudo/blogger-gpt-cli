@@ -2102,6 +2102,7 @@ export async function publishGeneratedContent(
         const result = await publisher.publish({
           title,
           content: html,
+          preserveOriginalStyles: payload?.preserveOriginalStyles,
           featuredImageUrl: thumbnailUrl, // 🔥 썸네일 주소 전달
           // v3.8.490: 대표 이미지가 안 붙으면 조용히 넘어가지 않고 알린다
           onLog: (msg: string) => { try { (onLog as any)?.(msg); } catch { console.log(msg); } },

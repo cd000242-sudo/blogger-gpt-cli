@@ -29,11 +29,15 @@ const modal = read('electron/ui/modules/post-critique-modal.js');
 const editor = read('electron/ui/modules/editor.js');
 const main = read('electron/main.ts');
 
+/**
+ * v3.8.729 에서 improveDraft 가 다시 짜였다(구간당 예산 2회 + 코드로 못 재는 지적만 검수 1회).
+ * 동작 검증은 실제로 돌리는 v3-8-729-fix-loop-and-manual-request.test.ts 가 맡고,
+ * 여기서는 "반려되면 이유를 붙여 한 번 더 · 세 번째는 없다"는 뼈대가 남아 있는지만 본다.
+ */
 describe('① 한 번 고칠 때 확실하게 — 거절되면 이유를 알려주고 다시 시킨다', () => {
   const fn = draft.slice(draft.indexOf('export async function improveDraft'));
 
   test('⭐ 1차가 거절되면 재시도한다 (예전엔 그냥 포기했다)', () => {
-    expect(fn).toContain('if (!verdict.accepted) {');
     // 재시도 프롬프트에 **어긴 이유**가 들어가야 한다 — 안 알려주면 또 같은 실수를 한다
     expect(fn).toContain('반려됐습니다 — 이유: ${verdict.reason}');
   });
@@ -46,38 +50,25 @@ describe('① 한 번 고칠 때 확실하게 — 거절되면 이유를 알려�
   });
 
   test('⭐ 성공하면 추가 호출이 없다 — 비용은 실패했을 때만 든다', () => {
-    // 첫 호출 → 판정 → (실패일 때만) 두 번째 호출 순서여야 한다
-    const first = fn.indexOf('let raw = await input.callModel(basePrompt)');
-    const judge = fn.indexOf('let verdict = acceptRevisedSection');
-    const guard = fn.indexOf('if (!verdict.accepted) {');
-    const second = fn.indexOf('raw = await input.callModel(retryPrompt)');
+    // 호출 → 판정 → (반려일 때만) 이유를 붙여 재귀 호출 순서여야 한다
+    const first = fn.indexOf('const raw = await input.callModel(prompt)');
+    const judge = fn.indexOf('const verdict = acceptRevisedSection(raw, section, gate)');
+    const guard = fn.indexOf("if ((attempts.get(index) || 0) < 2) {");
     expect(first).toBeGreaterThan(-1);
     expect(judge).toBeGreaterThan(first);
     expect(guard).toBeGreaterThan(judge);
-    expect(second).toBeGreaterThan(guard);
   });
 
-  /**
-   * v3.8.700 에서 호출 자리가 하나 늘었다 — **비용이 느는 변경이라 의도를 여기 못 박는다.**
-   *
-   * 사장님 요구가 둘이고 서로 당긴다:
-   *   "이것도 비용이 청구되는데"      → 적게 부를 것
-   *   "한번 수정할때 확실하게"        → 정말 고쳐질 것
-   *
-   * 그래서 **필요할 때만** 는다. 사다리는 정확히 세 칸이고 네 칸째는 없다:
-   *   ① 첫 시도                       (늘 1회)
-   *   ② 규칙 위반이면 이유를 주고 재시도 (실패했을 때만)
-   *   ③ 지적이 아직 남았으면 그 구간만  (남았을 때만, 구간 단위)
-   * 잘 고쳐지면 ②③ 은 돌지 않으므로 평소 비용은 예전과 같다.
-   */
-  test('⭐ 사다리는 세 칸까지다 — 네 번째는 없다', () => {
+  test('⭐ 사다리는 구간당 두 칸까지다 — 세 번째는 없다', () => {
     expect(fn).toContain('(2회 시도)');
-    expect((fn.match(/await input\.callModel\(/g) || []).length).toBe(3);
+    expect(fn).toContain("(attempts.get(index) || 0) >= 2) return false");
+    // 같은 답을 또 사지 않는다
+    expect(fn).toContain("verdict.reason === '바뀐 것이 없습니다'");
   });
 
-  test('⭐ ②③ 은 조건이 맞을 때만 돈다 — 평소 비용은 그대로다', () => {
-    expect(fn).toContain('if (!verdict.accepted) {');          // ② 규칙 위반일 때만
-    expect(fn).toContain('if (stillPresent.length && revisions.length) {');   // ③ 남았을 때만
+  test('⭐ 남은 지적 재시도와 검수는 조건이 맞을 때만 돈다 — 평소 비용은 그대로다', () => {
+    expect(fn).toContain('if (remaining.length && revisions.size) {');       // 코드 진단이 남았을 때만
+    expect(fn).toContain('if (revisions.size && semanticIssues.length) {');  // 못 재는 지적이 있고 바뀐 구간이 있을 때만
   });
 });
 

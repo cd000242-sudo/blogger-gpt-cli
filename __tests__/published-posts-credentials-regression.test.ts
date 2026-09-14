@@ -73,6 +73,7 @@ describe('생성된 글목록 자격증명 회귀 가드', () => {
     const payloadCalls = source.match(/buildPlatformPayload\(platform\.key\)/g) || [];
     expect(payloadCalls.length).toBeGreaterThanOrEqual(3);
     expect(source).toContain('window.__buildPublishedPlatformPayload = (platformKey) => buildPlatformPayload(platformKey);');
-    expect(editor).toContain('payload: await platformPayloadFor(session.kind),');
+    // v3.8.729: 스킨 보존 표(skinFlag)를 함께 싣는다 — 자격증명 payload 는 그대로 펼쳐 넘긴다
+    expect(editor).toContain('payload: { ...(await platformPayloadFor(session.kind)), ...skinFlag },');
   });
 });
