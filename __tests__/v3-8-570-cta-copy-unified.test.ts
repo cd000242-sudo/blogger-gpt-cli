@@ -174,7 +174,8 @@ describe('④ 문구를 만드는 자리가 전부 한 창구를 지난다', () 
   });
 
   test('마지막 문에 그물이 있다 — 새 경로가 생겨도 제목 훅은 못 나간다', () => {
-    expect(orch).toContain("import { buildCtaCopy, hookEchoesTitle } from '../../cta/cta-copy'");
+    // v3.8.730: 버튼이 다른 기관을 말하면 주소 기준으로 다시 짓기 위해 이름 사전도 가져온다
+    expect(orch).toContain("import { buildCtaCopy, hookEchoesTitle, siteNameFromUrl, ctaSiteNames } from '../../cta/cta-copy'");
     expect(orch).toContain('hookEchoesTitle(hookingMessage, articleTitle)');
     // 버튼도 같이 맞춘다 — 둘이 따로 놀면 안 된다
     expect(orch).toContain('if (hookEchoesTitle(buttonText, articleTitle)) buttonText = repaired.buttonText;');

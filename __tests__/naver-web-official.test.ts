@@ -112,7 +112,7 @@ describe('배선', () => {
    * 추가 호출도 추가 키도 없다 — 병렬 수집이 이미 가져온 결과를 재사용한다.
    */
   it('웹문서 기관 근거가 주 경로다 (CSE 폴백이 아니라)', () => {
-    expect(orchestration).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
+    expect(orchestration).toContain('buildOfficialSourcesFromWeb(crawledPosts as any, 4, sourceScope)');
     expect(orchestration).toContain("if (contentMode !== 'shopping') {");
     expect(orchestration).not.toContain('collectOfficialSources(');
   });

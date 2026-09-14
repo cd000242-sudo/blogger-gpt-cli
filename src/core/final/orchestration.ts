@@ -19,7 +19,7 @@ import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등�
 import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
 // v3.8.570: 버튼·훅을 같은 자리에서 만들고, 제목을 되풀이하는 훅은 나가기 전에 걸러 낸다
-import { buildCtaCopy, hookEchoesTitle } from '../../cta/cta-copy';
+import { buildCtaCopy, hookEchoesTitle, siteNameFromUrl, ctaSiteNames } from '../../cta/cta-copy';
 // v3.8.574: "공식 권장" 배지는 진짜 공공기관일 때만 — 민간에 붙이면 독자를 속인다
 import { isOfficialDestination, isForeignBlogUrl } from '../../cta/host-trust';
 import { findRelatedPosts, insertInternalLinks } from '../internal-links';
@@ -43,6 +43,8 @@ import { guardFacts, buildGroundingReference } from './fact-guard';
 import { findStructureIssues, describeStructureIssues } from './structure-guard';
 // v3.8.575: 이미 쓰는 네이버 키로 근거를 넓히고 낡음을 본다 (추가 비용 없음)
 import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness } from './naver-grounding';
+// v3.8.730: 공고형 글은 주관기관을 먼저 정하고 그 밖의 자료를 뺀다 (사장님 실측: LH 공고 글에 HUG·매물 시세가 섞였다)
+import { deriveSourceScope, selectScopedSources, sourceMatchesScope, isScopedOfficialSource, buildSourceScopeDirective, hasOfficialSource } from './source-scope';
 // v3.8.587: 고유명사의 뜻을 모델이 지어내지 않게 — 먼저 검색해 정체를 알려 준다
 import { checkEntities, buildEntityBlock, describeEntities } from './entity-check';
 // v3.8.588: 제도가 올해 바뀌었는지 쓰기 전에 물어본다 (작년 체계로 쓰는 사고 방지)
@@ -286,6 +288,26 @@ function toRenderableCtaCandidate(
     hookingMessage = repaired.hookingMessage;
     // 버튼도 제목을 쓰고 있었다면 같이 맞춘다 — 둘이 따로 놀면 안 된다
     if (hookEchoesTitle(buttonText, articleTitle)) buttonText = repaired.buttonText;
+  }
+
+  /**
+   * 🏛️ v3.8.730 — 버튼이 말하는 기관과 주소의 기관이 다르면 버튼도 주소 기준으로 다시 짓는다.
+   *
+   * 사장님 실측(인천·부천 든든전세 4차): 훅 "보건복지부에 원문 안내가 있습니다" · 버튼 "🔗 인터넷등기소에서 신청하기" ·
+   * 주소 mohw.go.kr PDF. 위 갈래가 훅만 주소 기준으로 바꾸고 버튼은 그대로 둬서 셋이 따로 놀았다.
+   * 주소의 기관 이름을 아는데 버튼이 다른 기관 이름을 말하면, 버튼도 주소 쪽으로 맞춘다.
+   */
+  const siteOfUrl = siteNameFromUrl(cta.url || '');
+  if (siteOfUrl && !buttonText.includes(siteOfUrl)) {
+    // "국세청" 과 "국세청 홈택스" 처럼 한쪽이 다른 쪽을 품으면 같은 기관이다 — 어긋남이 아니다
+    const namedOther = ctaSiteNames().find((name) => name !== siteOfUrl && buttonText.includes(name)
+      && !siteOfUrl.includes(name) && !name.includes(siteOfUrl));
+    if (namedOther) {
+      const repaired = buildCtaCopy({ url: cta.url });
+      console.log(`[CTA] 🧹 버튼이 다른 기관(${namedOther})을 말해 주소 기준(${siteOfUrl})으로 교체: "${buttonText}" → "${repaired.buttonText}"`);
+      buttonText = repaired.buttonText;
+      if (!hookingMessage.includes(siteOfUrl)) hookingMessage = repaired.hookingMessage;
+    }
   }
 
   const candidate: RenderableCtaCandidate = { hookingMessage, buttonText, url: cta.url };
@@ -1312,6 +1334,26 @@ export async function generateUltimateMaxModeArticleFinal(
       onLog?.(`[PROGRESS] 20% - ✅ ${crawledPosts.length}개 자료 수집 완료 + Search Grounding 병행`);
     }
 
+    /**
+     * 🏛️ v3.8.730 — 공고형 글은 **주관기관을 먼저 정하고** 그 밖의 자료를 뺀다 (source-scope.ts).
+     *
+     * 사장님 실측(인천·부천 든든전세 4차): LH 공고를 써야 하는데 본문에 LH 가 0번, HUG 안심전세포털·매물 시세·
+     * 거주 후기로 채워졌다. 요청사항에 "LH 공고 기준"이라 적어도 수집 단계는 그 글을 안 봤다 — 이제 본다(hints).
+     * 기관을 못 정하면 아무것도 걸러지지 않는다(예전 그대로).
+     */
+    const sourceScope = deriveSourceScope(keyword, [
+      ...crawledPosts.filter((p) => manualUrls.includes(p.url)),
+      ...(Array.isArray((payload as any)?.cpcReportSlot?.urls) ? (payload as any).cpcReportSlot.urls.map((url: string) => ({ url })) : []),
+    ], String((payload as any)?.userRequest || ''));
+    if (sourceScope) {
+      const before = crawledPosts.length;
+      crawledPosts = selectScopedSources(crawledPosts, sourceScope);
+      onLog?.(`🏛️ ${sourceScope.agency} 공고로 출처 고정: ${crawledPosts.length}건 사용 · 기관/회차/지역 불일치 ${before - crawledPosts.length}건 제외`);
+      if (!hasOfficialSource(crawledPosts, sourceScope)) {
+        // 공고 원문 없이 쓰는 셈이다 — 조용히 넘기면 또 남의 제도로 채운다
+        onLog?.(`⚠️ ${sourceScope.agency} 공식 페이지(${sourceScope.domain})를 수집 자료에서 찾지 못했습니다 — 근거 검색에서 한 번 더 찾고, 그래도 없으면 공고 수치·일정은 쓰지 않습니다. 정확하게 하려면 원본 URL 칸에 공고 주소를 넣어 주세요.`);
+      }
+    }
     const titles = crawledPosts.map(p => p.title);
     const contents = crawledPosts.map(p => p.content);
     const subheadings = crawledPosts.flatMap(p => p.subheadings);
@@ -2363,7 +2405,7 @@ ${quoted}
     let naverGrounding = '';
     let groundingStats: { newsCount: number; webCount: number; officialCount: number } | null = null;
     try {
-      const g = await fetchGrounding(keyword, naverSearch as any);
+      const g = await fetchGrounding(keyword, naverSearch as any, { ...(sourceScope ? { sourceScope } : {}) });
       naverGrounding = g.text;
       /**
        * v3.8.633 — 속보 판정을 **반환값에서** 받는다.
@@ -2391,7 +2433,7 @@ ${quoted}
     try {
       // v3.8.665: 조각을 통째로 검색하면 뉴스 0건 — 낱말 셋으로 먼저 찾는다. 에이전트 경로(main.ts)와 같은 함수다
       const { fetchPromiseGrounding } = require('./promise-grounding');
-      const pgr = await fetchPromiseGrounding(String(h1 || ''), keyword, naverSearch as any, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5 });
+      const pgr = await fetchPromiseGrounding(String(h1 || ''), keyword, naverSearch as any, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5, ...(sourceScope ? { sourceScope } : {}) });
       for (const c of pgr.chunks) {
         onLog?.(`[PROGRESS] 45% - 🎯 제목 약속 근거 추가: "${c.chunk}" ← 검색 "${c.query}" (뉴스 ${c.newsCount} · 기관 ${c.officialCount} · 웹 ${c.webCount})`);
       }
@@ -2417,7 +2459,7 @@ ${quoted}
       if (reportUrls.length > 0) {
         const { fetchReportSourceBodies, buildReportSourcesBlock } = require('./report-sources');
         const { fetchPageBody } = require('../crawlers/official-page-body');
-        const rs = await fetchReportSourceBodies(reportUrls, { keyword, title: String(h1 || '') }, (u: string) => fetchPageBody(u, 2600));
+        const rs = await fetchReportSourceBodies(reportUrls, { keyword, title: String(h1 || '') }, (u: string) => fetchPageBody(u, 2600), { ...(sourceScope ? { sourceScope } : {}) });
         if (rs.used.length > 0) {
           relevantReportUrls = rs.used.map((b: { url: string }) => b.url);
           naverGrounding = [buildReportSourcesBlock(rs), naverGrounding].filter(Boolean).join('\n\n');
@@ -2526,7 +2568,11 @@ ${quoted}
     }
 
     const freeEvidenceThin = thinReasons.length > 0;
-    const shouldPayForFacts = userChosePaid || freeEvidenceThin;
+    // An unscoped paid summary can reintroduce the institutions just excluded above.
+    const shouldPayForFacts = userChosePaid || (freeEvidenceThin && !sourceScope);
+    if (sourceScope && freeEvidenceThin && !userChosePaid) {
+      onLog?.(`🏛️ ${sourceScope.agency} 공고의 미확인 정보는 다른 제도 검색으로 보충하지 않습니다 (자동 유료 보강 생략)`);
+    }
 
     if (!shouldPayForFacts) {
       onLog?.(`[PROGRESS] 46% - 💸 무료 근거로 충분합니다 (${naverGrounding.length}자 · 팩트 밀도 ${ledgerDensity}) — 유료 팩트체크 건너뜀`);
@@ -2551,7 +2597,17 @@ ${quoted}
           // v3.8.418에서 auto 후보에서 grounding을 뺐다 — 로그 라벨도 실제 체인과 맞춘다.
           : '자동 (Perplexity → Naver)';
         onLog?.(`[PROGRESS] 46% - 🔍 팩트체크 실행 중 (${factModeLabel})...`);
-        const factResult = await fetchFactContext(keyword, factCheckMode);
+        // v3.8.730: 범위가 있으면 기관 이름을 붙여 묻는다 — 같은 이름의 다른 기관 제도를 요약해 오지 않게
+        const factResult = await fetchFactContext(sourceScope ? `${keyword} ${sourceScope.agency} 공식 공고` : keyword, factCheckMode);
+        // 유료 요약이 공고 범위를 벗어나면(기관 공식 출처가 하나도 없거나 다른 기관 제도가 섞였으면) 근거로 쓰지 않는다
+        if (sourceScope && (!factResult.sourceUrls?.length ||
+            !factResult.sourceUrls.some((url) => isScopedOfficialSource(url, sourceScope)) ||
+            !sourceMatchesScope({ content: factResult.context }, sourceScope))) {
+          factResult.context = '';
+          factResult.sourceUrls = [];
+          factResult.success = false;
+          onLog?.('🏛️ 유료 검색 요약의 공고 출처 범위를 검증하지 못해 근거에서 제외했습니다');
+        }
         factEvidence = {
           context: factResult.context || '',
           provider: factResult.provider || 'none',
@@ -2616,7 +2672,7 @@ ${quoted}
     if (contentMode !== 'shopping') {
       try {
         onLog?.('[PROGRESS] 43% - 🏛️ 공공기관 확인 근거 수집 중...');
-        const webSources = buildOfficialSourcesFromWeb(crawledPosts as any);
+        const webSources = buildOfficialSourcesFromWeb(crawledPosts as any, 4, sourceScope);
         if (webSources.length > 0) {
           officialSources = webSources;
           officialBlock = buildOfficialSourceBlock(webSources);
@@ -2664,7 +2720,7 @@ ${quoted}
      */
     const reportBriefFacts = (() => {
       const slot = (payload as any)?.cpcReportSlot;
-      if (!slot) return '';
+      if (!slot || sourceScope) return '';
       return [
         slot.keyword, slot.title, slot.intent, slot.value,
         ...(Array.isArray(slot.facts) ? slot.facts : []),
@@ -2674,10 +2730,12 @@ ${quoted}
       ].filter(Boolean).map(String).join('\n').slice(0, 6000);
     })();
 
+    const scopedPrimary = sourceScope ? crawledPosts.filter((p) => isScopedOfficialSource(p.url, sourceScope)) : [];
     const groundingReference = buildGroundingReference({
+      // Input announcement bodies precede every search summary, including generated reports.
+      ...(sourceScope ? { briefFacts: scopedPrimary.map((p) => `[공식 공고 원문] ${p.title}\n[출처 URL] ${p.url}\n${p.content}`).join('\n\n') } : { briefFacts: reportBriefFacts }),
       factContext: [factEvidence.context, naverGrounding].filter(Boolean).join('\n'),
-      briefFacts: reportBriefFacts,
-      crawledPosts: crawledPosts as any,
+      crawledPosts: (sourceScope ? crawledPosts.filter((p) => !scopedPrimary.includes(p)) : crawledPosts) as any,
       officialBlock,
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
     });
@@ -2718,6 +2776,7 @@ ${quoted}
     let entityBlock = '';
     let reformFinding: any = null;
     try {
+      if (!sourceScope) {
       const findings = await checkEntities(keyword, naverSearch as any);
       entityBlock = buildEntityBlock(findings);
       reformFinding = await checkReform(findings.map((f) => f.token), new Date().getFullYear(), naverSearch as any);
@@ -2731,6 +2790,7 @@ ${quoted}
       console.log(`[REFORM] ${describeReform(reformFinding)}`);
       if (reformFinding) {
         onLog?.(`[PROGRESS] 44% - 🔄 ${reformFinding.institution} 올해 개편 자료 ${reformFinding.snippets.length}건 확보 — 작년 체계로 쓰지 않도록 지시합니다`);
+      }
       }
     } catch (entityErr: any) {
       console.warn('[ENTITY] 스킵:', String(entityErr?.message || entityErr).slice(0, 100));
@@ -2779,6 +2839,7 @@ ${quoted}
 
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
+      ...(sourceScope ? [buildSourceScopeDirective(sourceScope)] : []),
       buildFactIntegrityPrompt(keyword, factEvidence),
       ...(reportDirective ? [reportDirective] : []),
       ...(breakingDirective ? [breakingDirective] : []),
@@ -6560,4 +6621,3 @@ ${conclusionHTML}
     try { releaseLock(); } catch { /* no-op 보호 */ }
   }
 }
-

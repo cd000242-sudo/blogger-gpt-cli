@@ -116,6 +116,6 @@ describe('쇼핑 글에는 공공기관 근거를 모으지 않는다', () => {
   });
 
   it('다른 모드는 그대로 수집한다 (할루시네이션 차단은 유지)', () => {
-    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
+    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any, 4, sourceScope)');
   });
 });

@@ -146,6 +146,19 @@ export function siteNameFromUrl(url: string): string {
 }
 
 /**
+ * 우리가 이름을 아는 기관·사이트 이름 전부 (긴 이름부터). v3.8.730 —
+ * 버튼이 "인터넷등기소"라 말하는데 주소는 보건복지부인 어긋남을 잡는 데 쓴다.
+ * 두 글자 이하 이름("정부24" 같은 것은 4자)은 본문 아무 데나 걸리므로 뺀다.
+ */
+let siteNameCache: string[] | null = null;
+export function ctaSiteNames(): string[] {
+  if (siteNameCache) return siteNameCache;
+  const names = new Set<string>([...Object.values(EXTRA_HOST_NAMES), ...HOST_TO_NAME.values()].map((n) => n.trim()).filter((n) => n.length >= 3));
+  siteNameCache = [...names].sort((a, b) => b.length - a.length);
+  return siteNameCache;
+}
+
+/**
  * 받침에 따라 은/는을 고른다.
  *
  * "취득세 조회은 위택스에서…" 처럼 조사가 틀리면 읽는 사람이 바로 알아챈다.

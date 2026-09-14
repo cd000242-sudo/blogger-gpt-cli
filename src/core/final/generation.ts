@@ -3747,7 +3747,19 @@ JSON만 출력:
           if (gate && !gate.ok) {
             console.warn(`[CTA] 🚧 1단계 목적지 기각(${gate.severity}): ${ctaData.url}`);
             console.warn(`[CTA]    근거: ${gate.reasons.join(' · ')}`);
-            if (gate.severity === 'demote') {
+            /**
+             * 🏛️ v3.8.730 — **기관이 다른 주소는 약한 후보로도 남기지 않는다.**
+             *
+             * 사장님 실측(인천·부천 든든전세 4차): AI 가 "인터넷등기소에서 신청하기"라며 낸 주소가
+             * 보건복지부(mohw.go.kr)의 2020년 PDF 였다. 기관 불일치로 demote 됐는데 2단계 검색이 더 나은 것을
+             * 못 찾자 그 주소가 그대로 버튼이 됐다 — 훅은 "보건복지부에 원문 안내", 버튼은 "인터넷등기소",
+             * 주소는 복지부 PDF. 셋이 다 달랐다.
+             * "홈이라서·문서라서" 약한 것과 "기관이 틀린" 것은 다르다. 후자는 오답이다 — 오답보다 못 찾음이 낫다(v3.8.706).
+             */
+            if (gate.severity === 'demote' && offAgencyHost) {
+              console.warn(`[CTA] ⛔ 기관 불일치 주소는 약한 후보로도 쓰지 않는다: ${ctaData.url}`);
+              onLog?.(`[PROGRESS] 70% - ⛔ CTA 후보 기각: "${aiAgencyName}" 라면서 다른 기관 주소(${ctaData.url.slice(0, 60)}) — 그 기관에서 다시 찾습니다`);
+            } else if (gate.severity === 'demote') {
               // 기관은 맞는데 행동 화면이 아니다 — 더 나은 걸 못 찾았을 때만 쓴다
               const weakDoc = detectDocumentCta(ctaData.url);
               // v3.8.570: 최후 폴백도 목적지 기준으로 — 예전엔 글 제목을 갖다 썼다

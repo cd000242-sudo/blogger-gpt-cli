@@ -23,7 +23,9 @@ describe('v3.8.656 제목 약속 근거', () => {
     expect(block).toContain("require('./promise-grounding')");
     expect(block).toContain('fetchPromiseGrounding(String(h1');
     expect(m).toContain("import { titlePromises, promiseQuery } from './reader-retention'");
-    expect(m).toMatch(/fetchGrounding\(query, naverSearch, \{ display \}\)/);
+    // v3.8.730: 범위(sourceScope)를 같이 넘긴다 — 범위가 없으면 { display } 그대로다
+    expect(m).toMatch(/fetchGrounding\(query, naverSearch, searchOptions\)/);
+    expect(m).toContain('const searchOptions = sourceScope ? { display, sourceScope } : { display };');
   });
 
   test('약속 근거는 장부 앞에 놓인다 — 12,000자에서 잘려도 살아남게', () => {
@@ -31,7 +33,7 @@ describe('v3.8.656 제목 약속 근거', () => {
   });
 
   test('조각은 최대 2개, 각 2,000자 — 비용·길이 상한', () => {
-    expect(o).toContain('{ maxChunks: 2, charsPerChunk: 2000, display: 5 }');
+    expect(o).toContain('{ maxChunks: 2, charsPerChunk: 2000, display: 5, ...(sourceScope ? { sourceScope } : {}) }');
     expect(m).toContain('.slice(0, max)');
     expect(m).toContain('pg.text.slice(0, charsPerChunk)');
   });

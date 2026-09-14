@@ -238,7 +238,7 @@ describe('④ 구글 CSE 제거 — 흔적이 남으면 다시 배선된다', ()
 
   it('⭐ 기관 근거는 네이버 웹문서가 맡는다 (기능이 사라지면 안 된다)', () => {
     const orch = read('src/core/final/orchestration.ts');
-    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
+    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any, 4, sourceScope)');
     expect(orch).toContain("if (contentMode !== 'shopping') {");
   });
 

@@ -37,6 +37,7 @@
  */
 
 import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust';
+import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, type SourceScope } from './source-scope';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
 export type NaverSearchFn = (
@@ -249,7 +250,7 @@ function latestYearIn(text: string): number {
 export async function fetchGrounding(
   keyword: string,
   naverSearch: NaverSearchFn,
-  options: { display?: number; fetchBody?: FetchBodyFn } = {},
+  options: { display?: number; fetchBody?: FetchBodyFn; sourceScope?: SourceScope } = {},
 ): Promise<GroundingResult> {
   const empty: GroundingResult = {
     text: '', newsCount: 0, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0,
@@ -258,9 +259,10 @@ export async function fetchGrounding(
   const query = String(keyword || '').trim();
   if (!query) return empty;
   const display = options.display ?? 10;
+  const sourceScope = options.sourceScope || deriveSourceScope(query);
 
   const snippet = (it: any, tag: string) =>
-    `[${tag}] ${stripTags(it?.title)} ${stripTags(it?.description)}`.trim();
+    `[${tag}] ${stripTags(it?.title)} ${stripTags(it?.description)}${sourceScope ? `\n[출처 URL] ${String(it?.originallink || it?.link || '')}\n[검색 요약 — 원문 미확인]` : ''}`.trim();
 
   /**
    * 본문을 긁어 스니펫을 대체한다. (v3.8.580)
@@ -324,8 +326,9 @@ export async function fetchGrounding(
     return items.map((it, i) => {
       const body = bodies[i];
       if (!body) return snippet(it, tag);
-      return `[${tag}] ${stripTags(it?.title)} ${body}`.trim();
-    });
+      if (!sourceMatchesScope({ url: bodyUrlOf(it), title: stripTags(it?.title), content: body }, sourceScope)) return '';
+      return `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${bodyUrlOf(it)}\n[추출 원문]` : ''} ${body}`.trim();
+    }).filter(Boolean);
   };
 
   const usable = (items: any[], filter?: (it: any) => boolean) =>
@@ -334,7 +337,7 @@ export async function fetchGrounding(
       .filter((it) => snippet(it, '.').length > 15);
 
   try {
-    const [news, web, blog] = await Promise.all([
+    const [news, web, blog, agencyWeb] = await Promise.all([
       naverSearch('news', { query, display, sort: 'date' }).catch(() => ({ ok: false, items: [] })),
       naverSearch('webkr', { query, display }).catch(() => ({ ok: false, items: [] })),
       /**
@@ -343,7 +346,45 @@ export async function fetchGrounding(
        * 우리가 믿는 건 "새 글"이 아니라 "위에 있는 글"이다.
        */
       naverSearch('blog', { query, display }).catch(() => ({ ok: false, items: [] })),
+      /**
+       * 🏛️ v3.8.730 — 공고형 글이면 **기관 이름을 붙여 한 번 더** 찾는다.
+       * "인천 부천 든든전세 4차" 만으로는 HUG·매물 페이지가 위에 오고 LH 공고는 안 잡힌다(실측).
+       * `site:` 연산자는 네이버 검색 API 가 받아 준다는 보장이 없어 쓰지 않는다 — 이름을 붙이고 도메인으로 거른다.
+       */
+      sourceScope
+        ? naverSearch('webkr', { query: `${sourceScope.agency} ${query}`, display }).catch(() => ({ ok: false, items: [] }))
+        : Promise.resolve({ ok: false, items: [] as any[] }),
     ]);
+
+    /**
+     * 🏛️ v3.8.730 — 공고형 글은 **주관기관이 정해져 있다.** 검색 순위나 .go.kr 같은 접미사로 정체를 정하지 않는다.
+     * 본문 긁기 예산을 그 기관의 공식 페이지에 먼저 쓰고, 다른 기관의 같은 이름 제도·다른 회차 자료는 뺀다.
+     */
+    if (sourceScope) {
+      const asCandidate = (it: any) => ({ ...it, url: bodyUrlOf(it), title: stripTags(it?.title), content: stripTags(it?.description) });
+      const unique = new Set<string>();
+      const webPool = [...(agencyWeb?.ok ? agencyWeb.items : []), ...(web?.ok ? web.items : [])];
+      const candidates = selectScopedSources([
+        ...webPool.filter((it: any) => isScopedOfficialSource(bodyUrlOf(it), sourceScope)).map((it: any) => ({ ...asCandidate(it), evidenceTag: '공식' })),
+        ...(news?.ok ? news.items : []).map((it: any) => ({ ...asCandidate(it), evidenceTag: '뉴스' })),
+      ], sourceScope).filter((it) => {
+        if (!it.url || unique.has(it.url)) return false;
+        unique.add(it.url);
+        return true;
+      });
+      const officialItems = candidates.filter((it) => it.evidenceTag === '공식');
+      const newsItems = candidates.filter((it) => it.evidenceTag === '뉴스');
+      const officialParts = await enrich(officialItems, '공식', budgetLeft);
+      const newsParts = await enrich(newsItems, '뉴스', budgetLeft);
+      const evidence = [...officialParts, ...newsParts].join('\n');
+      return {
+        ...empty,
+        text: evidence ? `${buildSourceScopeDirective(sourceScope)}\n${evidence}`.slice(0, MAX_SNIPPET_CHARS) : '',
+        officialCount: officialParts.length,
+        newsCount: newsParts.length,
+        skippedBlogs: blog?.ok ? blog.items.length : 0,
+      };
+    }
 
     const webItems: any[] = web?.ok && Array.isArray(web.items) ? web.items : [];
 

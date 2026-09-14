@@ -34,7 +34,7 @@ const orch = fs.readFileSync(
 describe('① 무료 근거를 먼저 모은다 (순서가 뒤집혔다)', () => {
   test('fetchGrounding 이 fetchFactContext 보다 앞이다', () => {
     const free = orch.indexOf('await fetchGrounding(keyword');
-    const paid = orch.indexOf('await fetchFactContext(keyword');
+    const paid = orch.indexOf('await fetchFactContext(');
     expect(free).toBeGreaterThan(-1);
     expect(paid).toBeGreaterThan(-1);
     expect(free).toBeLessThan(paid);
@@ -76,12 +76,13 @@ describe('③ 사용자가 직접 고르면 그대로 부른다 (돈은 사장�
   test('드롭다운에서 퍼플렉시티·그라운딩을 고르면 조건을 따지지 않는다', () => {
     expect(decision).toContain("rawFactMode === 'perplexity'");
     expect(decision).toContain("rawFactMode === 'grounding'");
-    expect(decision).toContain('userChosePaid || freeEvidenceThin');
+    // v3.8.730: 공고 범위가 잡힌 글은 자동 유료 보강을 하지 않는다(다른 제도 요약이 섞인다) — 사용자 선택은 그대로 따른다
+    expect(decision).toContain('userChosePaid || (freeEvidenceThin && !sourceScope)');
   });
 
   test('사용자 선택이면 "얇다" 안내를 띄우지 않는다 (스스로 고른 것이다)', () => {
     // 안내는 유료 호출 블록 안에 있다 — 판단 블록이 아니라 거기서 찾는다
-    const paidBlock = blockBetween(orch, 'if (shouldPayForFacts) {', 'await fetchFactContext(keyword');
+    const paidBlock = blockBetween(orch, 'if (shouldPayForFacts) {', 'await fetchFactContext(');
     expect(paidBlock).toContain('freeEvidenceThin && !userChosePaid');
   });
 });

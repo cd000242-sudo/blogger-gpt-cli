@@ -9,11 +9,12 @@
 
 import { titlePromises, promiseQuery } from './reader-retention';
 import type { GroundingResult, NaverSearchFn } from './naver-grounding';
+import { deriveSourceScope, type SourceScope } from './source-scope';
 
 export type FetchGroundingFn = (
   query: string,
   naverSearch: NaverSearchFn,
-  options: { display?: number },
+  options: { display?: number; sourceScope?: SourceScope },
 ) => Promise<GroundingResult>;
 
 export interface PromiseGroundingChunk {
@@ -44,21 +45,23 @@ export async function fetchPromiseGrounding(
   keyword: string,
   naverSearch: NaverSearchFn,
   fetchGrounding: FetchGroundingFn,
-  opts: { maxChunks?: number; charsPerChunk?: number; display?: number } = {},
+  opts: { maxChunks?: number; charsPerChunk?: number; display?: number; sourceScope?: SourceScope } = {},
 ): Promise<PromiseGroundingResult> {
   const charsPerChunk = opts.charsPerChunk ?? 2000;
   const display = opts.display ?? 5;
   const kwNorm = String(keyword || '').replace(/\s+/g, '');
   const blocks: string[] = [];
   const chunks: PromiseGroundingChunk[] = [];
+  const sourceScope = opts.sourceScope || deriveSourceScope(`${keyword} ${title}`);
+  const searchOptions = sourceScope ? { display, sourceScope } : { display };
 
   for (const chunk of promiseChunks(title, keyword, opts.maxChunks ?? 2)) {
     const legacy = chunk.replace(/\s+/g, '').includes(kwNorm) ? chunk : `${keyword} ${chunk}`;
     const nouns = promiseQuery(chunk, keyword);
     let query = nouns || legacy;
-    let pg = await fetchGrounding(query, naverSearch, { display });
+    let pg = await fetchGrounding(query, naverSearch, searchOptions);
     if (nouns && pg.newsCount + pg.officialCount === 0) {
-      const again = await fetchGrounding(legacy, naverSearch, { display });
+      const again = await fetchGrounding(legacy, naverSearch, searchOptions);
       if (again.text.length > pg.text.length) { pg = again; query = legacy; }
     }
     chunks.push({ chunk, query, newsCount: pg.newsCount, officialCount: pg.officialCount, webCount: pg.webCount });

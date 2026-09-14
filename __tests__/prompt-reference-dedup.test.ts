@@ -10,6 +10,7 @@
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { blockBetween } from './helpers/source-block';
 
 import { buildGroundingReference } from '../src/core/final/fact-guard';
 
@@ -47,10 +48,8 @@ describe('orchestration 조립부', () => {
     join(__dirname, '..', 'src/core/final/orchestration.ts'),
     'utf8',
   );
-  const assembly = orchestration.slice(
-    orchestration.indexOf('factEnrichedContents = ['),
-    orchestration.indexOf('factEnrichedContents = [') + 700,
-  );
+  // 고정 길이(700자)로 자르면 줄 하나만 늘어도 밖으로 밀려난다(v3.8.730 에서 실제로 밀렸다) — 경계로 자른다
+  const assembly = blockBetween(orchestration, 'factEnrichedContents = [', 'if (ledgerCoversSources) {');
 
   it('장부가 소스를 품었으면 officialBlock 을 다시 붙이지 않는다', () => {
     expect(assembly).toContain('officialBlock && !ledgerCoversSources');

@@ -236,6 +236,6 @@ describe('orchestration 배선', () => {
   });
 
   it('쇼핑 외 모드는 그대로 수집한다 (할루시네이션 차단 유지)', () => {
-    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any)');
+    expect(orch).toContain('buildOfficialSourcesFromWeb(crawledPosts as any, 4, sourceScope)');
   });
 });

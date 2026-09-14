@@ -13,6 +13,8 @@
  * 이 글에 섞이는 일을 막는다. AI 호출은 0회. 실패하면 조용히 빈 결과 — 예전과 같아진다.
  */
 
+import { deriveSourceScope, sourceMatchesScope, type SourceScope } from './source-scope';
+
 export interface ReportSourceBody {
   url: string;
   body: string;
@@ -57,7 +59,7 @@ export async function fetchReportSourceBodies(
   urls: unknown,
   topic: { keyword: string; title: string },
   fetchBody: FetchBodyFn,
-  opts: { maxPages?: number; charsPerPage?: number; maxAttempts?: number } = {},
+  opts: { maxPages?: number; charsPerPage?: number; maxAttempts?: number; sourceScope?: SourceScope } = {},
 ): Promise<ReportSourcesResult> {
   const maxPages = opts.maxPages ?? 3;
   const charsPerPage = opts.charsPerPage ?? 1800;
@@ -70,6 +72,7 @@ export async function fetchReportSourceBodies(
   if (list.length === 0) return { used: [], skipped: 0, failed: 0 };
 
   const words = topicWords(topic.keyword, topic.title);
+  const sourceScope = opts.sourceScope || deriveSourceScope(`${topic.keyword} ${topic.title}`);
   const minHits = words.length >= 2 ? 2 : (words.length === 1 ? 1 : 0);
 
   const bodies = await Promise.all(list.map(async (url) => {
@@ -86,6 +89,7 @@ export async function fetchReportSourceBodies(
   const scored: ReportSourceBody[] = [];
   bodies.forEach((b) => {
     if (!b) { failed += 1; return; }
+    if (!sourceMatchesScope({ url: b.url, content: b.body }, sourceScope)) { skipped += 1; return; }
     const hits = countHits(b.body, words);
     if (hits < minHits) { skipped += 1; return; }
     scored.push({ url: b.url, body: b.body.slice(0, charsPerPage), hits });

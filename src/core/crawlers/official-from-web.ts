@@ -22,6 +22,7 @@
  */
 
 import { extractNumericSentences, resolveAgency, mergeByAgency, type OfficialSource } from '../final/official-sources';
+import { sourceMatchesScope, isScopedOfficialSource, type SourceScope } from '../final/source-scope';
 
 /**
  * 게시판 목록·진단 위젯이 문장인 척 넘어오는 것들.
@@ -41,6 +42,7 @@ function agencyLabel(url: string): string {
 
 export interface WebOfficialInput {
   url?: string;
+  title?: string;
   content?: string;
   source?: string;
 }
@@ -52,11 +54,13 @@ export interface WebOfficialInput {
 export function buildOfficialSourcesFromWeb(
   posts: WebOfficialInput[],
   maxAgencies = 4,
+  sourceScope?: SourceScope,
 ): OfficialSource[] {
   const collected: OfficialSource[] = [];
 
   for (const post of Array.isArray(posts) ? posts : []) {
-    if (String(post?.source || '') !== 'naver-web-official') continue;
+    if (String(post?.source || '') !== 'naver-web-official' && !(sourceScope && isScopedOfficialSource(post.url || '', sourceScope))) continue;
+    if (!sourceMatchesScope(post, sourceScope)) continue;
     const url = String(post?.url || '').trim();
     if (!url) continue;
 
