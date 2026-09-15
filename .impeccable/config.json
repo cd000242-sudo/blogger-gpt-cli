@@ -125,6 +125,15 @@
         ],
         "createdAt": "2026-09-12T03:55:59.101Z",
         "reason": "정규식 문자열이지 실제 <img> 태그가 아니다 — 본문 맨 앞 썸네일을 찾는 패턴 (Claude 판단)"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/core/final/editor-draft.ts"
+        ],
+        "createdAt": "2026-09-15T05:22:26.555Z",
+        "reason": "model decided: L394 is the imageBlockHtml() template string that interpolates a real hosted URL into <img src>; no literal empty/placeholder src ships. Pre-existing v3.8.683 code, verified by reading the function."
       }
     ]
   }
