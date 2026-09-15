@@ -10,6 +10,7 @@ exports.applyWordPressInlineStyles = applyWordPressInlineStyles;
 exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
 const publish_verifier_1 = require("../core/publish-verifier");
+const style_preservation_1 = require("../core/final/style-preservation");
 const tag_hygiene_1 = require("../core/tag-hygiene");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
@@ -372,8 +373,10 @@ function neutralizeWpAutop(html) {
     const flattened = guarded.replace(/[ \t]*\r?\n[ \t]*/g, ' ').replace(/ {2,}/g, ' ');
     return flattened.replace(/ WPKEEP(\d+) /g, (_m, i) => kept[Number(i)] || '');
 }
-function applyWordPressInlineStyles(html) {
+function applyWordPressInlineStyles(html, preserveOriginalStyles) {
     if (!html)
+        return html;
+    if ((0, style_preservation_1.shouldPreserveOriginalStyles)(html, preserveOriginalStyles))
         return html;
     if (/\bdata-bgpt-wp-ready\s*=\s*["']true["']|\bbgpt-wp-ready\b/i.test(html))
         return html;
@@ -1580,9 +1583,11 @@ class WordPressPublisher {
             console.log(`[WP-PUBLISH]    - max-mode-article 클래스: ${hasMaxModeArticle ? '✅' : '❌'}`);
             console.log(`[WP-PUBLISH]    - !important 규칙: ${hasImportantRules}개`);
             console.log(`[WP-PUBLISH]    - CSS 크기: ${cssSize.toLocaleString()}자`);
-            console.log(`[WP-PUBLISH] 🎨 금색 프리미엄 스킨 + 모바일 최적화 적용 중...`);
-            optimizedContent = applyWordPressInlineStyles(options.content);
-            console.log(`[WP-PUBLISH] ✅ 블로거와 동일한 금색 프리미엄 스킨 적용 완료`);
+            const preserveOriginalStyles = (0, style_preservation_1.shouldPreserveOriginalStyles)(options.content, options.preserveOriginalStyles);
+            optimizedContent = preserveOriginalStyles
+                ? (0, style_preservation_1.flattenDocumentForPost)(options.content).html
+                : applyWordPressInlineStyles(options.content, preserveOriginalStyles);
+            console.log(preserveOriginalStyles ? '[WP-PUBLISH] 🎨 원본 HTML 스타일 보존 (앱 스킨 생략)' : '[WP-PUBLISH] 기본 스킨 적용 완료');
             console.log('[WP-PUBLISH] 워드프레스 연결 테스트 시작...');
             const isConnected = await this.wpApi.testConnection();
             if (!isConnected) {
@@ -1599,7 +1604,7 @@ class WordPressPublisher {
                 };
             }
             console.log('[WP-PUBLISH] ✅ 연결 성공');
-            if (cssLength > 0) {
+            if (cssLength > 0 && !preserveOriginalStyles) {
                 console.log(`[WP-PUBLISH] ✅ CSS 발견됨 (${cssLength.toLocaleString()}자) - WordPress 핵 옵션 적용`);
                 const wordpressNuclearCSS = `
           /* ========================================
@@ -2535,9 +2540,11 @@ async function publishToWordPress(options, onLog) {
             }
         }
         let contentToStyle = options.content;
-        onLog?.('[WP] WordPress 스킨 적용 중...');
-        const styledContent = applyWordPressInlineStyles(contentToStyle);
-        onLog?.('✅ WordPress 클린 모던 스킨 적용 완료');
+        const preserveOriginalStyles = (0, style_preservation_1.shouldPreserveOriginalStyles)(contentToStyle, options.preserveOriginalStyles);
+        const styledContent = preserveOriginalStyles
+            ? (0, style_preservation_1.flattenDocumentForPost)(contentToStyle).html
+            : applyWordPressInlineStyles(contentToStyle, preserveOriginalStyles);
+        onLog?.(preserveOriginalStyles ? '[WP] 🎨 원본 HTML 스타일 보존 (앱 스킨 생략)' : '[WP] 기본 스킨 적용 완료');
         onLog?.('[WP] 포스트 생성 중...');
         let contentBeforeAutop = styledContent;
         try {
