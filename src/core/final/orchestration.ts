@@ -2739,6 +2739,32 @@ ${quoted}
       officialBlock,
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
     });
+
+    /**
+     * ⚖️ v3.8.732 — 근거 조항을 실제로 받아다 장부에 넣는다 (LLM 호출 0회, 법제처 무료 API).
+     *
+     * 장부 실측: 발행 147편 중 36편이 `no-legal-basis` 로 -10 점. 제도를 설명하면서 「○○법 제○조」가 0건이라는 뜻인데,
+     * 이건 글쓰기로 못 고친다 — 조문을 모르면 안 쓰는 게 맞고, 그래서 자가 수정도 이 결함을 AI 에게 안 맡긴다.
+     * **재료가 없는 것이 원인이므로 재료를 구해다 준다.**
+     *
+     * 자료가 **이미 부른 법령 이름만** 확인한다. 키워드로 추측하면 엉뚱한 법이 박힌다
+     * (실측: "인천·부천 든든전세" → 「국립대학법인 인천대학교 설립ㆍ운영에 관한 법률」). 자세한 것은 legal-basis.ts 머리말.
+     */
+    let legalBasisBlock = '';
+    if (contentMode !== 'shopping') {
+      try {
+        const { fetchLegalBasis, buildLegalBasisBlock } = require('./legal-basis');
+        const basis = await fetchLegalBasis(keyword, `${groundingReference}\n${reportBriefFacts}`);
+        if (basis) {
+          legalBasisBlock = buildLegalBasisBlock(basis);
+          onLog?.(`[PROGRESS] 44% - ⚖️ 근거 법령 확인: 「${basis.name}」${basis.department ? ` (${basis.department})` : ''} · 조문 ${basis.articles.length}개 — 법제처 원문에서 가져왔습니다`);
+        }
+      } catch (legalError: any) {
+        // 법령을 못 구해도 발행은 그대로 간다
+        console.warn('[LEGAL] 건너뜀:', String(legalError?.message || legalError).slice(0, 120));
+      }
+    }
+
     /**
      * v3.8.474 — 장부가 소스를 이미 품었는지 기록한다.
      *
@@ -2840,6 +2866,8 @@ ${quoted}
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
       ...(sourceScope ? [buildSourceScopeDirective(sourceScope)] : []),
+      // v3.8.732 — 받아온 조문. 지시보다 앞에 두면 배경이 되므로 근거 정책 바로 옆에 둔다
+      ...(legalBasisBlock ? [legalBasisBlock] : []),
       buildFactIntegrityPrompt(keyword, factEvidence),
       ...(reportDirective ? [reportDirective] : []),
       ...(breakingDirective ? [breakingDirective] : []),
