@@ -6477,7 +6477,8 @@ ${conclusionHTML}
         onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
       }
       // v3.8.632: 장부에 남긴다 — 자가 수정이 줄어드는지가 첫 생성이 좋아졌다는 신호다
-      (globalThis as any).__lastPreflight = { revised: outcome.revised, calls: outcome.calls };
+      // v3.8.731: 반려 사유도 남긴다 — 33편 중 2편만 고쳐진 것을 장부로는 알 수 없었다
+      (globalThis as any).__lastPreflight = { revised: outcome.revised, calls: outcome.calls, notes: outcome.notes.slice(0, 6) };
     } catch (preflightError: any) {
       // 자가 수정 실패가 발행을 막지는 않는다
       console.warn('[PREFLIGHT] 건너뜀:', String(preflightError?.message || preflightError).slice(0, 120));
@@ -6542,6 +6543,12 @@ ${conclusionHTML}
         selfOverlapHits: Number(overlap.count) || 0,
         preflightRevised: Number(pre.revised) || 0,
         preflightCalls: Number(pre.calls) || 0,
+        ...(Array.isArray(pre.notes) && pre.notes.length ? { preflightNotes: pre.notes.map(String).slice(0, 6) } : {}),
+        // v3.8.731 — 초안 감사 전후 결함 수 (generation.generateAllSectionsFinal 이 남긴다)
+        ...((globalThis as any).__lastDraftAudit ? {
+          draftAuditBefore: Number((globalThis as any).__lastDraftAudit.before) || 0,
+          draftAuditAfter: Number((globalThis as any).__lastDraftAudit.after) || 0,
+        } : {}),
         reportSlot: slot ? String(slot.slot || '') : '',
         reportGrade: slot ? String(slot.grade || '') : '',
         ...(costUsd != null ? { costUsd } : {}),

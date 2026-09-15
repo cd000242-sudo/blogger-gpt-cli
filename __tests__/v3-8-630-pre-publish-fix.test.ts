@@ -120,7 +120,10 @@ describe('v3.8.630 발행 전 자가 수정', () => {
         async () => { throw new Error('네트워크 끊김'); },
       );
       expect(out.html).toBe(위험한글);
-      expect(out.notes.join(' ')).toContain('건너뜀');
+      expect(out.revised).toBe(0);
+      // v3.8.731: 다시 쓰는 엔진(improveDraft)이 구간마다 잡아 "원본 유지 — 구간: 사유" 로 돌려준다
+      expect(out.notes.join(' ')).toContain('원본 유지');
+      expect(out.notes.join(' ')).toContain('네트워크 끊김');
     });
 
     test('호출 횟수를 알려준다 — 비용을 확인할 수 있어야 한다', async () => {
@@ -129,7 +132,8 @@ describe('v3.8.630 발행 전 자가 수정', () => {
         async () => '짧음',
       );
       expect(out.calls).toBeGreaterThan(0);
-      expect(out.calls).toBeLessThanOrEqual(MAX_SECTIONS);
+      // v3.8.731: 반려되면 이유를 붙여 한 번 더 시킨다 — 구간당 최대 2회. 그 위는 없다
+      expect(out.calls).toBeLessThanOrEqual(MAX_SECTIONS * 2);
     });
   });
 

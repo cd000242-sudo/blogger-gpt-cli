@@ -120,12 +120,35 @@ export function applySectionRevisions(html: string, revisions: { index: number; 
     .join('');
 }
 
+/**
+ * v3.8.731 — 근거에서 **찾을 문장**을 뽑는다.
+ *
+ * 구간 반복 근거는 `앞: …\n뒤: …` 꼴이다. 첫 줄을 그대로 찾으면 "앞: " 접두어 때문에 어느 구간에도 없어
+ * 모든 구간 반복이 "글 전체(-1)" 가 됐고, 자가 수정은 그걸 도입부에 보냈다 — 도입부를 고쳐서는 뒤 절의 반복이 안 풀린다.
+ * 고칠 곳은 **뒤(나중) 구간**이다. 뒤 줄이 있으면 그것을, 없으면 첫 줄을 접두어 없이 돌려준다.
+ */
+export function evidenceProbe(evidence: unknown): string {
+  const lines = String(evidence || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const back = lines.find((l) => /^뒤\s*[:：]/.test(l));
+  return (back || lines[0] || '').replace(/^(?:앞|뒤)\s*[:：]\s*/, '');
+}
+
 /** 이 문장이 몇 번째 구간에 있는가 — 못 찾으면 -1(글 전체) */
-export function locateSection(sections: PostSection[], needle: string): number {
+export function locateSection(sections: PostSection[], needle: string, opts: { last?: boolean } = {}): number {
   const probe = String(needle || '').trim().slice(0, 40);
   if (!probe) return -1;
-  const hit = sections.find((s) => textOf(s.html).includes(probe));
+  const pool = opts.last ? [...sections].reverse() : sections;
+  const hit = pool.find((s) => textOf(s.html).includes(probe));
   return hit ? hit.index : -1;
+}
+
+/**
+ * 근거가 가리키는 구간. 구간 반복(`앞: …\n뒤: …`)이면 **뒤 문장이 있는 마지막 구간** — 같은 문장이 앞 절에도 있으니
+ * 앞에서부터 찾으면 앞 절이 잡혀 엉뚱한 절을 고친다. 그 밖에는 첫 구간.
+ */
+export function locateEvidenceSection(sections: PostSection[], evidence: unknown): number {
+  const isEcho = /(^|\n)\s*뒤\s*[:：]/.test(String(evidence || ''));
+  return locateSection(sections, evidenceProbe(evidence), { last: isEcho });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -520,7 +543,8 @@ export function diagnosePost(input: DiagnoseInput): CritiqueIssue[] {
       detail: found.evidence,
       evidence: found.evidence,
       fix: meta.fix,
-      sectionIndex: locateSection(sections, found.evidence.split('\n')[0] || ''),
+      // v3.8.731: 구간 반복은 뒤 절을 가리켜야 한다 — 첫 줄("앞: …")로 찾으면 늘 -1 이었다
+      sectionIndex: locateEvidenceSection(sections, found.evidence),
     });
   }
 
@@ -754,8 +778,16 @@ const CUTTING_IDS = new Set(['redundancy-repeat', 'substance-vague', 'substance-
 // 사장님이 직접 적은 "지워 줘" 는 manual-revision.isCuttingRequest 가 따로 본다.
 const CUTTING_WORDS = /되풀이|반복|중복|군더더기|장황|늘어지|얼버무|상투|회피/;
 
+/**
+ * v3.8.731 — 하네스 결함 중 **빼는 게 답인 종류**. id 에 접두어(audit-·pre-)와 순번이 붙어 오므로 조각으로 본다.
+ * 발행 전 자가 수정이 33편 중 2편만 고친 원인: 구간 반복(59건)에 "겹치는 문장을 지우라"고 시키고
+ * 관문은 "분량 90% 미만이면 반려" 였다 — 지우면 반려됐다.
+ */
+const CUTTING_KINDS = /cross-section-echo|procedure-repeat|inline-faq|hedge-repeat|bloated-conclusion|redundancy-repeat/;
+
 export function isCuttingIssue(issue: Pick<CritiqueIssue, 'id' | 'title' | 'fix'>): boolean {
-  if (CUTTING_IDS.has(String(issue?.id || ''))) return true;
+  const id = String(issue?.id || '');
+  if (CUTTING_IDS.has(id) || CUTTING_KINDS.test(id)) return true;
   return CUTTING_WORDS.test(`${issue?.title || ''} ${issue?.fix || ''}`);
 }
 
@@ -853,6 +885,13 @@ export function acceptRevisedSection(
   const cleaned = opts.preserveMarkup ? stripped : tidyTableCells(joinMidSentenceBreaks(stripped).html).html.trim();
 
   if (!cleaned) return { html: original.html, accepted: false, reason: '빈 응답' };
+  /**
+   * v3.8.731 — 본문이 아닌 답("음… 잘 모르겠습니다", 설명문)을 걸러낸다.
+   * 원본 구간이 비어 있으면(도입부 없는 글) 분량 하한이 0 이라 무엇이든 통과했다 — 발행 전 자가 수정 실측.
+   */
+  if (!/<(?:p|h[1-6]|ul|ol|li|table|div|blockquote|figure|section|article)\b/i.test(cleaned)) {
+    return { html: original.html, accepted: false, reason: '본문 HTML 이 아닙니다' };
+  }
   if (cleaned.replace(/>\s+</g, '><') === original.html.trim().replace(/>\s+</g, '><')) {
     return { html: original.html, accepted: false, reason: '바뀐 것이 없습니다' };
   }

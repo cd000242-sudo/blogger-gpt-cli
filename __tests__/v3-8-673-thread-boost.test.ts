@@ -17,13 +17,15 @@ describe('v3.8.673 보강 호출이 실 위반을 고친다 · 흐름 검사 감
     const g = read('src/core/final/generation.ts');
     expect(g).toContain("thread?: import('./thread').Thread | undefined,");
     expect(g).toContain('const threadBefore: string[] = thread ? threadViolations(allSectionsObj, thread) : [];');
-    expect(g).toContain('if (!skipBoost && (lowQuality || threadBefore.length > 0)) {');
+    // v3.8.731: 초안 감사 결함(구간 반복 등)도 보강을 부른다 — 실 위반 트리거는 그대로 남아 있다
+    expect(g).toContain('if (!skipBoost && (lowQuality || threadBefore.length > 0 || draftAudit.findings.length > 0)) {');
     expect(g).toContain('🧵 [실 위반 — 반드시 고칠 것]');
     // 실 위반만으로 돌 때는 분량을 늘리라고 하지 않는다
     expect(g).toContain("'2) 분량은 지금 그대로(±10%). 늘리려고 같은 말을 되풀이하지 않습니다");
     // 수용 판정: 위반이 늘면 폐기, 실 위반만으로 불렀는데 안 줄었으면 폐기
     expect(g).toContain('reasons.push(`실 위반 증가(${threadBefore.length}→${threadAfter.length})`)');
-    expect(g).toContain('else if (!lowQuality && threadAfter.length >= threadBefore.length) reasons.push(`실 위반 그대로(${threadBefore.length})`)');
+    // v3.8.731: 감사 결함만으로 부른 보강(실 위반 0→0)은 "그대로" 로 반려하지 않는다
+    expect(g).toContain('else if (!lowQuality && threadBefore.length > 0 && threadAfter.length >= threadBefore.length) reasons.push(`실 위반 그대로(${threadBefore.length})`)');
     // 보강 프롬프트의 말투가 설정을 따른다 — "~해요" 고정이 합니다체 글에 해요체를 섞고 있었다
     expect(g).toContain('- ${toneEndingRule()} — 본문과 같은 말투 (v3.8.673: 보강이 말투를 바꾸지 않는다)');   // v3.8.674 등록부
     expect(g).not.toContain('📝 톤 규칙:\n- "~해요", "~거든요" 친근한 말투\n');

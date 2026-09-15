@@ -11,7 +11,7 @@
 import {
   diagnosePost, shouldCallAiCritique, buildCritiquePrompt, parseCritiqueIssues, splitSections,
   groupIssuesBySection, buildSectionRevisionPrompt, acceptRevisedSection, isCuttingIssue, applySectionRevisions,
-  scoreIssues, summarizeCritique, issueKey, rewriteAbility, annotateFixability, dropResolvedLookalikes,
+  scoreIssues, summarizeCritique, issueKey, rewriteAbility, annotateFixability, dropResolvedLookalikes, evidenceProbe,
 } from './post-critique';
 import type { CritiqueIssue, CompetitorPost, PostSection } from './post-critique';
 import { verifySelectedIssues, type SectionChange } from './revision-verification';
@@ -278,6 +278,12 @@ export async function improveDraft(input: {
   issues: CritiqueIssue[];
   callModel: (prompt: string) => Promise<string>;
   log?: (line: string) => void;
+  /**
+   * v3.8.731 — 코드로 못 재는 지적의 검수 호출을 끌 수 있다(기본 true).
+   * 발행 전 자가 수정처럼 결함이 전부 코드 진단이고 "고쳤다" 표시가 필요 없는 자리에서는 호출을 아낀다.
+   * 끄면 못 재는 지적은 stillPresent 로 남긴다 — 모르는 것을 "고쳤다"고 하지 않는다.
+   */
+  verify?: boolean;
 }): Promise<DraftImprovement> {
   const title = String(input.title || '').trim();
   const previousHtml = String(input.html || '');
@@ -315,10 +321,13 @@ export async function improveDraft(input: {
   const { bySection, wholePost } = groupIssuesBySection(workable);
   const evidenceTargets = new Map<string, number[]>();
   for (const issue of wholePost) {
-    const evidence = plainText(issue.evidence).slice(0, 60);
+    // v3.8.731: "앞: …\n뒤: …" 근거는 뒤 절 문장으로 찾는다 (evidenceProbe) — 접두어째 찾으면 늘 못 찾았다
+    const evidence = plainText(evidenceProbe(issue.evidence)).slice(0, 60);
     if (evidence.length < 12) continue;   // 너무 짧으면 아무 구간에나 걸린다
     const hit = sections.filter((s) => s.index > 0 && plainText(s.html).includes(evidence)).map((s) => s.index);
-    if (hit.length) evidenceTargets.set(issue.id, hit.slice(0, 2));
+    // 구간 반복은 같은 문장이 앞 절에도 있다 — 고칠 곳은 뒤(마지막) 절이다
+    const isEcho = /(^|\n)\s*뒤\s*[:：]/.test(String(issue.evidence || ''));
+    if (hit.length) evidenceTargets.set(issue.id, isEcho ? hit.slice(-1) : hit.slice(0, 2));
   }
   const MAX_TARGETS = 6;
   let targets = [...new Set([...bySection.keys(), ...[...evidenceTargets.values()].flat()])].sort((a, b) => a - b);
@@ -428,7 +437,7 @@ ${stuck.map((it) => `· ${it.title}\n  처방: ${String(it.fix || '').slice(0, 1
 
   // ⑥ 코드로 못 재는 지적은 검수 1회 — 바뀐 구간만 넘긴다 (표현만 바뀐 것은 해결이 아니다)
   let verified: string[] = [];
-  if (revisions.size && semanticIssues.length) {
+  if (revisions.size && semanticIssues.length && input.verify !== false) {
     const after = splitSections(html);
     const changes: SectionChange[] = [...revisions.keys()].map((index) => ({
       heading: sections.find((s) => s.index === index)?.heading || `구간 ${index}`,

@@ -68,7 +68,8 @@ describe('① 한 번 고칠 때 확실하게 — 거절되면 이유를 알려�
 
   test('⭐ 남은 지적 재시도와 검수는 조건이 맞을 때만 돈다 — 평소 비용은 그대로다', () => {
     expect(fn).toContain('if (remaining.length && revisions.size) {');       // 코드 진단이 남았을 때만
-    expect(fn).toContain('if (revisions.size && semanticIssues.length) {');  // 못 재는 지적이 있고 바뀐 구간이 있을 때만
+    // v3.8.731: verify:false(발행 전 자가 수정)면 검수를 아예 안 부른다
+    expect(fn).toContain('if (revisions.size && semanticIssues.length && input.verify !== false) {');  // 못 재는 지적이 있고 바뀐 구간이 있을 때만
   });
 });
 

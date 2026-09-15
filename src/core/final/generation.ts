@@ -2015,9 +2015,23 @@ JSON만 출력 (설명/마크다운 금지):
      */
     const threadBefore: string[] = thread ? threadViolations(allSectionsObj, thread) : [];
     const lowQuality = lowQualityRatio >= 0.30;
-    // 🔥 30% 이상 저품질이면 보강 (빠른 모드는 스킵)
-    if (!skipBoost && (lowQuality || threadBefore.length > 0)) {
-      onLog?.(`[PROGRESS] 65% - 🔁 본문 품질 보강 중 (1회 호출) — ${lowQuality ? `저품질 ${Math.round(lowQualityRatio * 100)}%` : ''}${lowQuality && threadBefore.length ? ' · ' : ''}${threadBefore.length ? `실 위반 ${threadBefore.length}건` : ''}`);
+    /**
+     * 🔎 v3.8.731 — 초안을 코드로 먼저 재서 **어디가 겹치는지 문장째** 알려 준다 (호출 0회).
+     *
+     * 사장님: "글을 한번 쓸 때 LLM 이 비평하더라도 수정할 게 없고 100점에 가깝게 글을 쓰게 못하니?"
+     * 장부 실측(40편): 첫 생성 중앙값 82점, 남는 결함 1위는 구간 반복 59건. 이 보강 호출은 "중복 제거" 라고만 해서
+     * 모델이 어디가 겹치는지 모른 채 고쳤고, 저품질 30% 이상일 때만 돌아 반복만 있는 글은 손도 못 댔다.
+     * 이제 감사 결함이 있으면 보강을 돌리고, 인용한 문장 목록을 실어 보낸다. 보강 뒤 다시 재서 결함이 늘면 폐기한다.
+     */
+    const { auditDraft, buildDraftFixBlock, compareDraftAudits, describeDraftFindings } = require('./draft-audit');
+    const draftAudit = auditDraft(allSectionsObj, { question: thread?.question });
+    (globalThis as any).__lastDraftAudit = { before: draftAudit.findings.length, after: draftAudit.findings.length };
+    if (draftAudit.findings.length) {
+      onLog?.(`[PROGRESS] 65% - 🔎 초안 감사: 고칠 것 ${draftAudit.findings.length}건 (${describeDraftFindings(draftAudit.findings)}) — 문장째 인용해 보강에 싣습니다`);
+    }
+    // 🔥 30% 이상 저품질·실 위반·감사 결함이면 보강 (빠른 모드는 스킵)
+    if (!skipBoost && (lowQuality || threadBefore.length > 0 || draftAudit.findings.length > 0)) {
+      onLog?.(`[PROGRESS] 65% - 🔁 본문 품질 보강 중 (1회 호출) — ${[lowQuality ? `저품질 ${Math.round(lowQualityRatio * 100)}%` : '', threadBefore.length ? `실 위반 ${threadBefore.length}건` : '', draftAudit.findings.length ? `감사 결함 ${draftAudit.findings.length}건` : ''].filter(Boolean).join(' · ')}`);
       const threadFixBlock = thread && threadBefore.length
         ? `\n🧵 [실 위반 — 반드시 고칠 것]\n독자의 문제: 「${thread.question}」\n${threadBefore.map((v, i) => `${i + 1}) ${v}`).join('\n')}\n- 서론의 마지막 문장은 이 문제를 독자에게 묻는 질문 한 문장(물음표)으로.\n- 절마다 "takeaway" 에 필자의 반응 한 문장: 조건(누가·어떤 경우) + 행동 + 이유. "확인하세요·점검하세요" 목록은 반응이 아닙니다.\n- "conclusion" 은 서론의 질문을 한 문장으로 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다".\n- 위반이 없는 절과 문장은 그대로 둡니다. 새 수치를 지어내지 않습니다.\n`
         : '';
@@ -2028,7 +2042,7 @@ JSON만 출력 (설명/마크다운 금지):
 🔴🔴🔴 필수 보강 규칙 🔴🔴🔴
 1) JSON 구조(객체/필드명)는 그대로 유지
 ${lowQuality ? '2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)\n3) 각 content는 **<p> 태그 5개** 필수' : '2) 분량은 지금 그대로(±10%). 늘리려고 같은 말을 되풀이하지 않습니다\n3) 고치라는 곳 말고는 문장을 바꾸지 않습니다'}
-4) 중복 표현/반복 멘트 완전 제거${threadFixBlock}
+4) 중복 표현/반복 멘트 완전 제거${threadFixBlock}${buildDraftFixBlock(draftAudit.findings)}
 5) 숫자/통계는 참고 크롤링 데이터 또는 기존 JSON에 있는 값만 사용! 출처 불명 숫자 만들기 금지!
 6) 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요
 7) 한글과 영문/숫자만 사용. 중국어 한자(漢字) 절대 금지!
@@ -2100,18 +2114,25 @@ JSON만 출력:
           reasons.push(`총 분량 감소(${beforeLen}자→${afterLen}자)`);
         }
         // v3.8.673 — 실 위반이 늘었으면 받지 않는다. 실 위반만으로 불렀는데 하나도 안 줄었으면 받을 이유가 없다
+        // v3.8.731 — 감사 결함만으로 부른 보강이면 실 위반은 0→0 이 정상이라 "그대로" 로 반려하지 않는다
         if (thread) {
           const threadAfter = threadViolations(candidate, thread);
           if (threadAfter.length > threadBefore.length) reasons.push(`실 위반 증가(${threadBefore.length}→${threadAfter.length})`);
-          else if (!lowQuality && threadAfter.length >= threadBefore.length) reasons.push(`실 위반 그대로(${threadBefore.length})`);
+          else if (!lowQuality && threadBefore.length > 0 && threadAfter.length >= threadBefore.length) reasons.push(`실 위반 그대로(${threadBefore.length})`);
           else if (threadBefore.length) onLog?.(`[PROGRESS] 65% - 🧵 보강으로 실 위반 ${threadBefore.length}→${threadAfter.length}건`);
         }
+        // v3.8.731 — 감사로 다시 잰다. 결함이 늘었으면 폐기, 그대로면 받되 장부에 남긴다(보강이 못 고친 것도 신호다)
+        const audited = auditDraft(candidate, { question: thread?.question });
+        const compared = compareDraftAudits(draftAudit, audited);
+        if (compared.worse) reasons.push(compared.summary);
+        else if (draftAudit.findings.length) onLog?.(`[PROGRESS] 65% - 🔎 보강으로 ${compared.summary}`);
 
         if (reasons.length > 0) {
           console.warn(`[generateAllSections] 보강 결과가 원본보다 나빠 폐기: ${reasons.join(', ')}`);
           onLog?.(`[PROGRESS] 65% - ⚠️ 보강 결과가 원본보다 부실해 폐기하고 원본을 유지합니다 (${reasons.join(', ')})`);
         } else {
           allSectionsObj = candidate;
+          (globalThis as any).__lastDraftAudit = { before: draftAudit.findings.length, after: audited.findings.length };
           onLog?.(`[PROGRESS] 65% - ✅ 본문 보강 반영 (${beforeLen}자 → ${afterLen}자)`);
         }
       } catch (parseErr) {

@@ -22,8 +22,17 @@
  * 그대로 재사용한다 — 같은 일을 두 벌 만들면 한쪽만 고쳐진다.
  *
  * ## 비용
- * 고칠 구간 수에 상한을 둔다. 결함이 열 개여도 호출은 최대 MAX_SECTIONS 번이다.
+ * 고칠 구간 수에 상한을 둔다. 결함이 열 개여도 구간은 최대 MAX_SECTIONS(반복이 둘 이상이면 2)개다.
  * 사장님 요구가 "비용은 고정" 이므로 결함 수에 비례해 늘어나면 안 된다.
+ *
+ * ## v3.8.731 — 33편 중 2편만 고치던 것을 고친다
+ * 장부 실측(9/6~9/15, 40편): 자가 수정이 33편에서 돌았는데 실제로 고친 건 2편. 관문에 반려됐기 때문이다 —
+ *   · 구간 반복(59건, 1위)은 처방이 "겹치는 문장을 지우라"인데 관문은 "분량 90% 미만이면 반려"
+ *   · 구간이 200자 미만이면 judgeImproved(글 전체용 하한)가 무조건 반려
+ *   · 답 관련 결함은 답 블록 수정이 금지돼 반려. 반려돼도 재시도 없음
+ * 그래서 다시 쓰는 엔진을 편집기와 같은 improveDraft 로 바꾼다 — 빼는 수정 인식·반려 시 이유를 붙여 1회 더·
+ * 답 블록 글 수정 허용·이름표로 재측정. 검수 호출은 끈다(결함이 전부 코드 진단이라 다시 재면 된다).
+ * 호출 상한: 구간 2개 × 2회. 반려 사유는 notes 로 돌려 장부에 남긴다.
  *
  * ## 절대 원칙
  * 발행을 막지 않는다. 고치다 실패하면 원본 그대로 나간다.
@@ -33,13 +42,9 @@
 import { auditArticle, type AuditIssue } from './article-audit';
 import {
   splitSections,
-  applySectionRevisions,
-  buildSectionRevisionPrompt,
-  acceptRevisedSection,
-  judgeImproved,
   locateSection,
+  locateEvidenceSection,
   type CritiqueIssue,
-  type PostSection,
 } from './post-critique';
 import { findUnfulfilledHeadings } from './structure-guard';
 import { auditTitleAnswer, isQuestionTitle } from './title-answer-gate';
@@ -115,7 +120,8 @@ export function inspectBeforePublish(input: { title: string; html: string; repor
       kind: issue.kind,
       title: issue.title,
       evidence: issue.evidence,
-      sectionIndex: locateSection(sections, issue.evidence.split('\n')[0] || ''),
+      // v3.8.731: 구간 반복 근거("앞: …\n뒤: …")는 뒤 절을 가리킨다 — 첫 줄로 찾으면 늘 -1 → 도입부로 갔다
+      sectionIndex: locateEvidenceSection(sections, issue.evidence),
     });
   }
 
@@ -187,11 +193,18 @@ export function inspectBeforePublish(input: { title: string; html: string; repor
   return { fixable, advisory };
 }
 
-/** PreflightFinding 을 post-critique 부품이 이해하는 모양으로 */
-function toCritiqueIssue(f: PreflightFinding): CritiqueIssue {
+/**
+ * PreflightFinding 을 post-critique 부품이 이해하는 모양으로.
+ *
+ * v3.8.731 — id 를 diagnosePost 와 같은 꼴(`audit-<kind>-N`)로 맞춘다. improveDraft 가 "고친 뒤 남았는지"를
+ * 이름표(issueKey: 순번 뺀 id + 제목 + 근거 앞부분)로 재는데, 접두어가 다르면 같은 결함을 못 알아본다.
+ * 하네스가 아닌 종류(unfulfilled-heading·title-unanswered·report-longtail-missing)는 그대로 `pre-` 다.
+ */
+const AUDIT_KINDS = /^(asserted-crime|legal-overreach|unsourced-reading|settlement-stretch|unverified-first|cross-section-echo|no-stance|deferral-flood|stance-shallow|promise-deferred|procedure-repeat|inline-faq|title-thread-lost|intro-question-missing|section-closer-checklist|title-promise-unkept)$/;
+export function toCritiqueIssue(f: PreflightFinding): CritiqueIssue {
   return {
-    id: `pre-${f.kind}`,
-    area: 'substance',
+    id: AUDIT_KINDS.test(f.kind) ? `audit-${f.kind}-0` : `pre-${f.kind}`,
+    area: /title|answer|promise/.test(f.kind) ? 'answer' : 'substance',
     severity: 'high',
     title: f.title,
     detail: f.evidence,
@@ -202,7 +215,7 @@ function toCritiqueIssue(f: PreflightFinding): CritiqueIssue {
   };
 }
 
-const FIX_HINTS: Record<string, string> = {
+export const FIX_HINTS: Record<string, string> = {
   'asserted-crime': '"횡령했다" 같은 확정형을 "횡령 혐의를 주장했다" 로 바꿉니다. 수사·판결 전 사건은 반드시 주장형으로 씁니다.',
   'legal-overreach': '"○○죄가 적용됐다" 를 "○○죄를 거론했다" 로 낮춥니다.',
   'unsourced-reading': '누가 그렇게 말했는지 밝히거나, 출처가 없으면 그 문장을 지웁니다. 지어내서 출처를 붙이지 않습니다.',
@@ -280,50 +293,45 @@ export async function fixBeforePublish(
 
   const sections = splitSections(html);
   const targets = pickSections(report.fixable, sections.length);
-  const wholePost = report.fixable.filter((f) => f.sectionIndex < 0).map(toCritiqueIssue);
   const notes: string[] = [];
-  const revisions: { index: number; html: string }[] = [];
   let calls = 0;
 
   onLog?.(`   🩺 발행 전 자가 검수 — ${report.fixable.length}건 발견, 구간 ${targets.length}개를 다시 씁니다`);
 
-  for (const index of targets) {
-    const section = sections.find((s) => s.index === index);
-    if (!section) continue;
-    const mine = report.fixable.filter((f) => f.sectionIndex === index).map(toCritiqueIssue);
-    if (mine.length === 0 && wholePost.length === 0) continue;
+  /**
+   * v3.8.731 — 다시 쓰는 일은 편집기와 같은 엔진(improveDraft)에 맡긴다.
+   * 구간 지정 결함은 그 구간에, 글 전체 결함은 고르기로 정한 구간마다 붙인다(예전에도 모든 대상 구간에 붙였다).
+   * 대상 구간 밖의 결함은 넣지 않는다 — 넣으면 improveDraft 가 그 구간까지 손봐 상한이 무너진다.
+   */
+  const issues: CritiqueIssue[] = [
+    ...report.fixable.filter((f) => targets.includes(f.sectionIndex)).map(toCritiqueIssue),
+    ...targets.flatMap((index) => report.fixable
+      .filter((f) => f.sectionIndex < 0 || f.sectionIndex >= sections.length)
+      .map((f) => ({ ...toCritiqueIssue(f), sectionIndex: index }))),
+  ];
+  if (issues.length === 0) return { html, revised: 0, calls, notes };
 
-    try {
-      const prompt = buildSectionRevisionPrompt({
-        title: input.title,
-        section,
-        issues: mine,
-        wholePostIssues: wholePost,
-      });
-      calls += 1;
-      const raw = await callModel(prompt);
-      const accepted = acceptRevisedSection(raw, section);
-      if (!accepted.accepted) {
-        notes.push(`구간 ${index}: 원본 유지 (${accepted.reason})`);
-        continue;
-      }
-      const verdict = judgeImproved(accepted.html, section.html);
-      if (!verdict.ok) {
-        notes.push(`구간 ${index}: 원본 유지 (${verdict.reason})`);
-        continue;
-      }
-      revisions.push({ index, html: accepted.html });
-      notes.push(`구간 ${index}: 다시 썼습니다`);
-    } catch (error: any) {
-      // 한 구간이 실패해도 나머지는 계속한다. 발행은 막지 않는다.
-      notes.push(`구간 ${index}: 건너뜀 (${String(error?.message || error).slice(0, 60)})`);
-    }
-  }
-
-  for (const n of notes) onLog?.(`      ${n}`);
-
-  if (revisions.length === 0) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { improveDraft } = require('./editor-draft');
+    const outcome = await improveDraft({
+      title: input.title,
+      html,
+      issues,
+      callModel: (prompt: string) => { calls += 1; return callModel(prompt); },
+      log: (line: string) => onLog?.(`      ${line.replace(/^\[PROGRESS\] \d+% - /, '')}`),
+      verify: false,
+    });
+    for (const line of outcome.skipped) notes.push(`원본 유지 — ${line}`);
+    for (const d of outcome.revisedDetail) notes.push(`구간 ${d.index}: 다시 썼습니다 (${d.before}자 → ${d.after}자)`);
+    if (outcome.stillPresent.length) notes.push(`아직 남은 결함 ${outcome.stillPresent.length}건: ${outcome.stillPresent.join(' · ').slice(0, 160)}`);
+    for (const n of notes) onLog?.(`      ${n}`);
+    if (outcome.revised === 0) return { html, revised: 0, calls, notes };
+    return { html: outcome.html, revised: outcome.revised, calls, notes };
+  } catch (error: any) {
+    // 실패해도 발행은 막지 않는다 — 원본 그대로 나간다
+    notes.push(`건너뜀 (${String(error?.message || error).slice(0, 80)})`);
+    for (const n of notes) onLog?.(`      ${n}`);
     return { html, revised: 0, calls, notes };
   }
-  return { html: applySectionRevisions(html, revisions), revised: revisions.length, calls, notes };
 }

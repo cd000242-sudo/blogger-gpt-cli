@@ -43,6 +43,14 @@ export interface LedgerEntry {
   preflightRevised?: number;
   /** 그때 AI 를 몇 번 불렀나 */
   preflightCalls?: number;
+  /**
+   * v3.8.731 — 왜 못 고쳤는지(반려 사유)·무엇을 고쳤는지 한 줄씩. 최대 6줄.
+   * 33편 중 2편만 고쳐진 것을 장부로는 알 수 없었다 — 로그로만 흘러갔다.
+   */
+  preflightNotes?: string[];
+  /** v3.8.731 — 초안 감사(보강 호출 전) 결함 수 → 보강 뒤 결함 수. 보강이 안 돌았으면 둘 다 같다 */
+  draftAuditBefore?: number;
+  draftAuditAfter?: number;
   /** 리포트에서 온 것이면 슬롯·등급 */
   reportSlot?: string;
   reportGrade?: string;
