@@ -2368,7 +2368,10 @@ async function generateAndPublishSpiderWeb() {
         const executionMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"');
         const agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"');
         payload.executionMode = executionMode;
-        payload.agentProvider = agentProvider === 'claude' ? 'claude' : 'codex';
+        // v3.8.733: 제미나이를 코덱스로 접으면 **실제로 코덱스가 돈다** (표시용이 아니라 payload 값이다)
+        payload.agentProvider = ['codex', 'claude', 'gemini'].includes(String(agentProvider || '').toLowerCase())
+          ? String(agentProvider).toLowerCase()
+          : 'codex';
         if (executionMode === 'agent') {
           _swPushLog(`🤖 에이전트 모드 (${payload.agentProvider}) — API 비용 없이 생성`, 'info');
         }

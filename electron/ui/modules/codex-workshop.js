@@ -1614,6 +1614,10 @@ function renderAgentProviderPanel() {
           <strong>빠른 작업</strong>
           <button type="button" class="agent-mode-primary-action" data-install-agent="${escapeHtml(provider)}">${escapeHtml(tool?.installed && tool.usable !== false ? `${meta.label} 설치/업데이트` : `${meta.label} 설치하기`)}</button>
           <button type="button" class="agent-mode-primary-action" data-agent-add-account="${escapeHtml(provider)}">로그인 계정 추가하기</button>
+          ${provider === 'gemini' ? '' : `
+          <!-- v3.8.733: 앱은 계정을 격리 폴더에 따로 둔다. 터미널에서 로그인해도 앱은 그걸 안 쓴다 —
+               "로그인되어있는데 만료라고 뜨네요"의 정체가 이것이라, 그 로그인을 그대로 가져온다. -->
+          <button type="button" class="agent-mode-primary-action" data-agent-import-system="${escapeHtml(provider)}">이 PC 로그인 가져오기</button>`}
           <button type="button" class="agent-mode-primary-action" data-agent-login="${escapeHtml(provider)}">${escapeHtml(ready ? `${meta.label} 로그인 완료 확인` : `${meta.label} 로그인 창 열기`)}</button>
           <button type="button" data-agent-refresh="true">상태 새로고침</button>
           <div class="agent-mode-link-grid">
@@ -1644,6 +1648,33 @@ function renderAgentProviderPanel() {
         if (profile?.id) {
           await startAgentLogin(selectedProvider, profile.id);
         }
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = previousText;
+        }
+      }
+    });
+  });
+  detail.querySelectorAll('[data-agent-import-system]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const selectedProvider = button.getAttribute('data-agent-import-system') || provider;
+      const previousText = button.textContent;
+      button.disabled = true;
+      button.textContent = '가져오는 중...';
+      try {
+        const api = getBridgeApi();
+        const result = await api?.invoke?.('agent-mode:import-system-login', { provider: selectedProvider });
+        if (!result?.ok) {
+          setSettingsStatus(result?.error || '이 PC 로그인을 가져오지 못했습니다.');
+          alert(result?.error || '이 PC 로그인을 가져오지 못했습니다.');
+          return;
+        }
+        setSettingsStatus(result.message || '이 PC 로그인을 가져왔습니다.');
+        if (!result.ready) alert(result.message || '인증 파일은 가져왔지만 확인에 실패했습니다.');
+        await refreshAgentSettingsAndVerify(selectedProvider);
+      } catch (error) {
+        setSettingsStatus(`이 PC 로그인 가져오기 실패: ${error?.message || error}`);
       } finally {
         if (button.isConnected) {
           button.disabled = false;

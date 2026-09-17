@@ -117,16 +117,19 @@ function restoreKeywordInputInteractivity() {
  * 남는 차이는 "글을 누가 쓰느냐" 하나뿐이다.
  */
 function ensureAgentProgressModal(provider = 'codex') {
-  const providerLabel = provider === 'claude' ? 'Claude Code' : 'Codex';
+  // v3.8.733: 제미나이도 제 이름으로 부른다 (예전엔 claude 가 아니면 전부 "Codex")
+  const providerLabel = { codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini CLI' }[provider] || 'Codex';
 
   // 틀·버튼·단계는 API 모드와 동일하게 두고, 부제만 지금 누가 글을 쓰는지 알린다.
   const subtitle = document.getElementById('progressModalSubtitle');
   if (subtitle) subtitle.textContent = `${providerLabel} Agent 모드 · 글 생성만 Agent, 나머지는 동일`;
 
   // v3.8.108 의 등급 한도 안내는 전용 패널과 함께 사라지므로 로그로 남긴다 (정보는 유지).
-  addLog(provider === 'codex'
-    ? '💡 ChatGPT/Codex 구독 한도는 글 생성에 쓰입니다. 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.'
-    : '💡 Claude Code 5시간 한도는 글 생성에 쓰입니다(1편 ≈ 10~15%). 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.',
+  addLog(provider === 'claude'
+    ? '💡 Claude Code 5시간 한도는 글 생성에 쓰입니다(1편 ≈ 10~15%). 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.'
+    : provider === 'gemini'
+      ? '💡 Google AI 구독 한도(분당·일일 요청 수)는 글 생성에 쓰입니다. 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.'
+      : '💡 ChatGPT/Codex 구독 한도는 글 생성에 쓰입니다. 이미지는 선택한 Orbit 이미지 엔진/API 한도를 따릅니다.',
     'info');
 
   window.updateAgentProgressUI = updateAgentProgressModal;
@@ -690,7 +693,11 @@ export async function runPosting() {
     // v3.8.168: 큐 모드에서도 에이전트 progress modal 표시 (큐 모달은 별도로 운영되지만 에이전트 진행 상황 추적용)
     if (shouldUseAgentGeneration) {
       let activeAgentProvider = 'codex';
-      try { activeAgentProvider = localStorage.getItem('leadernamActiveAgentProvider') === 'claude' ? 'claude' : 'codex'; } catch {}
+      // v3.8.733: 값이 JSON 문자열("codex")로 저장돼 있어 raw 비교는 늘 빗나갔다 — 따옴표를 벗기고 표로 판정한다
+      try {
+        const rawProvider = String(localStorage.getItem('leadernamActiveAgentProvider') || '').replace(/^"|"$/g, '').toLowerCase();
+        if (['codex', 'claude', 'gemini'].includes(rawProvider)) activeAgentProvider = rawProvider;
+      } catch {}
       ensureAgentProgressModal(activeAgentProvider);
       updateAgentProgressModal(8, 'Agent 모드: 글 생성과 API 이미지 생성, 발행 작업을 준비합니다.', 'info', 'prepare');
     }

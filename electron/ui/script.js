@@ -7539,7 +7539,9 @@ function readAgentModeStorageValue(key, fallback = '') {
 
 function getAgentImageSettingsMode() {
   const executionMode = readAgentModeStorageValue('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api';
-  const provider = readAgentModeStorageValue('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+  // v3.8.733: 제미나이(gemini)를 코덱스로 접지 않는다 — 표에 있는 값이면 그대로 쓴다
+  const providerRaw = String(readAgentModeStorageValue('leadernamActiveAgentProvider', 'codex') || '').toLowerCase();
+  const provider = ['codex', 'claude', 'gemini'].includes(providerRaw) ? providerRaw : 'codex';
   return {
     executionMode,
     provider,

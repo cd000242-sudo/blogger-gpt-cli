@@ -209,7 +209,9 @@ function _getExtTrafficAgentImageMode() {
     return window.getAgentImageSettingsMode();
   }
   const executionMode = _readExtTrafficJsonStorage('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api';
-  const provider = _readExtTrafficJsonStorage('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+  // v3.8.733: 제미나이(gemini)를 코덱스로 접지 않는다 — 표에 있는 값이면 그대로 쓴다
+  const providerRaw = String(_readExtTrafficJsonStorage('leadernamActiveAgentProvider', 'codex') || '').toLowerCase();
+  const provider = ['codex', 'claude', 'gemini'].includes(providerRaw) ? providerRaw : 'codex';
   return {
     executionMode,
     provider,

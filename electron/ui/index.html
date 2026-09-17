@@ -1123,7 +1123,11 @@
                     };
                     return {
                       mode: read('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api',
-                      provider: read('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex',
+                      // v3.8.733: 제미나이를 코덱스로 접지 않는다 — 접으면 카드 선택 표시가 코덱스로 튄다
+                      provider: (function () {
+                        const raw = String(read('leadernamActiveAgentProvider', 'codex') || '').toLowerCase();
+                        return ['codex', 'claude', 'gemini'].includes(raw) ? raw : 'codex';
+                      })(),
                     };
                   }
 
@@ -9231,16 +9235,21 @@ function showEngineStartupGate() {
     }); };
 
     // 에이전트 상태 — codex-workshop 이 아직 안 붙었으면 localStorage 폴백(표시용)
+    // v3.8.733: 제미나이를 코덱스로 접지 않는다 (예전엔 claude 가 아니면 전부 codex 로 떨어졌다)
+    var normalizeAgentProviderValue = function (value) {
+      var raw = String(value == null ? '' : value).toLowerCase();
+      return ['codex', 'claude', 'gemini'].indexOf(raw) >= 0 ? raw : 'codex';
+    };
     var agentMode = 'api';
     var agentProvider = 'codex';
     try {
       if (typeof window.getAgentExecutionState === 'function') {
         var st = window.getAgentExecutionState();
         agentMode = st.mode === 'agent' ? 'agent' : 'api';
-        agentProvider = st.provider === 'claude' ? 'claude' : 'codex';
+        agentProvider = normalizeAgentProviderValue(st.provider);
       } else {
         agentMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"') === 'agent' ? 'agent' : 'api';
-        agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"') === 'claude' ? 'claude' : 'codex';
+        agentProvider = normalizeAgentProviderValue(JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"'));
       }
     } catch (e) { /* 표시용 — 못 읽어도 API 목록은 뜬다 */ }
 

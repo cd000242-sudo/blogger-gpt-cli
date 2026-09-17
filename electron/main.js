@@ -1663,7 +1663,8 @@ URL: ${item.url}
                 //   이전: 무조건 Gemini API 호출 → 구독자도 API 비용 발생
                 //   해결: 거미줄 prompt를 agent instruction으로 전달 + article.html 결과를 generatedContent에 할당
                 const isSpiderAgentMode = payload.executionMode === 'agent';
-                const agentProvider = payload.agentProvider === 'claude' ? 'claude' : 'codex';
+                // v3.8.733: 제미나이를 코덱스로 접지 않는다 — 표(AGENT_PROVIDERS)가 정하는 값을 그대로 쓴다
+                const agentProvider = normalizeAgentProvider(payload.agentProvider);
                 if (isSpiderAgentMode) {
                     sendDiag(`🤖 에이전트 모드 (${agentProvider}) — Agent CLI로 통합글 생성`);
                     try {
@@ -8954,6 +8955,10 @@ const AGENT_MODE_REQUIRED_NAME = '스탠다드 (3개월)';
 const AGENT_JOB_TIMEOUT_MS = 25 * 60 * 1000;
 const AGENT_LOGIN_URL_WAIT_MS = 25000;
 const AGENT_LOGIN_VERIFY_TIMEOUT_MS = 45 * 1000;
+// v3.8.733: 저장된 토큰이 서버에서도 살아 있는지 묻는 시간 — 점검을 붙잡지 않도록 짧게
+const CODEX_SESSION_PROBE_TIMEOUT_MS = 8 * 1000;
+// 실측: 죽은 프로필 2.0초 / 살아 있는 프로필 5.5초. 여유를 둬도 25초면 넉넉하다.
+const CODEX_EXEC_PROBE_TIMEOUT_MS = 25 * 1000;
 const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
 const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
 const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
@@ -11444,6 +11449,125 @@ function resolveAgentBinaryCommand(provider) {
     const binaryName = agentProviderInfo(provider).binary;
     return getAgentBinaryCandidates(binaryName)[0] || binaryName;
 }
+function readCodexAccessToken(profileDir) {
+    try {
+        const authPath = path.join(profileDir, 'auth.json');
+        if (!fs.existsSync(authPath))
+            return null;
+        const parsed = JSON.parse(fs.readFileSync(authPath, 'utf-8'));
+        const token = String(parsed?.tokens?.access_token || '').trim();
+        if (!token)
+            return null;
+        let expiresAt = 0;
+        const segments = token.split('.');
+        if (segments.length >= 2) {
+            const base64 = segments[1].replace(/-/g, '+').replace(/_/g, '/');
+            const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+            const claims = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'));
+            expiresAt = Number(claims?.exp || 0) * 1000;
+        }
+        return { token, expiresAt };
+    }
+    catch {
+        return null;
+    }
+}
+/**
+ * 2단계 — CLI 에게 직접 갱신을 시켜 본다. 인증이 죽었으면 모델에 닿기 전에 401 로 끝난다.
+ *   실측(2026-09-17): 죽은 프로필 2.0초 / 살아 있는 프로필 5.5초.
+ */
+function runCodexExecProbe(profile) {
+    return new Promise((resolve) => {
+        const { spawn } = require('child_process');
+        const command = resolveAgentBinaryCommand(profile.provider);
+        const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', 'ok'];
+        const env = buildAgentRunEnv(profile);
+        env.NO_COLOR = '1';
+        const isWindows = process.platform === 'win32';
+        const useShell = isWindows && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+        let output = '';
+        let settled = false;
+        let child = null;
+        const done = (result) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            try {
+                child?.kill();
+            }
+            catch { /* ignore */ }
+            resolve(result);
+        };
+        const timer = setTimeout(() => done('unknown'), CODEX_EXEC_PROBE_TIMEOUT_MS);
+        try {
+            child = spawn(useShell ? buildShellCommandLine(command, args) : command, useShell ? [] : args, {
+                cwd: electron_1.app.getPath('home'),
+                env,
+                shell: useShell,
+                stdio: ['ignore', 'pipe', 'pipe'],
+                windowsHide: true,
+            });
+            child.stdout?.on('data', (chunk) => { output = (output + String(chunk || '')).slice(-20000); });
+            child.stderr?.on('data', (chunk) => { output = (output + String(chunk || '')).slice(-20000); });
+            child.on('error', () => done('unknown'));
+            child.on('close', () => {
+                // 한도 초과는 "인증 죽음"이 아니다 — 그건 바깥 quotaExceeded 가 따로 말한다
+                if (CODEX_OUT_OF_CREDITS_RE.test(output) || /usage limit|rate limit/i.test(output))
+                    return done('live');
+                if (CODEX_AUTH_REQUIRED_RE.test(output))
+                    return done('revoked');
+                return done('unknown');
+            });
+        }
+        catch {
+            done('unknown');
+        }
+    });
+}
+async function probeCodexSessionLive(profile) {
+    if (profile.provider !== 'codex' || profile.authMode !== 'subscription')
+        return 'unknown';
+    const stored = readCodexAccessToken(profile.profileDir);
+    if (!stored)
+        return 'unknown';
+    // access_token 이 이미 만료면 1단계로는 못 가른다 — 바로 CLI 에게 갱신을 시킨다
+    if (stored.expiresAt <= Date.now())
+        return runCodexExecProbe(profile);
+    const https = require('https');
+    return new Promise((resolve) => {
+        let settled = false;
+        const done = (result) => {
+            if (settled)
+                return;
+            settled = true;
+            resolve(result);
+        };
+        const request = https.request({
+            method: 'GET',
+            host: 'chatgpt.com',
+            // client_version 이 없으면 이 엔드포인트는 400 을 준다(실측) — 붙여야 판정이 선다
+            path: '/backend-api/codex/models?client_version=0.0.0',
+            headers: { Authorization: `Bearer ${stored.token}`, Accept: 'application/json' },
+            timeout: CODEX_SESSION_PROBE_TIMEOUT_MS,
+        }, (response) => {
+            response.resume();
+            const status = response.statusCode || 0;
+            if (status >= 200 && status < 300)
+                return done('live');
+            if (status !== 401 && status !== 403)
+                return done('unknown');
+            // 만료 전 토큰인데 거절당했다 = 서버가 세션을 끊은 것
+            return done('revoked');
+        });
+        request.on('timeout', () => { try {
+            request.destroy();
+        }
+        catch { /* ignore */ } done('unknown'); });
+        request.on('error', () => done('unknown'));
+        request.end();
+    });
+}
 function buildAgentLoginVerifyCommand(profile) {
     if (profile.provider === 'codex') {
         return {
@@ -11500,7 +11624,7 @@ async function verifyAgentLoginSession(profile) {
         let timedOut = false;
         let child = null;
         let timer;
-        const finish = (exitCode, errorMessage = '') => {
+        const finish = async (exitCode, errorMessage = '') => {
             if (settled)
                 return;
             settled = true;
@@ -11510,15 +11634,29 @@ async function verifyAgentLoginSession(profile) {
             const quotaExceeded = profile.provider === 'codex'
                 ? CODEX_OUT_OF_CREDITS_RE.test(combined) || /5\s*hour.*limit|hourly.*limit/i.test(combined)
                 : /usage limit|rate limit|quota|too many requests/i.test(combined);
-            const authRequired = profile.provider === 'codex'
+            const cliSaysAuthRequired = profile.provider === 'codex'
                 ? loginStatus === false || CODEX_AUTH_REQUIRED_RE.test(combined) || AGENT_AUTH_REQUIRED_RE.test(combined)
                 : loginStatus === false || AGENT_AUTH_REQUIRED_RE.test(combined);
+            /**
+             * v3.8.733 — CLI 가 "로그인됨"이라고 해도 **서버에 한 번 더 묻는다.**
+             * `codex login status` 는 파일만 보므로, 서버가 끊은 세션을 여기서만 잡을 수 있다.
+             */
+            let sessionProbe = 'unknown';
+            if (!timedOut && !quotaExceeded && !cliSaysAuthRequired && loginStatus === true) {
+                try {
+                    sessionProbe = await probeCodexSessionLive(profile);
+                }
+                catch {
+                    sessionProbe = 'unknown';
+                }
+            }
+            const authRequired = cliSaysAuthRequired || sessionProbe === 'revoked';
             const ready = !timedOut && !authRequired && !quotaExceeded && loginStatus === true && exitCode === 0;
             if (ready)
                 updateAgentProfileStatus(profile.id, 'ready');
             else if (authRequired)
                 updateAgentProfileStatus(profile.id, 'needs-login');
-            const label = profile.provider === 'claude' ? 'Claude Code' : 'Codex';
+            const label = agentProviderLabel(profile.provider);
             resolve({
                 ok: ready || authRequired || quotaExceeded || timedOut,
                 ready,
@@ -11533,13 +11671,16 @@ async function verifyAgentLoginSession(profile) {
                     ? `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`
                     : quotaExceeded
                         ? `${label} 로그인은 되어 있지만 구독 사용량/한도에 걸려 지금은 실행할 수 없습니다.`
-                        : authRequired
-                            ? `${label} 인증이 만료되었거나 현재 프로필에 로그인 세션이 없습니다. 로그인 창 열기로 다시 로그인해주세요.`
-                            : timedOut
-                                ? `${label} 로그인 세션 확인이 시간 초과되었습니다. CLI 로그인 창이 막혀 있거나 네트워크가 느릴 수 있습니다.`
-                                : loginStatus === null
-                                    ? `${label} CLI가 로그인 상태를 응답하지 않았습니다. CLI를 최신 버전으로 업데이트한 뒤 다시 확인해주세요.`
-                                    : `${label} 로그인 세션 확인 실패: ${errorMessage || stderr || stdout || `exitCode=${exitCode}`}`,
+                        : sessionProbe === 'revoked'
+                            // v3.8.733: CLI 는 로그인됐다고 답했지만 서버가 거절한 경우 — 이유를 정확히 적는다
+                            ? `${label} 은(는) 이 PC 에 로그인 기록이 남아 있지만 **서버가 세션을 거절했습니다**(토큰 무효화). 다른 곳에서 다시 로그인했거나 세션이 해지된 경우입니다. 이 계정으로 [로그인 창 열기]를 눌러 다시 로그인해야 발행이 됩니다.`
+                            : authRequired
+                                ? `${label} 인증이 만료되었거나 현재 프로필에 로그인 세션이 없습니다. 로그인 창 열기로 다시 로그인해주세요.`
+                                : timedOut
+                                    ? `${label} 로그인 세션 확인이 시간 초과되었습니다. CLI 로그인 창이 막혀 있거나 네트워크가 느릴 수 있습니다.`
+                                    : loginStatus === null
+                                        ? `${label} CLI가 로그인 상태를 응답하지 않았습니다. CLI를 최신 버전으로 업데이트한 뒤 다시 확인해주세요.`
+                                        : `${label} 로그인 세션 확인 실패: ${errorMessage || stderr || stdout || `exitCode=${exitCode}`}`,
                 stdout: stdout.slice(-4000),
                 stderr: stderr.slice(-4000),
             });
@@ -11840,6 +11981,94 @@ electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
     catch (error) {
         console.error('[AGENT-MODE] 프로필 생성 실패:', error);
         return { ok: false, error: error instanceof Error ? error.message : 'Agent 계정 준비 실패' };
+    }
+});
+/**
+ * 📥 v3.8.733 — 이 PC 에 이미 로그인된 CLI 계정을 앱 프로필로 가져온다.
+ *
+ * 사장님: "로그인되어있는데 이렇게뜨네요"
+ *   실측해 보니 터미널 로그인(`~/.codex`)은 멀쩡했고, 앱 전용 폴더 세 개가 전부
+ *   6~7월 토큰이라 죽어 있었다. 앱은 계정을 격리 폴더에 따로 두기 때문에
+ *   터미널에서 아무리 로그인해도 앱은 그걸 쓰지 않는다 — 이게 "로그인했는데 왜"의 정체다.
+ *
+ * 그래서 터미널 쪽 인증 파일을 새 프로필로 **복사**한다(원본은 건드리지 않는다).
+ *   제미나이는 인증을 파일 한 곳에 두지 않아(실측 0.51.0) 가져올 수 없다 — 로그인 창을 쓴다.
+ */
+const AGENT_SYSTEM_HOME_FILES = {
+    codex: {
+        dir: () => process.env['CODEX_HOME'] || path.join(electron_1.app.getPath('home'), '.codex'),
+        files: ['auth.json', 'config.toml'],
+    },
+    claude: {
+        dir: () => process.env['CLAUDE_CONFIG_DIR'] || path.join(electron_1.app.getPath('home'), '.claude'),
+        files: ['.credentials.json', 'settings.json'],
+    },
+};
+electron_1.ipcMain.handle('agent-mode:import-system-login', async (_evt, args) => {
+    try {
+        const access = await getAgentModeAccessStatus();
+        if (!access.allowed)
+            return { ok: false, error: access.message };
+        const provider = normalizeAgentProvider(args?.provider);
+        const source = AGENT_SYSTEM_HOME_FILES[provider];
+        if (!source) {
+            return {
+                ok: false,
+                error: `${agentProviderLabel(provider)} 는 인증 파일을 한 곳에 두지 않아 가져올 수 없습니다. [로그인 창 열기]로 로그인해주세요.`,
+            };
+        }
+        const sourceDir = source.dir();
+        const primary = path.join(sourceDir, source.files[0]);
+        if (!fs.existsSync(primary)) {
+            return {
+                ok: false,
+                error: `이 PC 의 ${agentProviderLabel(provider)} 로그인을 찾지 못했습니다 (${primary} 없음). 터미널에서 먼저 로그인한 뒤 다시 눌러주세요.`,
+            };
+        }
+        const id = createAgentProfileId(provider);
+        const profileDir = path.join(ensureAgentProfilesRoot(), provider, id);
+        const now = new Date().toISOString();
+        const profile = {
+            id,
+            provider,
+            label: sanitizeAgentLabel(args?.label || `${agentProviderLabel(provider)} (이 PC 로그인)`, provider),
+            authMode: 'subscription',
+            profileDir,
+            envVar: agentProviderInfo(provider).envVar,
+            status: 'needs-login',
+            createdAt: now,
+            updatedAt: now,
+        };
+        writeDefaultAgentProfileFiles(profile);
+        const copied = [];
+        for (const name of source.files) {
+            const from = path.join(sourceDir, name);
+            if (!fs.existsSync(from))
+                continue;
+            fs.copyFileSync(from, path.join(profileDir, name));
+            copied.push(name);
+        }
+        const profiles = loadAgentProfiles();
+        profiles.push(profile);
+        saveAgentProfiles(profiles);
+        // 복사한 인증이 **서버에서도 살아 있는지** 바로 확인한다 — 죽은 걸 가져와 놓고 준비됐다고 하면 안 된다
+        const verification = await verifyAgentLoginSession(profile);
+        const refreshed = refreshAgentProfileStatuses();
+        return {
+            ok: true,
+            ready: verification.ready,
+            copied,
+            sourceDir,
+            message: verification.ready
+                ? `이 PC 의 ${agentProviderLabel(provider)} 로그인을 가져왔습니다 (${copied.join(', ')}). 바로 쓸 수 있습니다.`
+                : `인증 파일은 가져왔지만 확인에 실패했습니다 — ${verification.message}`,
+            profile: toAgentProfileView(refreshed.find((item) => item.id === profile.id) || profile),
+            profiles: refreshed.map(toAgentProfileView),
+        };
+    }
+    catch (error) {
+        console.error('[AGENT-MODE] 시스템 로그인 가져오기 실패:', error);
+        return { ok: false, error: error instanceof Error ? error.message : '시스템 로그인 가져오기 실패' };
     }
 });
 electron_1.ipcMain.handle('agent-mode:get-login-command', async (_evt, args) => {
@@ -15008,12 +15237,13 @@ electron_1.ipcMain.handle('generate-external-traffic-text-v2', async (_evt, payl
         const useAgentMode = payload.executionMode === 'agent' && payload.agentProvider;
         let agentProfile = null;
         if (useAgentMode) {
-            agentProfile = findAgentProfile(undefined, payload.agentProvider);
+            // v3.8.733: 제미나이도 표에 있는 제공자다 — 모르는 값만 codex 로 떨어뜨린다
+            agentProfile = findAgentProfile(undefined, normalizeAgentProvider(payload.agentProvider));
             if (!agentProfile) {
                 // v3.8.271: 폴백 X — 명확한 에러로 사용자에게 진단 정보 제공
                 return {
                     success: false,
-                    error: `AGENT_PROFILE_NOT_FOUND: ${payload.agentProvider} 프로필을 찾을 수 없습니다.\n\n환경설정 → AI 엔진에서:\n1. Codex/Claude Code 계정 로그인 확인\n2. CLI 설치 확인 (Codex: npm install -g @openai/codex, Claude Code: irm https://claude.ai/install.ps1 | iex)\n3. 다시 외부유입 글 생성 시도`,
+                    error: `AGENT_PROFILE_NOT_FOUND: ${payload.agentProvider} 프로필을 찾을 수 없습니다.\n\n환경설정 → AI 엔진에서:\n1. Codex/Claude Code/Gemini CLI 계정 로그인 확인\n2. CLI 설치 확인 (Codex: npm install -g @openai/codex, Claude Code: irm https://claude.ai/install.ps1 | iex, Gemini: npm install -g @google/gemini-cli)\n3. 다시 외부유입 글 생성 시도`,
                 };
             }
             const accessStatus = await getAgentModeAccessStatus();

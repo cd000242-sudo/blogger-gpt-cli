@@ -134,12 +134,28 @@ function readQueueJsonStorage(key, fallback = '') {
   }
 }
 
+/**
+ * 💎 v3.8.733 — 제미나이를 코덱스로 둔갑시키지 않는다.
+ *
+ * 사장님: "제미나이 cli도 넣을수있게해주시구요"
+ * 제미나이는 v3.8.608/612 에서 환경설정·배지·실행경로에 이미 들어갔는데,
+ * 이 파일을 포함한 일곱 군데가 `=== 'claude' ? 'claude' : 'codex'` 로 접고 있었다.
+ * 골라도 연속발행 화면에선 코덱스로 읽혀 라벨·준비확인이 엉뚱한 CLI 를 가리켰다.
+ */
+const QUEUE_AGENT_PROVIDERS = ['codex', 'claude', 'gemini'];
+const QUEUE_AGENT_LABELS = { codex: 'Codex', claude: 'Claude Code', gemini: 'Gemini CLI' };
+
+function normalizeQueueAgentProvider(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  return QUEUE_AGENT_PROVIDERS.includes(raw) ? raw : 'codex';
+}
+
 function getQueueAgentImageMode() {
   if (typeof window !== 'undefined' && typeof window.getAgentImageSettingsMode === 'function') {
     return window.getAgentImageSettingsMode();
   }
   const executionMode = readQueueJsonStorage('leadernamExecutionMode', 'api') === 'agent' ? 'agent' : 'api';
-  const provider = readQueueJsonStorage('leadernamActiveAgentProvider', 'codex') === 'claude' ? 'claude' : 'codex';
+  const provider = normalizeQueueAgentProvider(readQueueJsonStorage('leadernamActiveAgentProvider', 'codex'));
   return {
     executionMode,
     provider,
@@ -157,8 +173,8 @@ function isQueueAgentMode() {
 async function verifyQueueAgentExecutionReadiness(runModal, enabled = []) {
   if (!isQueueAgentMode()) return { ok: true };
 
-  const provider = getQueueAgentImageMode().provider === 'claude' ? 'claude' : 'codex';
-  const label = provider === 'claude' ? 'Claude Code' : 'Codex';
+  const provider = normalizeQueueAgentProvider(getQueueAgentImageMode().provider);
+  const label = QUEUE_AGENT_LABELS[provider];
   const imageEngines = [...new Set(enabled.flatMap((item) => {
     const h2Mode = String(item?.h2ImageMode || '').toLowerCase();
     return [
@@ -1443,6 +1459,8 @@ function buildModalHtml() {
                 <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3)</option>
                 <option value="gptimage1">🎯 GPT 이미지 1</option>
                 <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
+                <option value="gptimage25flare">🎯 GPT 이미지 2.5 플레어 (신형 · 품질↑ 속도↑)</option>
+                <option value="gptimage25sunburst">🎯 GPT 이미지 2.5 선버스트 (프리미엄 · 느림)</option>
                 <option value="prodia">🚀 Prodia (유료 최저가)</option>
                 <option value="deepinfra">🔥 DeepInfra</option>
                 <option value="leonardo">🦁 Leonardo.ai</option>
@@ -1462,6 +1480,8 @@ function buildModalHtml() {
                 <option value="nanobananapro">🍌 Nano Banana Pro</option>
                 <option value="gptimage1">🎯 GPT 이미지 1</option>
                 <option value="gptimage2">🎯 GPT 이미지 2 / 덕트테이프</option>
+                <option value="gptimage25flare">🎯 GPT 이미지 2.5 플레어 (신형 · 품질↑ 속도↑)</option>
+                <option value="gptimage25sunburst">🎯 GPT 이미지 2.5 선버스트 (프리미엄 · 느림)</option>
                 <option value="prodia">🚀 Prodia</option>
                 <option value="deepinfra">🔥 DeepInfra</option>
                 <option value="leonardo">🦁 Leonardo.ai</option>
@@ -1709,6 +1729,8 @@ function buildItemRow(item, idx) {
         <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
         <option value="gptimage1" ${item.thumb === 'gptimage1' ? 'selected' : ''}>GPT 이미지 1</option>
         <option value="gptimage2" ${item.thumb === 'gptimage2' || item.thumb === 'dalle' ? 'selected' : ''}>GPT 이미지 2</option>
+        <option value="gptimage25flare" ${item.thumb === 'gptimage25flare' ? 'selected' : ''}>GPT 이미지 2.5 플레어</option>
+        <option value="gptimage25sunburst" ${item.thumb === 'gptimage25sunburst' ? 'selected' : ''}>GPT 이미지 2.5 선버스트</option>
         <option value="prodia" ${item.thumb === 'prodia' ? 'selected' : ''}>Prodia</option>
         <option value="deepinfra" ${item.thumb === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
         <option value="leonardo" ${item.thumb === 'leonardo' ? 'selected' : ''}>Leonardo.ai</option>
@@ -1726,6 +1748,8 @@ function buildItemRow(item, idx) {
         <option value="nanobananapro" ${item.h2ImageSource === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
         <option value="gptimage1" ${item.h2ImageSource === 'gptimage1' ? 'selected' : ''}>GPT 이미지 1</option>
         <option value="gptimage2" ${item.h2ImageSource === 'gptimage2' || item.h2ImageSource === 'dalle' ? 'selected' : ''}>GPT 이미지 2</option>
+        <option value="gptimage25flare" ${item.h2ImageSource === 'gptimage25flare' ? 'selected' : ''}>GPT 이미지 2.5 플레어</option>
+        <option value="gptimage25sunburst" ${item.h2ImageSource === 'gptimage25sunburst' ? 'selected' : ''}>GPT 이미지 2.5 선버스트</option>
         <option value="prodia" ${item.h2ImageSource === 'prodia' ? 'selected' : ''}>Prodia</option>
         <option value="deepinfra" ${item.h2ImageSource === 'deepinfra' ? 'selected' : ''}>DeepInfra</option>
         <option value="leonardo" ${item.h2ImageSource === 'leonardo' ? 'selected' : ''}>Leonardo.ai</option>
