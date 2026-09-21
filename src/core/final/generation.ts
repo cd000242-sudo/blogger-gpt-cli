@@ -8,6 +8,8 @@
 import axios from 'axios';
 // v3.8.554: 네이버 호출 단일 창구 (HUB 우선 + 자동 토스)
 import { naverSearch } from '../naver-search-client';
+// v3.8.734 — "오늘"은 서울 기준이다. toISOString() 은 UTC 라 한국 00~09시에 어제가 나온다 (kst-date.ts)
+import { kstToday } from './kst-date';
 import { isInstitutionalHost } from '../../cta/host-trust';
 // v3.8.565 (E2): 출력 언어 규칙은 language-rules 한 곳에서만 만든다.
 //   llm-caller 의 시스템 프롬프트와 이 본문 규칙이 서로 다른 언어를 지시하면 모델이 흔들린다.
@@ -546,7 +548,7 @@ export async function generateH1TitleFinal(
     ? discoverMode.buildDiscoverTitleDirective(currentYear)
     : buildArchetypeGuide(currentYear);
 
-  const todayH1 = new Date().toISOString().slice(0, 10);
+  const todayH1 = kstToday();
 
   /**
    * 🌐 v3.8.567 (E2) — 영어면 제목 프롬프트도 통째로 바꾼다.
@@ -1241,9 +1243,9 @@ export async function generateH2TitlesFinal(
   else if (materialCount <= 8) targetCount = 5;
   else if (materialCount <= 12) targetCount = 6;
   else if (materialCount <= 18) targetCount = 7;
-  else if (materialCount <= 25) targetCount = 8;
-  else if (materialCount <= 35) targetCount = 9;
-  else targetCount = 10;
+  // v3.8.734 — 상한 10 → 8. 재료의 "개수"는 경쟁 글 소제목·연관어 수라 정보의 양이 아니다.
+  //   실측: 근거 6,500자짜리 주제에 소제목 9개가 나와 절마다 700~1000자를 채워야 했다 — 늘여 쓴 글의 출발점이다.
+  else targetCount = 8;
 
   // 크롤링 신호가 많으면 위로만 조정한다 (아래로는 내리지 않는다)
   if (rawSignalCount >= 30) targetCount = Math.max(targetCount, 6);
@@ -1480,14 +1482,27 @@ export async function generateAllSectionsFinal(
     }>;
   }>;
 }> {
-  const reference = crawledContents.join('\n\n').slice(0, 12000);
+  /**
+   * v3.8.734 — 상한 12,000 → 22,000, 그리고 **자르는 순서가 바뀌었다.**
+   * 이 묶음은 앞에서부터 잘린다. 예전엔 지시 블록이 앞·근거가 뒤라 지시가 길수록 근거가 잘렸다
+   * (실측: 장부 21,350자 중 10,548자만 전달). 이제 orchestration 이 Research Packet → 근거 항목 → 지시 순으로 넣는다.
+   * 늘어난 만큼은 아래에서 분량 강제를 걷어 낸 것과 크롤링 원문 통짜를 안 보내는 것으로 상쇄된다.
+   */
+  const reference = crawledContents.join('\n\n').slice(0, 22000);
+  // 분량은 근거가 정한다 — Research Packet 의 사실 수로 기대치를 잡는다 (length-plan.ts)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const lengthPlanMod = require('./length-plan');
+  const lengthPlan = lengthPlanMod.resolveLengthPlan(reference, String(contentMode || ''));
+  if (lengthPlan.tier !== 'legacy') {
+    onLog?.(`[PROGRESS] 48% - 📏 분량 기준: 근거 ${lengthPlan.tier} (패킷 사실 ${lengthPlan.factLines}줄) → ${lengthPlan.rangeText}`);
+  }
 
   const h2List = h2Titles.map((h2, i) => `${i + 1}. ${h2}`).join('\n');
 
   // 🌐 참고 데이터: 크롤링 데이터 있으면 활용, 없으면 검색 지시
   // v3.8.361: 본문에 "참고 자료/제공된 자료/본문 근거" 같은 메타 표현이 그대로 새어나가던 심각한 문제 fix
   const contentReference = reference.trim().length > 100
-    ? `===== 백그라운드 컨텍스트 (독자에게 절대 언급 금지) =====\n${reference}\n=====\n\n위 컨텍스트를 참고해서 자연스럽게 서술하되 다음을 절대 지키세요:\n\n🚫🚫🚫 본문에 절대 쓰지 말 것 (프롬프트 유출):\n- "제공된 참고 자료에는~", "제공된 자료에는~", "본문 근거만으로는~", "제시되지 않았어요", "근거로 확인되지 않아요", "참고 데이터에 없어요"\n- "정확한 산식이 나와 있지 않다", "본문에서 확인되지 않는다" 같은 자기 참조\n- 독자는 이 컨텍스트의 존재를 모릅니다. AI가 자기 프롬프트를 읊는 것처럼 보이면 즉시 신뢰가 무너집니다.\n\n✅ 정보가 부족할 때 올바른 태도 (v3.8.374 — 이걸 어기면 "읽어도 남는 게 없는 글"이 됩니다):\n- 확인 안 된 수치를 지어내는 것도 금지지만, "공식 사이트에서 확인하세요"로 문단을 끝내는 것도 똑같이 금지입니다. 둘 다 독자에게 아무것도 주지 않습니다.\n- 수치를 못 쓰는 상황이면 반드시 아래 중 최소 2개를 대신 제공하세요:\n  ① 판단 기준 — 어떤 조건이면 A이고 어떤 조건이면 B인지 갈림길을 명시\n  ② 절차 — 무엇을, 어디서, 어떤 순서로 하는지 (메뉴 이름·서류 이름 수준까지)\n  ③ 확인 경로 — "공식 사이트"가 아니라 정확한 기관명 + 메뉴 경로 + 준비물/문의처\n  ④ 실패 사례 — 사람들이 여기서 무엇을 놓쳐서 손해를 보는지\n- 위 컨텍스트에 실제 숫자·기간·금액·기관명이 있으면 반드시 본문에 그대로 옮기세요. 숫자를 빼고 두루뭉술하게 요약하지 마세요.\n- 🚫 금지 마무리: "자세한 내용은 공식 사이트에서 확인하세요", "상황에 따라 달라질 수 있습니다", "미리 확인하는 것이 중요합니다" 로 문단/섹션을 끝내기`
+    ? `===== 백그라운드 컨텍스트 (독자에게 절대 언급 금지) =====\n${reference}\n=====\n\n위 컨텍스트를 참고해서 자연스럽게 서술하되 다음을 절대 지키세요:\n\n🚫🚫🚫 본문에 절대 쓰지 말 것 (프롬프트 유출):\n- "제공된 참고 자료에는~", "제공된 자료에는~", "본문 근거만으로는~", "제시되지 않았어요", "근거로 확인되지 않아요", "참고 데이터에 없어요"\n- "정확한 산식이 나와 있지 않다", "본문에서 확인되지 않는다" 같은 자기 참조\n- 독자는 이 컨텍스트의 존재를 모릅니다. AI가 자기 프롬프트를 읊는 것처럼 보이면 즉시 신뢰가 무너집니다.\n\n✅ 정보가 부족할 때 올바른 태도 (v3.8.374 — 이걸 어기면 "읽어도 남는 게 없는 글"이 됩니다):\n- 확인 안 된 수치를 지어내는 것도 금지지만, "공식 사이트에서 확인하세요"로 문단을 끝내는 것도 똑같이 금지입니다. 둘 다 독자에게 아무것도 주지 않습니다.\n- 수치를 못 쓰는 상황이면 반드시 아래 중 최소 2개를 대신 제공하세요:\n  ① 판단 기준 — 어떤 조건이면 A이고 어떤 조건이면 B인지 갈림길을 명시\n  ② 절차 — 무엇을, 어디서, 어떤 순서로 하는지 (메뉴 이름·서류 이름 수준까지)\n  ③ 확인 경로 — "공식 사이트"가 아니라 정확한 기관명 + 메뉴 경로 + 준비물/문의처\n  ④ 실패 사례 — 사람들이 여기서 무엇을 놓쳐서 손해를 보는지\n- 위 컨텍스트에 실제 숫자·기간·금액·기관명이 있으면 반드시 본문에 그대로 옮기세요. 숫자를 빼고 두루뭉술하게 요약하지 마세요.\n\n🔒 사실 규칙 (v3.8.734 — 다른 모든 작성 규칙보다 우선):\n- **금액·날짜·신청기간·자격조건·인물 발언·통계·정책 내용·기관 발표**는 위 [RESEARCH PACKET] 과 [FACT EVIDENCE] 에 글자로 적힌 것만 씁니다. 거기 없는 것을 사실처럼 새로 만들지 마세요. 일반적인 설명(개념·이유·판단 기준)은 써도 됩니다.\n- 중요한 숫자와 날짜는 Research Packet 에서 출처 id 가 붙은 값을 먼저 씁니다. 표기를 바꾸지 말고 그대로 옮기세요.\n- 근거마다 **게시일**이 적혀 있습니다. 게시일이 다른 근거끼리 내용이 다르면 더 최근 것을 따르고, 옛 회차·옛 기준을 현재 것처럼 쓰지 마세요.\n- 출처 id([E01] 등)·"게시일"·"Research Packet" 같은 말은 **본문에 절대 쓰지 않습니다** — 독자는 그 존재를 모릅니다. 기관명·매체명은 자연스럽게 밝혀도 됩니다.\n- 🚫 금지 마무리: "자세한 내용은 공식 사이트에서 확인하세요", "상황에 따라 달라질 수 있습니다", "미리 확인하는 것이 중요합니다" 로 문단/섹션을 끝내기`
     : `🌐 "${keyword}" 주제의 일반 상식과 공식 원칙을 기반으로 서술하세요. 확인되지 않은 수치/마감일/금액은 지어내지 마세요.\n\n✅ 단, 수치를 못 쓴다고 "공식 사이트에서 확인하세요"로 때우지 마세요. 대신 판단 기준(어떤 조건이면 A/B인지), 절차(무엇을 어디서 어떤 순서로), 정확한 기관명·메뉴 경로·준비물, 사람들이 놓쳐서 손해 보는 지점을 구체적으로 서술하세요.\n\n🚫 본문에 절대 쓰지 말 것: "제공된 자료에는~", "본문 근거만으로는~", "참고 데이터에~" 등 프롬프트 메타 표현 (독자는 이 지시의 존재를 모릅니다).`;
 
   // 📝 내부 일관성 모드 — 단일 글 정보 전달 구조 (시리즈 지시 제거)
@@ -1666,7 +1681,7 @@ ${draftContent ? '위의 ===== 원본 초안 ===== 을 기반으로 완전히 �
 - Korean-market framing the reader cannot act on ("available at any convenience store")
 ` : '';
 
-  const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const todayStr = kstToday(); // YYYY-MM-DD (서울 기준)
 
   /**
    * 🌐 v3.8.566 (E2) — 영어면 껍데기를 **통째로** 바꾼다.
@@ -1756,7 +1771,7 @@ ${SUBSTANCE_FIRST_PASS_RULES}${FRESHNESS_RULES}${DECISION_SUPPORT_RULES}${STORYS
 - 🔴 절대금지: 본문에 "20년차", "1억", "전문가" 등 작가의 자격증명/거짓 이력을 언급하지 마세요! E-E-A-T는 글의 구체성에서 나옵니다.
 
 [4. 본문(H3) 구조 및 길이 규칙]
-- **각 H3 본문은 반드시 ${contentMode === 'shopping' || contentMode === 'adsense' || contentMode === 'paraphrasing' ? '800~1500자' : '600~1000자'}** 사이의 알찬 내용으로 채우세요.
+${lengthPlanMod.lengthRuleText(lengthPlan)}
 - 같은 내용 반복 절대 금지. 모든 H3는 독립적이고 100% 새로운 인사이트로 채우세요.
 - "결론적으로", "정리하면", "요약하면" 등 기계적인 반복 연결사 금지.
 
@@ -1830,7 +1845,9 @@ JSON 형식 (이 구조 정확히 따르기!):
 🚨🚨🚨 최종 체크리스트 (10억 점 기준) 🚨🚨🚨
 □ 모바일 가독성을 위해 문장이 짧고 단락 구분이 확실한가? (<p> 떡칠 방지, 여백 최적화)
 □ "많이들 헷갈리시죠?" 같은 진짜 사람이 쓴 듯한 구어체가 묻어나는가?
-□ 각 H3 본문당 글자 수가 ${contentMode === 'shopping' || contentMode === 'adsense' || contentMode === 'paraphrasing' ? '800자 이상 1500자 이내' : '600자 이상 1000자 이내'}(충분한 분량)인가?
+${lengthPlan.tier === 'legacy'
+    ? `□ 각 H3 본문당 글자 수가 ${contentMode === 'shopping' || contentMode === 'adsense' || contentMode === 'paraphrasing' ? '800자 이상 1500자 이내' : '600자 이상 1000자 이내'}(충분한 분량)인가?`
+    : '□ 분량을 채우려고 같은 내용을 되풀이한 절이 없는가? (근거가 있는 만큼만 썼는가)\n□ 본문의 금액·날짜·기간·자격조건이 전부 Research Packet/근거에 있는 값인가?'}
 □ 중간중간 독자의 스크롤을 멈출 <blockquote> 꿀팁 박스와 <ul> 리스트가 존재하는가?
 □ 서론과 결론이 기계적이지 않고, 매력적인 훅과 네비게이션 역할을 하는가?
 
@@ -1959,8 +1976,19 @@ JSON만 출력 (설명/마크다운 금지):
 
   try {
     onLog?.('[PROGRESS] 50% - 🤖 AI 본문 생성 중...');
+    /**
+     * v3.8.734 — 같은 규칙이 절마다 되풀이되는 것을 걷는다(prompt-diet.ts). 근거 구간은 한 글자도 안 뺀다.
+     * 한국어 경로에만 적용한다 — 영어판은 따로 짠 프롬프트라 되풀이가 없다.
+     */
+    const diet = getActiveLanguage() === 'en'
+      ? { text: prompt, removedChars: 0, removedLines: 0 }
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      : require('./prompt-diet').dietPrompt(prompt);
+    if (diet.removedChars > 0) {
+      onLog?.(`[PROGRESS] 50% - 🥗 프롬프트 다이어트: 되풀이 규칙 ${diet.removedLines}줄 · ${diet.removedChars.toLocaleString()}자 제거 (${prompt.length.toLocaleString()}자 → ${diet.text.length.toLocaleString()}자 · 근거는 그대로)`);
+    }
     // v3.8.536: 본문 통짜 JSON 은 32k 토큰까지 받는다 — 60~75초 상한으론 서버가 조금만 느려도 실패한다 (실사고)
-    let response = await callGeminiWithGrounding(prompt, 1, false, undefined, { timeoutMs: resolveSectionTimeoutMs() });
+    let response = await callGeminiWithGrounding(diet.text, 1, false, undefined, { timeoutMs: resolveSectionTimeoutMs() });
     let json = extractJsonObject(response);
 
     let allSectionsObj: {
@@ -1999,7 +2027,8 @@ JSON만 출력 (설명/마크다운 금지):
 
     const flat = (allSectionsObj.sections || []).flatMap(s => (s.h3Sections || []).map(h => h.content || ''));
     // 🔥 품질 기준 강화: 500자 이상, 4문단 이상
-    const lowQualityCount = flat.filter(c => textLength(c) < 500 || countParagraphs(c) < 4).length;
+    // v3.8.734 — 문턱이 근거 밀도를 따른다. 근거가 적어 **일부러 짧게 쓴** 절을 "저품질"로 잡아 늘리라고 되돌리면 안 된다
+    const lowQualityCount = flat.filter(c => textLength(c) < lengthPlan.minChars || countParagraphs(c) < lengthPlan.minParagraphs).length;
     const totalCount = flat.length || 1;
     const lowQualityRatio = lowQualityCount / totalCount;
 
@@ -2041,7 +2070,9 @@ JSON만 출력 (설명/마크다운 금지):
 
 🔴🔴🔴 필수 보강 규칙 🔴🔴🔴
 1) JSON 구조(객체/필드명)는 그대로 유지
-${lowQuality ? '2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)\n3) 각 content는 **<p> 태그 5개** 필수' : '2) 분량은 지금 그대로(±10%). 늘리려고 같은 말을 되풀이하지 않습니다\n3) 고치라는 곳 말고는 문장을 바꾸지 않습니다'}
+${lowQuality ? (lengthPlan.tier === 'legacy'
+  ? '2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무 짧음!)\n3) 각 content는 **<p> 태그 5개** 필수'
+  : `2) 토막 난 H3 를 채웁니다 — **참고 자료의 Research Packet 에 있는데 아직 본문에 안 쓴 사실**을 옮겨 넣으세요 (${lengthPlan.rangeText}). 같은 말을 늘여 채우지 마세요\n3) 각 content 는 <p> 태그 ${lengthPlan.minParagraphs}개 이상`) :'2) 분량은 지금 그대로(±10%). 늘리려고 같은 말을 되풀이하지 않습니다\n3) 고치라는 곳 말고는 문장을 바꾸지 않습니다'}
 4) 중복 표현/반복 멘트 완전 제거${threadFixBlock}${buildDraftFixBlock(draftAudit.findings)}
 5) 숫자/통계는 참고 크롤링 데이터 또는 기존 JSON에 있는 값만 사용! 출처 불명 숫자 만들기 금지!
 6) 직접 경험하지 않은 것을 경험한 것처럼 쓰지 마세요
@@ -2062,14 +2093,16 @@ ${lowQuality ? '2) 각 H3의 content를 **600~1000자**로 확장 (현재 너무
 - 체류시간 5분 이상 유지할 수 있는 흡인력
 
 ===== 참고 크롤링 데이터 =====
-${reference.slice(0, 8000)}
+${reference.slice(0, 13000)}
 =====
 
 ===== 보강할 JSON =====
 ${JSON.stringify(allSectionsObj)}
 =====
 
-${lowQuality ? '🚨 주의: 각 H3 content가 600자 미만이면 실패입니다! 중요 문장에 <strong> 및 <mark> 태그를 적극 활용하세요.' : '🚨 주의: 고치라는 곳만 고칩니다. 분량이 20% 이상 줄거나 늘면 실패입니다.'}
+${lowQuality ? (lengthPlan.tier === 'legacy'
+  ? '🚨 주의: 각 H3 content가 600자 미만이면 실패입니다! 중요 문장에 <strong> 및 <mark> 태그를 적극 활용하세요.'
+  : '🚨 주의: 근거에 없는 금액·날짜·조건을 만들어 분량을 채우면 실패입니다. 중요 문장에 <strong> 및 <mark> 태그를 적극 활용하세요.') :'🚨 주의: 고치라는 곳만 고칩니다. 분량이 20% 이상 줄거나 늘면 실패입니다.'}
 
 JSON만 출력:
 `;
@@ -2310,7 +2343,7 @@ export async function generateFAQFinal(
   onLog?: (s: string) => void,
   groundedContent?: string
 ): Promise<FAQItem[]> {
-  const faqToday = new Date().toISOString().slice(0, 10);
+  const faqToday = kstToday();
   // v3.7.21: 키워드 한정자 감지 — FAQ도 본문과 동일 스코프 유지 (한정자 외 질문 금지)
   const faqScope = detectKeywordScope(keyword);
   const faqScopeBlock = faqScope
@@ -2605,7 +2638,7 @@ export async function generateH3ContentFinal(
   // 🔥 배치 생성으로 대체 - 이 함수는 호환성을 위해 유지
   const reference = crawledContents.join('\n\n').slice(0, 2000);
 
-  const h3Today = new Date().toISOString().slice(0, 10);
+  const h3Today = kstToday();
   const prompt = `
 키워드: ${keyword}
 소제목: ${h3}
@@ -4555,7 +4588,7 @@ export async function generateSummaryTableFinal(allContent: string, opts: { titl
     ? `\n📌 이 글의 제목: 「${opts.title}」\n제목이 약속한 조각 — 독자는 이것을 보고 들어왔다. **answer 는 조각마다 판정문 한 문장씩** 쓴다(조각 순서대로):\n${promiseLines.map((p, i) => `  ${i + 1}) ${p}`).join('\n') || '  (조각 없음 — 제목 전체가 질문이다)'}\n조각의 질문에 직접 답한다. "…를 봐요", "…를 확인하세요" 로 돌리지 않는다. 본문에 그 답이 없으면 그 조각은 비워 둔다(지어내지 않는다).\n`
     : '';
   const promiseBlock = titleBlock;
-  const tableToday = new Date().toISOString().slice(0, 10);
+  const tableToday = kstToday();
   // 🧹 입력 전처리 — 상품 카드/버튼/이미지 같은 HTML 제거 후 AI에 전달
   //    (그대로 넣으면 AI가 셀 값으로 HTML 조각을 복사해 넣음 → 모바일 레이아웃 깨짐)
   const cleanedContent = String(allContent || '')

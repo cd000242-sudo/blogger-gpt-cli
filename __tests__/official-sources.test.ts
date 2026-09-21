@@ -199,10 +199,19 @@ describe('orchestration 배선', () => {
   it('공공출처 블록을 fact 근거보다 앞에 넣는다 — 12,000자 컷에서 살아남아야 한다', () => {
     const i = orch.indexOf('factEnrichedContents = [');
     expect(i).toBeGreaterThan(-1);
+    /**
+     * v3.8.734 — 지키려는 것은 그대로다: **공공출처가 상한 컷에서 살아남는다.**
+     * 방법이 바뀌었다. 근거는 지시보다 **앞**(writerEvidenceBlocks)에 오고, 그 안에서
+     *   · 항목 근거는 공식 자료가 먼저 큰 몫을 받고(renderEvidence)
+     *   · 기관 블록(officialBlock)은 보조 근거 묶음에 실린다.
+     */
     const block = braceBlock(orch, 'factEnrichedContents = [');
-    expect(block).toContain('officialBlock');
-    // buildFactIntegrityPrompt 다음, FACT EVIDENCE 앞
-    expect(block.indexOf('officialBlock')).toBeLessThan(block.indexOf('FACT EVIDENCE'));
+    expect(block.indexOf('...writerEvidenceBlocks')).toBeGreaterThan(-1);
+    expect(block.indexOf('...writerEvidenceBlocks')).toBeLessThan(block.indexOf('buildFactIntegrityPrompt('));
+    const supplement = orch.slice(orch.indexOf('const supplementEvidence = buildGroundingReference({'), orch.indexOf('const writerEvidenceBlocks'));
+    expect(supplement).toContain('officialBlock,');
+    const evidence = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'final', 'evidence.ts'), 'utf8');
+    expect(evidence).toContain('(Number(b.isOfficial) - Number(a.isOfficial))');
   });
 
   /**

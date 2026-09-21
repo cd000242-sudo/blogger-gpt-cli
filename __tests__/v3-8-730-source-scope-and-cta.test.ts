@@ -138,7 +138,8 @@ describe('③ 배선 — 수집·근거·팩트체크·CTA 가 같은 범위를 
   });
 
   test('⭐ 근거 검색·제목 약속·리포트 출처·공공 근거·유료 요약 전부 범위를 받는다', () => {
-    expect(orchestration).toContain('fetchGrounding(keyword, naverSearch as any, { ...(sourceScope ? { sourceScope } : {}) })');
+    // v3.8.734: 메인 키워드 관련도 판정용으로 mainKeyword 를 함께 넘긴다 — 범위(sourceScope)는 그대로 받는다
+    expect(orchestration).toContain('fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}) })');
     expect(orchestration).toContain('display: 5, ...(sourceScope ? { sourceScope } : {}) })');
     expect(orchestration).toContain("fetchPageBody(u, 2600), { ...(sourceScope ? { sourceScope } : {}) })");
     expect(orchestration).toContain('buildOfficialSourcesFromWeb(crawledPosts as any, 4, sourceScope)');

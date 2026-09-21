@@ -46,7 +46,8 @@ describe('Grounding cost guard — automatic call sites stay cut off', () => {
     // orchestration.ts가 DISABLE_GEMINI_GROUNDING을 통해 기본 차단하고,
     // factCheckMode==='grounding' 명시 선택 시에만 연다.
     // v3.8.536: 본문급 타임아웃 인자가 붙어 호출 문자열이 바뀌었다 — 잠그는 건 "호출의 존재"다.
-    expect(generationSrc).toMatch(/let response = await callGeminiWithGrounding\(prompt,/);
+    // v3.8.734: 되풀이 규칙을 걷은 프롬프트(diet.text)를 보낸다 — 잠그는 건 여전히 "호출의 존재"다.
+    expect(generationSrc).toMatch(/let response = await callGeminiWithGrounding\((prompt|diet\.text),/);
   });
 
   test('orchestration.ts no longer imports or calls callGeminiWithGrounding at all', () => {

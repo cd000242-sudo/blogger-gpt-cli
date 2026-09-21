@@ -64,29 +64,29 @@ describe('v3.8.665 리포트 출처 본문 · 약속 검색어 · 여덟 번째 
     expect(promiseChunks(TITLE, KEYWORD)).toEqual(['9·4 서민금융 복합지원센터로 가도 보증심사는 따로다']);
   });
 
-  test('③ 약속 근거 — 낱말 검색어로 먼저, 뉴스·기관 0건이면 예전 검색어로 한 번 더', async () => {
-    const calls: string[] = [];
-    const fake = async (q: string) => {
-      calls.push(q);
-      const hit = q.includes('복합지원센터') && !q.includes('햇살론15');
-      return { text: hit ? '[뉴스] 9월 4일 복합지원센터 개소 …' : '', newsCount: hit ? 1 : 0, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0 } as any;
+  /**
+   * v3.8.734 — 약속 검색어는 **메인 키워드 핵심어 + 확인 대상** 꼴이다.
+   * 예전엔 키워드를 뺀 낱말만으로 찾았는데(이 테스트의 원래 기대값), 그 규칙이 "2026년" 같은 검색어를 내보내
+   * 무관한 기사가 근거의 39%를 차지했다. 조각을 통째로 붙이던 "예전 검색어" 재시도도 없앴다 —
+   * 결과는 어차피 메인 키워드 관련도를 통과해야 장부에 들어간다.
+   */
+  test('③ 약속 근거 — 핵심어 + 확인 대상으로 한 번 찾는다 (물음·서술 꼬리는 뺀다)', async () => {
+    const calls: Array<{ q: string; o: any }> = [];
+    const fake = async (q: string, _s: any, o: any) => {
+      calls.push({ q, o });
+      return { text: '[뉴스] 9월 4일 복합지원센터 개소 …', newsCount: 1, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0 } as any;
     };
     const r = await fetchPromiseGrounding(TITLE, KEYWORD, noSearch, fake);
     expect(r.blocks).toHaveLength(1);
     expect(r.blocks[0]).toContain('[제목 약속 근거: 9·4 서민금융 복합지원센터로 가도 보증심사는 따로다]');
-    expect(r.chunks[0]!.query).toBe('서민금융 복합지원센터 보증심사 9월 4일');
     expect(calls).toHaveLength(1);
-
-    const calls2: string[] = [];
-    const fake2 = async (q: string) => {
-      calls2.push(q);
-      const legacy = q.startsWith(`${KEYWORD} `);
-      return { text: legacy ? '[웹] 예전 검색 결과' : '', newsCount: 0, webCount: legacy ? 1 : 0, officialCount: 0, blogCount: 0, skippedBlogs: 0 } as any;
-    };
-    const r2 = await fetchPromiseGrounding(TITLE, KEYWORD, noSearch, fake2);
-    expect(calls2).toHaveLength(2);
-    expect(r2.blocks[0]).toContain('예전 검색 결과');
-    expect(r2.chunks[0]!.query).toBe(`${KEYWORD} 9·4 서민금융 복합지원센터로 가도 보증심사는 따로다`);
+    const q = r.chunks[0]!.query;
+    expect(q.startsWith('햇살론15')).toBe(true);          // 메인 키워드 핵심어가 앞에 온다
+    expect(q).toContain('복합지원센터');
+    expect(q).toContain('9월 4일');
+    expect(q).not.toMatch(/따로다|가도|복합지원센터로/);
+    expect(calls[0]!.o.mainKeyword).toBe(KEYWORD);        // 관련도는 메인 키워드에 댄다
+    expect(calls[0]!.o.promise).toContain('복합지원센터');
   });
 
   test('④ 상대 시점 → 연도, 단위 붙은 숫자 앞 띄어쓰기', () => {

@@ -457,7 +457,9 @@ function getProviderKey(provider: Provider): string {
   return '';
 }
 
-export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1, opts?: { timeoutMs?: number }): Promise<string> {
+export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1, opts?: { timeoutMs?: number; json?: boolean }): Promise<string> {
+  // v3.8.734 — json: 구조화 출력(Research Packet). provider 가 받으면 JSON 모드로, 아니면 프롬프트 지시 + 검증으로 간다
+  const llmOptions = opts?.json ? { json: true } : undefined;
   const primaryProvider = getPrimaryProvider();
   const modelValue = process.env['PRIMARY_TEXT_MODEL'] || resolveDefaultTierValue();
   const tier = findTier(modelValue);
@@ -473,7 +475,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
     try {
       console.log(`[Engine] ${providerName} (${tier?.modelId || modelValue}) call`);
       if (primaryProvider === 'openai') {
-        return repairBrokenGeneratedText(`${providerName} response`, await callOpenAIAPI(prompt));
+        return repairBrokenGeneratedText(`${providerName} response`, await callOpenAIAPI(prompt, llmOptions));
       }
       if (primaryProvider === 'claude') {
         return repairBrokenGeneratedText(`${providerName} response`, await callClaudeAPI(prompt));
@@ -537,7 +539,10 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         const result: any = await withTimeout(
           model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: resolveMaxOutputTokens(), temperature: getGeminiTemperature(prompt) },
+            generationConfig: {
+              maxOutputTokens: resolveMaxOutputTokens(), temperature: getGeminiTemperature(prompt),
+              ...(opts?.json ? { responseMimeType: 'application/json' } : {}),
+            },
           }),
           opts?.timeoutMs ?? envInt('GEMINI_TIMEOUT_MS', DEFAULT_GEMINI_TIMEOUT_MS), // v3.8.536: 본문급은 호출자가 긴 예산을 준다
           modelName,

@@ -38,6 +38,7 @@
 
 import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust';
 import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, type SourceScope } from './source-scope';
+import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceDraft } from './evidence';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
 export type NaverSearchFn = (
@@ -121,6 +122,15 @@ export interface GroundingResult {
    * 밖에서 불릴 때 지난 판정이 그대로 쓰인다 — 조용히 틀리는 종류다.
    */
   breakingEvent?: any;
+  /**
+   * v3.8.734 — 통과한 근거를 **항목으로** 돌려준다(출처·날짜·검색어·관련도 포함). id 는 장부를 합칠 때 붙는다.
+   * text 는 예전 호출부·fact-guard 를 위해 남긴다 — 같은 항목을 글자로 옮긴 것이다.
+   */
+  items?: Array<Omit<EvidenceItem, 'id'>>;
+  /** 관련도 미달로 버린 것 — 왜 근거가 이만큼인지 설명할 수 있어야 한다 */
+  rejected?: RejectedEvidence[];
+  /** 실제로 나간 검색어 */
+  query?: string;
 }
 
 /**
@@ -250,7 +260,7 @@ function latestYearIn(text: string): number {
 export async function fetchGrounding(
   keyword: string,
   naverSearch: NaverSearchFn,
-  options: { display?: number; fetchBody?: FetchBodyFn; sourceScope?: SourceScope } = {},
+  options: { display?: number; fetchBody?: FetchBodyFn; sourceScope?: SourceScope; mainKeyword?: string; promise?: string } = {},
 ): Promise<GroundingResult> {
   const empty: GroundingResult = {
     text: '', newsCount: 0, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0,
@@ -260,6 +270,15 @@ export async function fetchGrounding(
   if (!query) return empty;
   const display = options.display ?? 10;
   const sourceScope = options.sourceScope || deriveSourceScope(query);
+  /**
+   * v3.8.734 — 관련도는 **검색어가 아니라 메인 키워드**에 댄다.
+   * 검색어가 "청년미래적금 2026년" 이면 "2026년" 하나로 탁구 기사가 걸려 든다(실측). 메인 키워드에 대야 걸러진다.
+   */
+  const mainKeyword = String(options.mainKeyword || query).trim();
+  const promise = options.promise ? String(options.promise) : undefined;
+  const pageDates = new Map<string, string | null>();
+  const rejected: RejectedEvidence[] = [];
+  const accepted: Array<Omit<EvidenceItem, 'id'>> = [];
 
   const snippet = (it: any, tag: string) =>
     `[${tag}] ${stripTags(it?.title)} ${stripTags(it?.description)}${sourceScope ? `\n[출처 URL] ${String(it?.originallink || it?.link || '')}\n[검색 요약 — 원문 미확인]` : ''}`.trim();
@@ -276,11 +295,36 @@ export async function fetchGrounding(
    * 그래서 앞쪽 몇 건만 채우고, 실패하면 조용히 스니펫을 남긴다 — 절대 나빠지지 않는다.
    */
   const fetchBody: FetchBodyFn = options.fetchBody
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    || ((url) => require('../crawlers/official-page-body').fetchPageBody(url, BODY_CHARS));
+    || (async (url) => {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const doc = await require('../crawlers/official-page-body').fetchPageDocument(url, BODY_CHARS);
+      if (doc) pageDates.set(url, doc.publishedAt ?? null);   // 문서에 적힌 게시일 — 못 찾으면 null 그대로
+      return doc ? doc.text : null;
+    });
 
   // 뉴스는 originallink 가 실제 언론사 주소다 — 네이버 중계 주소보다 본문이 잘 나온다
   const bodyUrlOf = (it: any) => String(it?.originallink || it?.link || '');
+
+  /**
+   * v3.8.734 — 후보마다 **메인 키워드 관련도(+약속 관련도)** 를 재고, 미달이면 장부에 넣지 않는다.
+   * 뉴스·웹·기관·블로그 전부 같은 문을 지난다(예전엔 블로그만 주제 일치를 봤다).
+   * 통과한 것은 날짜·주소·도메인을 단 출처 줄과 함께 글자로 옮긴다 — Writer 에게 갈 때도 떼지 않는다.
+   */
+  const keep = (it: any, tag: string, rendered: string, body: string): string => {
+    const url = bodyUrlOf(it);
+    const draft: EvidenceDraft = {
+      title: stripTags(it?.title), url, tag, query,
+      text: body || stripTags(it?.description),
+      snippet: stripTags(it?.description),
+      pubDate: it?.pubDate || it?.postdate || pageDates.get(url) || null,
+      hasBody: !!body,
+      ...(promise ? { promise } : {}),
+    };
+    const verdict = judgeEvidence(draft, mainKeyword);
+    if (!verdict.item) { if (verdict.rejected) rejected.push(verdict.rejected); return ''; }
+    accepted.push(verdict.item);
+    return `${rendered}\n[출처] ${verdict.item.domain || '도메인 미상'} · 게시일 ${verdict.item.pubDate || '미상'} · ${url}`;
+  };
 
   /**
    * 남은 예산. 뉴스 → 기관 원문 → 웹문서 순으로 **한 통에서 꺼내 쓴다.** (v3.8.580)
@@ -292,7 +336,7 @@ export async function fetchGrounding(
   let budgetLeft = BODY_FETCH_MAX;
 
   const enrich = async (items: any[], tag: string, budget: number): Promise<string[]> => {
-    if (budget <= 0) return items.map((it) => snippet(it, tag));
+    if (budget <= 0) return items.map((it) => keep(it, tag, snippet(it, tag), '')).filter(Boolean);
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { looksLikeFileUrl } = require('../crawlers/official-page-body');
@@ -325,9 +369,9 @@ export async function fetchGrounding(
 
     return items.map((it, i) => {
       const body = bodies[i];
-      if (!body) return snippet(it, tag);
+      if (!body) return keep(it, tag, snippet(it, tag), '');
       if (!sourceMatchesScope({ url: bodyUrlOf(it), title: stripTags(it?.title), content: body }, sourceScope)) return '';
-      return `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${bodyUrlOf(it)}\n[추출 원문]` : ''} ${body}`.trim();
+      return keep(it, tag, `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${bodyUrlOf(it)}\n[추출 원문]` : ''} ${body}`.trim(), body);
     }).filter(Boolean);
   };
 
@@ -383,6 +427,7 @@ export async function fetchGrounding(
         officialCount: officialParts.length,
         newsCount: newsParts.length,
         skippedBlogs: blog?.ok ? blog.items.length : 0,
+        items: accepted, rejected, query,
       };
     }
 
@@ -551,6 +596,7 @@ export async function fetchGrounding(
       blogCount: blogParts.length,
       skippedBlogs: Math.max(0, blogSeen.length - blogTop.length),
       breakingEvent,
+      items: accepted, rejected, query,
     };
   } catch {
     return empty;

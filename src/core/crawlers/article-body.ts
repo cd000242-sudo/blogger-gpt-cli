@@ -105,6 +105,10 @@ export interface ArticleBody {
   text: string;
   /** 자르기 전 원래 길이 */
   rawLength: number;
+  /** v3.8.734: 정제(CLEAN) 뒤 길이 */
+  cleanLength?: number;
+  /** v3.8.734: 문서에 적힌 게시일(서울 기준 YYYY-MM-DD). 못 찾으면 null */
+  publishedAt?: string | null;
 }
 
 /**
@@ -140,5 +144,39 @@ export function extractArticleBody(
 
   candidates.sort((a, b) => (a.noise - b.noise) || (b.text.length - a.text.length));
   const best = candidates[0]!;
-  return { text: best.text.slice(0, Math.max(1, maxChars)), rawLength: best.text.length };
+  /**
+   * v3.8.734 — CLEAN 을 **자르기 전에** 한다. 컨테이너 안에도 광고 자리·공유 막대·관련기사가 들어 있어서
+   * (실측: 근거 190줄 중 59줄), 먼저 자르면 글자수 상한을 껍데기가 먹는다.
+   * 정제 뒤에 본문이 너무 줄면(원래 껍데기뿐이던 것) 추출 실패로 본다.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { cleanEvidenceText, describeClean } = require('./evidence-clean');
+  const cleaned = cleanEvidenceText(best.text);
+  if (cleaned.cleanLength < MIN_ACCEPTABLE_CHARS) return null;
+  if (process.env['DEBUG_EVIDENCE'] === '1' || cleaned.removedLines > 0) console.log(describeClean('article', cleaned));
+  return {
+    text: cleaned.text.slice(0, Math.max(1, maxChars)),
+    rawLength: best.text.length,
+    cleanLength: cleaned.cleanLength,
+    publishedAt: extractPublishedDate(source),
+  };
+}
+
+/**
+ * 문서에 적힌 게시일. **못 찾으면 null — 오늘로 메우지 않는다.** (v3.8.734)
+ * 1차 공고와 2차 공고를 가르는 유일한 단서가 날짜인데, 지금까지 근거에 날짜가 하나도 없었다.
+ * 메타 태그(article:published_time 등) → JSON-LD datePublished → 본문의 "입력 2026.09.18" 순으로 찾는다.
+ */
+export function extractPublishedDate(html: string): string | null {
+  const source = String(html || '');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { toKstDate } = require('../final/kst-date');
+  const meta = source.match(/<meta[^>]+(?:property|name|itemprop)=["'](?:article:published_time|og:article:published_time|datePublished|pubdate|publish-date|date|dc\.date|article:modified_time)["'][^>]*content=["']([^"']+)["']/i)
+    || source.match(/<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name|itemprop)=["'](?:article:published_time|datePublished|pubdate)["']/i);
+  if (meta?.[1]) { const d = toKstDate(meta[1]); if (d) return d; }
+  const ld = source.match(/"datePublished"\s*:\s*"([^"]+)"/i);
+  if (ld?.[1]) { const d = toKstDate(ld[1]); if (d) return d; }
+  const inline = source.replace(/<[^>]+>/g, ' ').match(/(?:입력|등록|기사입력|작성일|등록일|게시일)\s*[:：]?\s*(20\d{2}[.\-/]\s?\d{1,2}[.\-/]\s?\d{1,2})/);
+  if (inline?.[1]) { const d = toKstDate(inline[1].replace(/\s/g, '')); if (d) return d; }
+  return null;
 }

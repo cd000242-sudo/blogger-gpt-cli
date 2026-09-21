@@ -31,8 +31,10 @@ describe('① 최소 5개 강제가 사라졌다', () => {
     expect(gen).not.toContain('else if (uniqueCount <= 5) targetCount = 5;');
   });
 
-  it('⭐ 최대 10개 확장은 그대로다', () => {
-    expect(block).toContain('targetCount = 10;');
+  // v3.8.734: 최대 10 → 8 (재료 개수는 정보량이 아니다 — 근거가 정한다)
+  it('⭐ 재료가 많으면 최대 8개까지 늘어난다', () => {
+    expect(block).toContain('targetCount = 8;');
+    expect(block).not.toContain('targetCount = 10;');
   });
 });
 
@@ -58,7 +60,8 @@ describe('② 크롤 실패와 얇은 주제를 구분한다', () => {
 
 describe('③ 짧은 글이 유료 재시도를 부르지 않는다 (비용 고정)', () => {
   it('⭐⭐ 분량 하한이 섹션 수에 비례한다', () => {
-    expect(orch).toContain('const minPlainLen = Math.min(3000, sectionCountForGate * 800);');
+    // v3.8.734: 절당 하한이 800 고정 → 근거 밀도(length-plan)에 따라 320~800. 섹션 수 비례와 3,000 상한은 그대로다
+    expect(orch).toContain('const minPlainLen = Math.min(3000, sectionCountForGate * lengthPlanForGate.perSectionFloor);');
     expect(orch).not.toContain('if (plainLen < 3000) {');
   });
 
@@ -67,6 +70,6 @@ describe('③ 짧은 글이 유료 재시도를 부르지 않는다 (비용 고�
   });
 
   it('⭐ 어떤 기준으로 판정했는지 로그에 남는다', () => {
-    expect(orch).toContain('소제목 ${sectionCountForGate}개 기준');
+    expect(orch).toContain('소제목 ${sectionCountForGate}개 · 근거 ${lengthPlanForGate.tier}');
   });
 });

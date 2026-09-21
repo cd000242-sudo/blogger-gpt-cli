@@ -25,7 +25,8 @@ describe('v3.8.656 제목 약속 근거', () => {
     expect(m).toContain("import { titlePromises, promiseQuery } from './reader-retention'");
     // v3.8.730: 범위(sourceScope)를 같이 넘긴다 — 범위가 없으면 { display } 그대로다
     expect(m).toMatch(/fetchGrounding\(query, naverSearch, searchOptions\)/);
-    expect(m).toContain('const searchOptions = sourceScope ? { display, sourceScope } : { display };');
+    // v3.8.734: 관련도 판정용으로 메인 키워드와 약속 조각도 함께 넘긴다 (범위는 있을 때만 — 그대로다)
+    expect(m).toContain("const searchOptions = { display, mainKeyword: keyword, promise: chunk, ...(sourceScope ? { sourceScope } : {}) };");
   });
 
   test('약속 근거는 장부 앞에 놓인다 — 12,000자에서 잘려도 살아남게', () => {

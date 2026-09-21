@@ -16,7 +16,16 @@ import { parseNaverPostDate, withFreshnessLabel, isStaleSource } from './crawler
  * 실제 글 생성은 openapi.naver.com 을 직접 불러서, HUB 키를 넣어도 옛 API 로 나갔고
  * 기존 키가 만료되면 자동 토스도 못 하고 그냥 멈추는 상태였다.
  */
-import { naverSearch } from './naver-search-client';
+import { naverSearch, resolveAllNaverCredentials } from './naver-search-client';
+
+/**
+ * v3.8.734 — 검색 자격이 있는가. **옛 키(Client ID/Secret)만 보지 않는다.**
+ * 아래 네 수집기가 전부 "Client ID·Secret 둘 다 없으면 빈 배열" 로 시작해서,
+ * API HUB 키만 넣은 사용자는 검색이 통째로 꺼진 채 "0건"으로 조용히 넘어갔다. 창구(naver-search-client)에 묻는다.
+ */
+function hasNaverSearchKeys(naverClientId?: string, naverClientSecret?: string): boolean {
+  return resolveAllNaverCredentials({ naverClientId, naverClientSecret }).length > 0;
+}
 
 export interface CrawledContent {
   title: string;
@@ -775,7 +784,7 @@ ${contents.slice(0, 10).map((c, i) => `
   async crawlFromNaverAPI(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
     const { topic, keywords, maxResults = 5, naverClientId, naverClientSecret } = config;
 
-    if (!naverClientId || !naverClientSecret) {
+    if (!hasNaverSearchKeys(naverClientId, naverClientSecret)) {
       console.log('[NAVER] 네이버 API 키가 없어서 건너뛰기');
       console.log(`[NAVER DEBUG] naverClientId: ${naverClientId ? '있음' : '없음'}, naverClientSecret: ${naverClientSecret ? '있음' : '없음'}`);
       return [];
@@ -826,7 +835,7 @@ ${contents.slice(0, 10).map((c, i) => `
          * 모델이 참고할 게 없다. 그래서 최신순 결과를 직접 확보한다.
          */
         const items = await this.mergeRecentBlogItems(
-          simItems, encodedQuery, naverClientId, naverClientSecret, maxResults,
+          simItems, encodedQuery, naverClientId || '', naverClientSecret || '', maxResults,
         );
 
         for (const item of items) {
@@ -1072,7 +1081,7 @@ ${contents.slice(0, 10).map((c, i) => `
   // v3.8.332: 네이버 지식인(kin) 크롤링 — 실제 유저 질문 = 궁금증 소스 (사용자: "궁금증 해결 콘텐츠")
   async crawlFromNaverKin(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
     const { topic, maxResults = 8, naverClientId, naverClientSecret } = config;
-    if (!naverClientId || !naverClientSecret) return [];
+    if (!hasNaverSearchKeys(naverClientId, naverClientSecret)) return [];
     try {
       console.log(`[NAVER-KIN] "${topic}" 지식인 검색...`);
       // v3.8.553: 창구 경유 (HUB 우선 → 막히면 기존 키로 자동 토스)
@@ -1143,7 +1152,7 @@ ${contents.slice(0, 10).map((c, i) => `
   // v3.8.332: 네이버 뉴스 크롤링 — 최신 트렌드 정보 (기존 검색 API 활용)
   async crawlFromNaverNews(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
     const { topic, maxResults = 5, naverClientId, naverClientSecret } = config;
-    if (!naverClientId || !naverClientSecret) return [];
+    if (!hasNaverSearchKeys(naverClientId, naverClientSecret)) return [];
     try {
       console.log(`[NAVER-NEWS] "${topic}" 최신 뉴스 검색...`);
       // v3.8.553: 창구 경유
@@ -1168,6 +1177,8 @@ ${contents.slice(0, 10).map((c, i) => `
             source: 'naver-news',
             // v3.8.475: 본문 확보용 원문 주소 — 검색 API 만이 이걸 준다
             originalLink: String(item.originallink || item.link || '').trim(),
+            // v3.8.734: 게시일을 **항목에** 보존한다 — 본문 끝에 글자로만 붙여 두면 근거 장부에서 사라진다
+            pubDate: pubDate || null,
           } as any);
         }
       }
@@ -1212,7 +1223,7 @@ ${contents.slice(0, 10).map((c, i) => `
    */
   async crawlFromNaverWeb(config: ContentCrawlerConfig): Promise<CrawledContent[]> {
     const { topic, maxResults = 10, naverClientId, naverClientSecret } = config;
-    if (!naverClientId || !naverClientSecret) return [];
+    if (!hasNaverSearchKeys(naverClientId, naverClientSecret)) return [];
     try {
       console.log(`[NAVER-WEB] "${topic}" 웹문서 검색...`);
       // v3.8.553: 창구 경유
@@ -1285,6 +1296,9 @@ ${contents.slice(0, 10).map((c, i) => `
         if (body.text.length <= String(item.content || '').length) return;
         console.log(`[NAVER-NEWS] 📄 본문 확보 ${body.rawLength}자 → ${body.text.length}자: ${String(item.title).slice(0, 30)}`);
         item.content = body.text;
+        (item as any).hasBody = true;
+        // 검색 API 가 날짜를 안 준 문서(웹문서)는 문서에 적힌 게시일을 쓴다. 못 찾으면 null 그대로
+        if (!(item as any).pubDate && body.publishedAt) (item as any).pubDate = body.publishedAt;
       } catch {
         // 언론사 차단·타임아웃은 흔하다. description 을 그대로 쓴다.
       }

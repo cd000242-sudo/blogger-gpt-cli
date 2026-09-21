@@ -141,7 +141,8 @@ describe('④ overseas 모드', () => {
   it('⭐⭐ generation.ts 의 모드 블록도 영어다', () => {
     const block = generation.slice(
       generation.indexOf("const overseasModePromptBlock = contentMode === 'overseas'"),
-      generation.indexOf('const todayStr = new Date()'),
+      // v3.8.734: 오늘 날짜가 UTC(new Date().toISOString()) → 서울 기준(kstToday())으로 바뀌었다
+      generation.indexOf('const todayStr = kstToday()'),
     );
     expect(block).toContain('OVERSEAS MODE');
     // 주석 줄을 뺀 프롬프트 본문에 한글이 없어야 한다

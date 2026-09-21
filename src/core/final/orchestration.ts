@@ -149,6 +149,9 @@ function ledgerPath(): string {
   return require('./publish-ledger').defaultLedgerPath();
 }
 
+// 🧠 v3.8.734 — 고른 모델 / 실제로 쓴 모델 / 하향 여부 (model-use.ts)
+import { describeModelUse } from './model-use';
+
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
 const FINAL_CTA_MICROCOPY_STYLE = 'display:block !important;width:100% !important;margin:0 !important;color:var(--rv-cta-note,#0369a1) !important;-webkit-text-fill-color:var(--rv-cta-note,#0369a1) !important;font-size:12px !important;font-weight:600 !important;line-height:1.5 !important;opacity:.86 !important;text-align:center !important;';
@@ -682,6 +685,18 @@ export async function generateUltimateMaxModeArticleFinal(
   (globalThis as any).__lastBreakingEvent = null;
   (globalThis as any).__lastSelfOverlap = null;
   (globalThis as any).__lastPreflight = null;
+  /**
+   * v3.8.734 — 모델 하향·실사용 모델 기록도 글마다 비우고, **하향 알림을 화면 로그로 잇는다.**
+   * llm-caller 는 onLog 를 모른다. 여기서 창구(__llmNotice)를 걸어 주면 하향이 일어나는 순간 사용자 화면에 뜬다.
+   * 순차 락 안이라 다른 글의 onLog 와 섞이지 않는다. finally 에서 뗀다.
+   */
+  (globalThis as any).__llmDowngrades = [];
+  (globalThis as any).__llmActualModels = {};
+  (globalThis as any).__llmNotice = (message: string) => onLog?.(message);
+  // 단계 상태(SEARCH_OK · GROUNDING_WEAK …) — 조용히 넘어가는 단계를 없앤다. 화면 로그·결과·장부에 남는다
+  const { PipelineStatus } = require('./evidence-gate');
+  const pipelineStatus: { stages: Array<{ stage: string; status: string; detail: string }>; mark: (s: string, st: string, d?: string) => void; weak: boolean; summary: () => string } = new PipelineStatus(onLog);
+  let evidenceLedgerStats: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string } | null = null;
 
   // 🎯 사용자 선택 AI 엔진을 런타임에 반영
   // 🔥 우선순위 수정: provider(드롭다운, 최신 UI)가 primaryGeminiTextModel(라디오, 모달)보다 우선
@@ -1195,10 +1210,20 @@ export async function generateUltimateMaxModeArticleFinal(
 
       try {
         const envKw = loadEnvFromFile();
-        const naverClientId = (payload as any).naverClientId || (payload as any).naverCustomerId ||
-          envKw['naverClientId'] || envKw['NAVER_CLIENT_ID'] || envKw['naverCustomerId'] || '';
-        const naverClientSecret = (payload as any).naverClientSecret || (payload as any).naverSecretKey ||
-          envKw['naverClientSecret'] || envKw['NAVER_CLIENT_SECRET'] || envKw['naverSecretKey'] || '';
+        /**
+         * v3.8.734 — 검색 자격은 **검색 API 키로만** 판단한다.
+         * 예전엔 검색 키가 없으면 `naverCustomerId`/`naverSecretKey`(검색**광고** API 의 고객 ID·비밀키)를 그 자리에 넣었다.
+         * 전혀 다른 API 의 키라 호출은 401 로 죽고, 화면엔 "블로그 0 + 뉴스 0" 만 찍혀 정상 검색처럼 보였다.
+         * 그리고 조건이 옛 키(Client ID/Secret)만 봐서, API HUB 키만 넣은 사용자는 검색이 통째로 꺼졌다.
+         * 이제 naver-search-client 가 HUB·옛 키를 함께 보고 판단한다(HUB 우선, 막히면 자동 전환).
+         */
+        const naverClientId = (payload as any).naverClientId || envKw['naverClientId'] || envKw['NAVER_CLIENT_ID'] || '';
+        const naverClientSecret = (payload as any).naverClientSecret || envKw['naverClientSecret'] || envKw['NAVER_CLIENT_SECRET'] || '';
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const naverClient = require('../naver-search-client');
+        const hasSearchCredentials = (naverClient.resolveAllNaverCredentials(payload) || []).length > 0;
+        naverClient.resetNaverCallLog();
+        try { require('../crawlers/evidence-clean').resetCleanTotals(); } catch { /* 집계 실패가 수집을 막지 않는다 */ }
 
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { ContentCrawler } = require('../content-crawler');
@@ -1216,7 +1241,7 @@ export async function generateUltimateMaxModeArticleFinal(
         // 1순위: 네이버 블로그 + 지식인 + 뉴스 + Google Suggest 병렬 수집 (v3.8.332)
         //   사용자 요구: "궁금한 정보·모르는 정보·소제목·키워드에 딱 맞는 궁금증 해결"
         //   지식인 = 실제 유저 질문 (궁금증 소스), Suggest = 실제 검색 키워드, News = 최신 트렌드
-        if (naverClientId && naverClientSecret) {
+        if (hasSearchCredentials) {
           /**
            * v3.8.476 — 웹문서(webkr)를 추가한다.
            *   지금까지 blog·kin·news 셋만 썼다. webkr 은 블로그가 아닌 문서를 주는데,
@@ -1250,11 +1275,24 @@ export async function generateUltimateMaxModeArticleFinal(
           crawledFromAPI.push(...newsResults, ...webResults, ...blogResults, ...kinResults, ...suggestResults);
           const officialWeb = webResults.filter((r: any) => String(r?.source) === 'naver-web-official').length;
           onLog?.(`   ✅ 블로그 ${blogResults.length} + 지식인 ${kinResults.length} + 뉴스 ${newsResults.length} + 웹문서 ${webResults.length}(기관 ${officialWeb}) + 자동완성 ${suggestResults.length} = 총 ${crawledFromAPI.length}개`);
+          /**
+           * v3.8.734 — 소스별 **성공/실패**를 남긴다. 위 줄의 "뉴스 0"은 기사가 없는 것일 수도, 검색이 죽은 것일 수도 있다.
+           * 크롤러는 실패를 빈 배열로 돌려주므로(발행을 막지 않으려고) 검색 창구의 호출 기록으로 구분한다.
+           */
+          const calls = naverClient.summarizeNaverCalls();
+          const suggestCount = suggestResults.length > 0 ? (suggestResults[0]?.subheadings?.length || suggestResults.length) : 0;
+          onLog?.(`   🔎 검색 소스 상태 — ${calls.line} · AUTOCOMPLETE: ${suggestCount > 0 ? `OK ${suggestCount}` : 'EMPTY'}`);
+          const usable = newsResults.length + webResults.length + blogResults.length;
+          if (calls.failed.length > 0) pipelineStatus.mark('SEARCH', usable > 0 ? 'SEARCH_WEAK' : 'SEARCH_FAIL', `실패한 소스: ${calls.failed.join(', ')}`);
+          else if (usable < 5) pipelineStatus.mark('SEARCH', 'SEARCH_WEAK', `검색 결과 ${usable}건`);
+          else pipelineStatus.mark('SEARCH', 'SEARCH_OK', calls.line);
         } else {
           // 네이버 키 없어도 Google Suggest는 무료 → 실행
           const suggestOnly = await crawler.crawlGoogleSuggest(crawlerConfig).catch(() => []);
           crawledFromAPI.push(...suggestOnly);
-          onLog?.(`   ⚠️ 네이버 API 키 없음 → Google Suggest만 수집 (${suggestOnly.length}개)`);
+          // v3.8.734 — 자동완성만으로 넘어가면서 정상 검색처럼 보이면 안 된다. 상태로 못박는다
+          onLog?.(`   ⛔ 네이버 검색 API 키가 없습니다(API HUB 키·개발자센터 키 모두 없음) → 검색 근거 없이 진행합니다. 환경설정 → API 키 → 네이버 검색 API 에 키를 넣어 주세요. (자동완성 ${suggestOnly.length}개만 수집)`);
+          pipelineStatus.mark('SEARCH', 'SEARCH_FAIL', 'NO_NAVER_CREDENTIALS — 검색 API 키 없음');
         }
 
         /**
@@ -1311,6 +1349,10 @@ export async function generateUltimateMaxModeArticleFinal(
               content: item.content || '',
               subheadings: item.subheadings || [],
               source: (item as any).source || 'external',
+              // v3.8.734 — 날짜·원문 주소·본문 확보 여부를 버리지 않는다(근거 항목이 이걸 들고 Writer 까지 간다)
+              pubDate: (item as any).pubDate || (item as any).postdate || null,
+              originalLink: (item as any).originalLink || '',
+              hasBody: (item as any).hasBody === true,
             } as any);
           }
         }
@@ -1725,7 +1767,7 @@ export async function generateUltimateMaxModeArticleFinal(
         // LLM이 만든 실제 H2 제목을 가이드에 그대로 사용 (없으면 의도 기반 fallback)
         const t = h2Titles[idx] || fallbackTitles[idx] || `${keyword} 핵심 정보`;
         const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
-        return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 600}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n제목 일치 규칙:\n  - H3와 본문은 반드시 "${t}"의 하위 내용만 다룹니다.\n  - H2에 없는 신청/자격/혜택/서류/중계/대진 같은 다른 분야 단어를 임의로 추가하지 마세요.\n필수 요소:\n${reqs}`;
+        return `[섹션 ${idx + 1}: ${t}] (참고 분량 ~${(sec as any).minChars || 600}자 — 근거가 있는 만큼만)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n제목 일치 규칙:\n  - H3와 본문은 반드시 "${t}"의 하위 내용만 다룹니다.\n  - H2에 없는 신청/자격/혜택/서류/중계/대진 같은 다른 분야 단어를 임의로 추가하지 마세요.\n필수 요소:\n${reqs}`;
       }).join('\n\n');
       modeResult.sectionPromptBlock = `${sectionScopeOverride}${sourceGuard}\n\n📋 [내부 일관성 모드 섹션별 상세 지시]\n${guides}`;
       onLog?.(`[PROGRESS] 40% - ✅ 내부 일관성 구조 ${h2Titles.length}개 섹션 적용 완료`);
@@ -1739,7 +1781,7 @@ export async function generateUltimateMaxModeArticleFinal(
         const guides = PARAPHRASING_PROFESSIONAL_MODE_SECTIONS.map((sec, idx) => {
           const t = sec.title.replace(/\[주제\]/g, keyword).replace(/\[소주제\]/g, keyword);
           const reqs = (sec as any).requiredElements?.map((r: string) => `  - ${r}`).join('\n') || '';
-          return `[섹션 ${idx + 1}: ${t}] (최소 ${(sec as any).minChars || 700}자)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
+          return `[섹션 ${idx + 1}: ${t}] (참고 분량 ~${(sec as any).minChars || 700}자 — 근거가 있는 만큼만)\n역할: ${(sec as any).role || ''}\n핵심: ${(sec as any).contentFocus || ''}\n필수 요소:\n${reqs}`;
         }).join('\n\n');
         modeResult.sectionPromptBlock = `\n\n📋 [페러프레이징 모드 섹션별 상세 지시]\n${guides}`;
       }
@@ -2025,7 +2067,8 @@ export async function generateUltimateMaxModeArticleFinal(
         }
 
         const reqsText = reqs.map((r) => `  - ${r}`).join('\n');
-        return `[섹션 ${idx + 1}: ${t}] (최소 ${sec.minChars || 1000}자)\n역할: ${role}\n핵심: ${contentFocus}\n필수 요소:\n${reqsText}`;
+        // v3.8.734 — "최소 N자" 강제를 걷었다. 분량은 근거가 정한다(length-plan.ts). 숫자는 근거가 충분할 때의 참고치다
+        return `[섹션 ${idx + 1}: ${t}] (참고 분량 ~${sec.minChars || 1000}자 — 근거가 있는 만큼만. 근거가 얇으면 짧게 끝냅니다)\n역할: ${role}\n핵심: ${contentFocus}\n필수 요소:\n${reqsText}`;
       }).join('\n\n');
       /**
        * 🗣️ v3.8.437 — 이 글은 **써 본 사람의 글**이어야 한다.
@@ -2404,9 +2447,14 @@ ${quoted}
      */
     let naverGrounding = '';
     let groundingStats: { newsCount: number; webCount: number; officialCount: number } | null = null;
+    // v3.8.734 — 근거를 글자와 함께 **항목으로도** 모은다(출처·날짜·검색어·관련도). 버린 것도 남긴다
+    const evidenceCandidates: any[] = [];
+    const evidenceRejected: any[] = [];
     try {
-      const g = await fetchGrounding(keyword, naverSearch as any, { ...(sourceScope ? { sourceScope } : {}) });
+      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}) });
       naverGrounding = g.text;
+      evidenceCandidates.push(...(g.items || []));
+      evidenceRejected.push(...(g.rejected || []));
       /**
        * v3.8.633 — 속보 판정을 **반환값에서** 받는다.
        * 전역만 믿으면 근거 수집이 다른 경로로 돌 때 지난 판정이 묻어간다.
@@ -2435,8 +2483,10 @@ ${quoted}
       const { fetchPromiseGrounding } = require('./promise-grounding');
       const pgr = await fetchPromiseGrounding(String(h1 || ''), keyword, naverSearch as any, fetchGrounding, { maxChunks: 2, charsPerChunk: 2000, display: 5, ...(sourceScope ? { sourceScope } : {}) });
       for (const c of pgr.chunks) {
-        onLog?.(`[PROGRESS] 45% - 🎯 제목 약속 근거 추가: "${c.chunk}" ← 검색 "${c.query}" (뉴스 ${c.newsCount} · 기관 ${c.officialCount} · 웹 ${c.webCount})`);
+        onLog?.(`[PROGRESS] 45% - 🎯 제목 약속 근거 추가: "${c.chunk}" ← 검색 "${c.query}" (뉴스 ${c.newsCount} · 기관 ${c.officialCount} · 웹 ${c.webCount}${c.rejectedCount ? ` · 관련 없어 버림 ${c.rejectedCount}` : ''})`);
       }
+      evidenceCandidates.push(...(pgr.items || []));
+      evidenceRejected.push(...(pgr.rejected || []));
       const extra: string[] = pgr.blocks;
       if (extra.length > 0) naverGrounding = [...extra, naverGrounding].filter(Boolean).join('\n\n');
     } catch (promiseErr: any) {
@@ -2730,12 +2780,120 @@ ${quoted}
       ].filter(Boolean).map(String).join('\n').slice(0, 6000);
     })();
 
+    /**
+     * 📚 v3.8.734 — 근거를 **항목 장부**로 합치고, Writer 앞에서 품질을 본다.
+     *
+     * 감사 실측: `[FACT EVIDENCE]` 의 39%가 무관한 기사, 31%의 줄이 광고·버튼, 날짜 0/19 · URL 0 이었다.
+     * 여기서 ① 크롤링 본문도 같은 관련도 문을 지나게 하고(정제 포함) ② 중복을 걷고 품질순으로 ID 를 붙이고
+     * ③ 모자라면 검색어를 바꿔 다시·공식 자료를 다시 찾고 ④ 그래도 모자라면 모자란 채로 **표시**한다.
+     * 지식iN·자동완성은 사실 근거가 아니라 질문 소재라 장부에 넣지 않는다(Research Packet 의 질문 칸으로 간다).
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const evidenceMod = require('./evidence');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const gateMod = require('./evidence-gate');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { cleanEvidenceText } = require('../crawlers/evidence-clean');
+    const todayKst: string = require('./kst-date').kstToday();
+    const QUESTION_SOURCES = new Set(['naver-kin', 'google-suggest']);
+    const relevantPosts: FinalCrawledPost[] = [];
+    let cleanRaw = 0; let cleanKept = 0;
+    for (const post of crawledPosts as any[]) {
+      const src = String(post?.source || '');
+      if (QUESTION_SOURCES.has(src)) continue;
+      // 사용자가 직접 준 주소·유료 검색 요약은 관련도를 묻지 않는다 — 사람이 골랐거나 이 키워드로 물은 답이다
+      const trusted = manualUrls.includes(post.url) || src.startsWith('factcheck-');
+      const tag = /news/.test(src) ? '뉴스' : /official/.test(src) ? '공식' : /blog/.test(src) ? '블로그' : '웹';
+      const cleaned = cleanEvidenceText(post.content);
+      cleanRaw += cleaned.rawLength; cleanKept += cleaned.cleanLength;
+      const verdict = evidenceMod.judgeEvidence({
+        title: String(post.title || ''), url: String(post.originalLink || post.url || ''), tag, query: keyword,
+        text: cleaned.text, pubDate: post.pubDate || null, hasBody: post.hasBody === true || cleaned.cleanLength > 600,
+      }, trusted ? '' : keyword);
+      if (verdict.item) {
+        evidenceCandidates.push({ ...verdict.item, mainKeyword: keyword });
+        relevantPosts.push({ ...post, content: cleaned.text });
+      } else if (verdict.rejected) {
+        evidenceRejected.push(verdict.rejected);
+      }
+    }
+    {
+      // 추출기 안에서 돈 정제(기사·기관 페이지 본문)까지 합친 총량이다 — 위 cleanRaw/cleanKept 는 그중 크롤링 글 몫
+      const t = require('../crawlers/evidence-clean').getCleanTotals();
+      if (t.docs > 0) pipelineStatus.mark('CLEAN', 'CLEAN_OK', `문서 ${t.docs}건 · RAW ${t.raw.toLocaleString()}자 → CLEAN ${t.clean.toLocaleString()}자 (removed ${(t.raw - t.clean).toLocaleString()}자 · ${t.lines}줄)`);
+      void cleanRaw; void cleanKept;
+    }
+
+    let evidenceItems: any[] = evidenceMod.assembleEvidence(evidenceCandidates, todayKst);
+    let gate = gateMod.evaluateEvidence(evidenceItems, keyword, String(h1 || ''));
+    if (gate.status === 'GROUNDING_WEAK' && !sourceScope && contentMode !== 'shopping') {
+      onLog?.(`[PROGRESS] 46% - 🚦 근거 점검: ${gateMod.describeGate(gate)} → 검색어를 바꿔 다시 찾습니다`);
+      const core2 = evidenceMod.coreEntityOf(keyword, 2);
+      const core3 = evidenceMod.coreEntityOf(keyword, 3);
+      const retryQueries: string[] = [];
+      if (core3 && core3 !== keyword.trim()) retryQueries.push(core3);                       // ① 넓은 말을 뗀 검색어
+      if (gate.needsOfficial && gate.stats.official === 0 && core2) retryQueries.push(`${core2} 공식 안내`);  // ② 공식 자료
+      for (const retryQuery of [...new Set(retryQueries)].slice(0, 2)) {
+        try {
+          const again = await fetchGrounding(retryQuery, naverSearch as any, { mainKeyword: keyword, display: 10 });
+          evidenceCandidates.push(...(again.items || []));
+          evidenceRejected.push(...(again.rejected || []));
+          if (again.text) naverGrounding = [naverGrounding, again.text].filter(Boolean).join('\n');
+          onLog?.(`[PROGRESS] 46% - 🔁 재검색 "${retryQuery}" → 통과 ${(again.items || []).length}건 · 버림 ${(again.rejected || []).length}건`);
+        } catch (retryErr: any) {
+          console.warn('[EVIDENCE] 재검색 스킵:', String(retryErr?.message || retryErr).slice(0, 100));
+        }
+      }
+      evidenceItems = evidenceMod.assembleEvidence(evidenceCandidates, todayKst);
+      gate = gateMod.evaluateEvidence(evidenceItems, keyword, String(h1 || ''));
+    }
+    pipelineStatus.mark('GROUNDING', gate.status, gateMod.describeGate(gate));
+    if (evidenceRejected.length > 0) {
+      onLog?.(`[PROGRESS] 46% - 🧹 메인 키워드와 무관해 버린 자료 ${evidenceRejected.length}건 (예: ${evidenceRejected.slice(0, 2).map((r: any) => `"${String(r.title).slice(0, 24)}"`).join(', ')})`);
+    }
+
+    /**
+     * 🧾 v3.8.734 — RESEARCH PACKET. Writer 가 읽기 전에 근거를 **사실 목록(출처 id 포함)** 으로 정리한다.
+     * 수치·날짜는 코드가 근거 원문에서 뽑고, 자격·조건·기관 발표는 LLM 1회로 정리한 뒤 근거와 대조해 검증한다.
+     * 쇼핑 글의 근거는 상품 데이터라 LLM 정리를 부르지 않는다.
+     */
+    const evidenceRender: { text: string; used: any[] } = evidenceMod.renderEvidence(evidenceItems, 11000);
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const packetMod = require('./research-packet');
+    const researchPacket = await packetMod.buildResearchPacket({
+      mainKeyword: keyword,
+      title: String(h1 || keyword),
+      items: evidenceRender.used,
+      evidenceText: evidenceRender.text,
+      readerQuestions: demandSignals.userQuestions,
+      searchSuggestions: demandSignals.searchQueries,
+      onLog,
+      ...(contentMode !== 'shopping' ? {
+        callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+      } : {}),
+    });
+    const packetStatus = researchPacket.status === 'OK' ? 'RESEARCH_OK' : researchPacket.status === 'EMPTY' ? 'RESEARCH_EMPTY' : 'RESEARCH_WEAK';
+    pipelineStatus.mark('RESEARCH', packetStatus,
+      `사실 ${researchPacket.facts.length} · 자격 ${researchPacket.eligibility.length} · 조건 ${researchPacket.conditions.length} · 기관발표 ${researchPacket.officialStatements.length} · 수치 ${researchPacket.numbers.length} · 날짜 ${researchPacket.dates.length}${researchPacket.notes.length ? ` · ${researchPacket.notes.join(' / ')}` : ''}`);
+    const researchPacketText: string = packetMod.renderPacket(researchPacket);
+    evidenceLedgerStats = {
+      total: gate.stats.total, official: gate.stats.official, withDate: gate.stats.withDate, withUrl: gate.stats.withUrl,
+      rejected: evidenceRejected.length, packet: researchPacket.status,
+    };
+    (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate };
+    pipelineStatus.mark('WRITER', gate.status === 'GROUNDING_OK' && researchPacket.status !== 'EMPTY' ? 'WRITER_READY' : 'WRITER_READY_WEAK',
+      gate.status === 'GROUNDING_OK' ? '' : '근거가 모자랍니다 — 근거 밖의 수치·일정은 쓰지 않도록 지시합니다');
+
+    /** 유료 검색 요약(퍼플렉시티 등) — 아래에서 factEvidence.context 가 장부로 덮이기 전에 떼어 둔다 */
+    const paidFactContext = String(factEvidence.context || '');
+
     const scopedPrimary = sourceScope ? crawledPosts.filter((p) => isScopedOfficialSource(p.url, sourceScope)) : [];
     const groundingReference = buildGroundingReference({
       // Input announcement bodies precede every search summary, including generated reports.
       ...(sourceScope ? { briefFacts: scopedPrimary.map((p) => `[공식 공고 원문] ${p.title}\n[출처 URL] ${p.url}\n${p.content}`).join('\n\n') } : { briefFacts: reportBriefFacts }),
       factContext: [factEvidence.context, naverGrounding].filter(Boolean).join('\n'),
-      crawledPosts: (sourceScope ? crawledPosts.filter((p) => !scopedPrimary.includes(p)) : crawledPosts) as any,
+      // v3.8.734 — 관련도 문을 지난(그리고 정제된) 크롤링 본문만 장부에 넣는다. 무관한 글이 수치를 보증해 주면 안 된다
+      crawledPosts: (sourceScope ? relevantPosts.filter((p) => !scopedPrimary.some((s) => s.url === p.url)) : relevantPosts) as any,
       officialBlock,
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
     });
@@ -2863,8 +3021,32 @@ ${quoted}
       }
     } catch { /* 리포트가 없으면 평소대로 쓴다 */ }
 
+    /**
+     * v3.8.734 — Writer 가 **먼저 읽는 것은 자료다.** 순서: Research Packet → 핵심 근거(항목별) → 보조 근거 → 지시.
+     * 예전엔 지시 블록들이 앞에 있고 근거가 맨 뒤였다. generation 이 이 묶음을 앞에서부터 자르므로(상한),
+     * 지시가 길어질수록 근거가 잘려 나갔다 — 실측에서 근거는 장부 21,350자 중 10,548자만 들어갔다.
+     * 근거 항목은 id·게시일·도메인·URL 을 단 채로 간다(떼지 않는다). 장부 전체(groundingReference)는 검증용으로 그대로 남는다.
+     */
+    const supplementEvidence = buildGroundingReference({
+      ...(sourceScope
+        ? { briefFacts: scopedPrimary.map((p) => `[공식 공고 원문] ${p.title}\n[출처 URL] ${p.url}\n${p.content}`).join('\n\n') }
+        : { briefFacts: reportBriefFacts }),
+      factContext: paidFactContext,
+      officialBlock,
+      productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
+      maxChars: 6000,
+    }).trim();
+    const writerEvidenceBlocks: string[] = [
+      researchPacketText,
+      ...(evidenceRender.text
+        ? [`[FACT EVIDENCE — 근거 항목 ${evidenceRender.used.length}건 · 머리줄의 id·게시일·출처·URL 을 보고 시점을 구분하세요]\n${evidenceRender.text}`]
+        : []),
+      ...(supplementEvidence ? [`[FACT EVIDENCE — 보조(리포트·유료 검색 요약·기관 블록·상품 데이터)]\n${supplementEvidence}`] : []),
+    ];
+
     // Always inject the hard evidence policy. A failed search must never mean unrestricted generation.
     factEnrichedContents = [
+      ...writerEvidenceBlocks,
       ...(sourceScope ? [buildSourceScopeDirective(sourceScope)] : []),
       // v3.8.732 — 받아온 조문. 지시보다 앞에 두면 배경이 되므로 근거 정책 바로 옆에 둔다
       ...(legalBasisBlock ? [legalBasisBlock] : []),
@@ -2876,9 +3058,8 @@ ${quoted}
       ...(answerDirective ? [answerDirective] : []),
       ...(keyFactDirective ? [keyFactDirective] : []),
       // 장부에 이미 들어간 것은 다시 넣지 않는다 (장부가 소스를 못 품은 경우에만 붙인다)
-      ...(officialBlock && !ledgerCoversSources ? [officialBlock] : []),
-      ...(factEvidence.context ? [`[FACT EVIDENCE - ${factEvidence.provider}]\n${factEvidence.context}`] : []),
-      ...(ledgerCoversSources ? [] : contents),
+      // v3.8.734 — 근거는 위 writerEvidenceBlocks 가 맨 앞에서 이미 실었다(항목별·관련도 통과분만).
+      //   크롤링 원문 통짜(contents)와 장부 통짜(factEvidence.context)는 더 이상 Writer 에게 보내지 않는다 — 검증에만 쓴다.
     ];
     if (ledgerCoversSources) {
       const savedChars = officialBlock.length + contents.join('\n\n').length;
@@ -3360,7 +3541,10 @@ ${quoted}
     const modeTargets = MODE_H2_TARGETS[modeKey];
     if (modeTargets) {
       const currentH2Count = (allSectionsObj.sections || []).length;
-      if (currentH2Count < modeTargets.min) {
+      // v3.8.734 — 소제목을 **일부러 적게 잡은 글**(재료가 얇아 3개)에 "정확히 5개"를 강제하지 않는다.
+      //   계획한 소제목 수만큼 나왔으면 통과다. 이 관문은 모델이 절을 빼먹었을 때만 돈다.
+      const plannedH2Count = Array.isArray(h2Titles) ? h2Titles.length : modeTargets.min;
+      if (currentH2Count < Math.min(modeTargets.min, plannedH2Count)) {
         console.warn(`[H2-ENFORCE] ⚠️ 모드 '${modeKey}' H2 ${currentH2Count}개 < min ${modeTargets.min} — 더 엄격한 프롬프트로 1회 재시도`);
         onLog?.(`[PROGRESS] 71% - 🛡️ H2 ${currentH2Count}개 부족 (모드 '${modeKey}' 최소 ${modeTargets.min}개) — 재시도 중...`);
         const stricterBlock = scopedSectionBlock +
@@ -3421,19 +3605,29 @@ ${quoted}
        * 이 게이트의 원래 목적("소제목만 많고 본문은 토막")은 그대로 잡힌다.
        */
       const sectionCountForGate = Math.max(1, (allSectionsObj?.sections || []).length);
-      const minPlainLen = Math.min(3000, sectionCountForGate * 800);
+      /**
+       * v3.8.734 — 하한도 **근거 밀도를 따른다.** 근거가 적어 일부러 짧게 쓴 글을 "부족"으로 잡아
+       * "총 8,000자 이상" 을 강제하면, 모자란 만큼은 지어내거나 같은 말을 늘여 채운다.
+       * 이 게이트의 원래 목적("소제목만 많고 본문은 토막")은 절당 하한으로 그대로 잡힌다.
+       */
+      const lengthPlanForGate = require('./length-plan').resolveLengthPlan(factEnrichedContents.join('\n\n'), String(contentMode || ''));
+      const minPlainLen = Math.min(3000, sectionCountForGate * lengthPlanForGate.perSectionFloor);
       onLog?.(`[PROGRESS] 72% - 📏 본문 평문 ${plainLen.toLocaleString()}자 `
-        + `(목표 8,000자+, 최소 ${minPlainLen.toLocaleString()}자 · 소제목 ${sectionCountForGate}개 기준)`);
+        + `(하한 ${minPlainLen.toLocaleString()}자 · 소제목 ${sectionCountForGate}개 · 근거 ${lengthPlanForGate.tier})`);
       if (plainLen < minPlainLen) {
-        onLog?.(`[PROGRESS] 73% - ⚠️ 본문 부족 (${plainLen}자) — 더 풍부하게 1회 재시도`);
-        const richerBlock = scopedSectionBlock +
-          `\n\n🚨 **재시도 — 본문 분량 강제 규칙**: 직전 응답의 본문 합계가 ${plainLen}자로 너무 짧았습니다.\n` +
-          `반드시 다음 규칙을 지키세요:\n` +
-          `- 각 H2 본문 최소 1,200자 이상\n` +
-          `- 각 H3 세부 섹션 최소 500자 이상\n` +
-          `- 도입부 600자 이상, 결론 400자 이상\n` +
-          `- 총 본문 8,000자 이상 (HTML 태그 제외 순수 텍스트)\n` +
-          `- 잘림 절대 금지 — 모든 섹션 끝까지 완성\n`;
+        onLog?.(`[PROGRESS] 73% - ⚠️ 본문이 토막입니다 (${plainLen}자) — 아직 안 쓴 근거를 넣어 1회 재시도`);
+        const richerBlock = scopedSectionBlock + (lengthPlanForGate.tier === 'legacy'
+          ? `\n\n🚨 **재시도 — 본문 분량 강제 규칙**: 직전 응답의 본문 합계가 ${plainLen}자로 너무 짧았습니다.\n` +
+            `반드시 다음 규칙을 지키세요:\n` +
+            `- 각 H2 본문 최소 1,200자 이상\n` +
+            `- 각 H3 세부 섹션 최소 500자 이상\n` +
+            `- 도입부 600자 이상, 결론 400자 이상\n` +
+            `- 총 본문 8,000자 이상 (HTML 태그 제외 순수 텍스트)\n` +
+            `- 잘림 절대 금지 — 모든 섹션 끝까지 완성\n`
+          : `\n\n🚨 **재시도 — 본문이 토막입니다**: 직전 응답의 본문 합계가 ${plainLen}자였습니다.\n` +
+            `- Research Packet 의 사실·수치·날짜 중 **아직 본문에 안 쓴 것**을 맡은 절에 넣으세요 (${lengthPlanForGate.rangeText}).\n` +
+            `- 근거에 없는 금액·날짜·조건을 만들어 분량을 채우지 마세요. 같은 말을 되풀이하지도 마세요.\n` +
+            `- 잘림 절대 금지 — 모든 섹션 끝까지 완성\n`);
         try {
           const retried = await generateAllSectionsFinal(
             keyword, h2Titles, factEnrichedContents, onLog, contentMode, draftContent, richerBlock, skipQualityBoost, articleThread,
@@ -6580,7 +6774,16 @@ ${conclusionHTML}
         reportSlot: slot ? String(slot.slot || '') : '',
         reportGrade: slot ? String(slot.grade || '') : '',
         ...(costUsd != null ? { costUsd } : {}),
+        // v3.8.734 — 고른 모델 / 실제로 쓴 모델 / 하향 여부, 단계 상태, 근거 통계
+        ...describeModelUse(),
+        ...(pipelineStatus.stages.length ? { pipelineStatus: pipelineStatus.summary() } : {}),
+        ...(evidenceLedgerStats ? { evidence: evidenceLedgerStats } : {}),
       });
+      {
+        const use = describeModelUse();
+        if (use.downgraded) onLog?.(`[PROGRESS] 98% - ⚠️ 모델 하향 발생: 고른 모델 ${use.requestedModel} → 실제 ${use.actualModel} (${use.downgradeReason}) — 장부에 기록했습니다`);
+        else if (use.actualModel) onLog?.(`[PROGRESS] 98% - 🧠 실제 사용 모델: ${use.actualModel} (하향 없음)`);
+      }
       onLog?.(`[PROGRESS] 98% - 📒 품질 ${audited.score}점 · 중복 ${((Number(overlap.max)||0)).toFixed(2)} 를 장부에 남겼습니다`);
     } catch (ledgerError: any) {
       // 장부는 있으면 좋은 것이지 발행 조건이 아니다
@@ -6653,6 +6856,8 @@ ${conclusionHTML}
   } finally {
     // 🎯 AI 엔진 env 원복 (다음 요청에 영향 방지)
     process.env['PRIMARY_TEXT_MODEL'] = previousTextModel;
+    // v3.8.734 — 하향 알림 창구를 뗀다 (다음 글·다른 경로의 호출이 이 글의 onLog 로 새지 않게)
+    (globalThis as any).__llmNotice = null;
     try { releaseLock(); } catch { /* no-op 보호 */ }
   }
 }

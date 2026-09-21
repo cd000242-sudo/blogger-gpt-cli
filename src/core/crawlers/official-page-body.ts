@@ -115,7 +115,13 @@ export function extractOfficialPageBody(
   }
 
   if (best.length < MIN_ACCEPTABLE_CHARS) return null;
-  return { text: best.slice(0, Math.max(1, maxChars)), rawLength: best.length };
+  // v3.8.734 — 자르기 전에 CLEAN (article-body 와 같은 이유: 상한을 껍데기가 먹지 않게)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { cleanEvidenceText, describeClean } = require('./evidence-clean');
+  const tidy = cleanEvidenceText(best);
+  if (tidy.cleanLength < MIN_ACCEPTABLE_CHARS) return null;
+  if (process.env['DEBUG_EVIDENCE'] === '1' || tidy.removedLines > 0) console.log(describeClean('page', tidy));
+  return { text: tidy.text.slice(0, Math.max(1, maxChars)), rawLength: best.length };
 }
 
 /**
@@ -134,6 +140,17 @@ export async function fetchPageBody(
   maxChars: number = DEFAULT_MAX_PAGE_CHARS,
   timeoutMs = 8000,
 ): Promise<string | null> {
+  return (await fetchPageDocument(url, maxChars, timeoutMs))?.text ?? null;
+}
+
+/** 본문 + 문서에 적힌 게시일 (v3.8.734). 날짜를 못 찾으면 publishedAt 은 null 이다 — 오늘로 메우지 않는다 */
+export interface PageDocument { text: string; publishedAt: string | null; rawLength: number }
+
+export async function fetchPageDocument(
+  url: string,
+  maxChars: number = DEFAULT_MAX_PAGE_CHARS,
+  timeoutMs = 8000,
+): Promise<PageDocument | null> {
   const target = String(url || '').trim();
   if (!/^https?:\/\//i.test(target)) return null;
   if (looksLikeFileUrl(target)) return null;
@@ -153,12 +170,12 @@ export async function fetchPageBody(
     const html = await response.text();
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { extractArticleBody } = require('./article-body');
+    const { extractArticleBody, extractPublishedDate } = require('./article-body');
     const article = extractArticleBody(html, maxChars);
-    if (article?.text) return article.text;
+    if (article?.text) return { text: article.text, publishedAt: article.publishedAt ?? null, rawLength: article.rawLength };
 
     const page = extractOfficialPageBody(html, maxChars);
-    return page ? page.text : null;
+    return page ? { text: page.text, publishedAt: extractPublishedDate(html), rawLength: page.rawLength } : null;
   } catch {
     return null;
   }

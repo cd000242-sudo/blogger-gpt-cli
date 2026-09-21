@@ -33,7 +33,7 @@ const externalModePlugin: ContentModePlugin = {
 핵심: ${sec.contentFocus || '검색 의도에 맞는 정보의 깊이와 명확성'}
 필수 요소:
 ${reqs}
-(최소 ${sec.minChars || 700}자)
+(참고 분량 ~${sec.minChars || 700}자 — 근거가 있는 만큼만. 근거가 얇으면 짧게 끝냅니다)
 🎯 SEO 4원칙:
   - 두괄식 답변: 첫 문단에 핵심 답을 즉시 노출 (스크롤 없이 답 보이게)
   - 구체성 우선: 수치·사례·출처를 매 섹션에 주입 (두루뭉술한 일반론 금지)

@@ -231,7 +231,12 @@ function resolveModelChain(provider: keyof typeof PROVIDERS): string[] {
  * 제한시간은 "여기까지 기다린다"이지 "여기까지 쓴다"가 아니다 — 늘려도 비용은 그대로다.
  * 잘려서 다시 만드는 쪽이 비싸다.
  */
-const SLOW_REASONING_MODEL = /astra|sol\b|^o\d|fable|opus/i;
+/**
+ * v3.8.734 — **terra 도 느린 쪽이다.** 감사 실측: 본문 호출은 입력 4.5만 자 + 추론(medium) + 출력 최대 16k 다.
+ * 90초 안에 못 끝내면 아래 규칙대로 luna 로 내려가 **본문을 저가 모델이 쓴다.** 제한시간이 모델을 바꾸고 있던 셈이다.
+ * 빠른 모델(luna·haiku·sonar·flash)만 짧게 둔다.
+ */
+const SLOW_REASONING_MODEL = /astra|sol\b|terra|^o\d|fable|opus|sonnet/i;
 const SLOW_MODEL_TIMEOUT_MS = 240_000;
 
 function resolveCallTimeout(config: LLMProviderConfig, model: string): number {
@@ -274,11 +279,31 @@ function fasterSiblingOf(provider: string, model: string): string | null {
 }
 
 /** 대체가 일어났다는 사실을 남긴다 — 장부와 로그가 모르면 그게 '조용한 대체'다 */
-function recordDowngrade(provider: string, from: string, to: string): void {
+function recordDowngrade(provider: string, from: string, to: string, reason = 'timeout'): void {
   try {
     const g: any = globalThis as any;
     if (!g.__llmDowngrades) g.__llmDowngrades = [];
-    g.__llmDowngrades.push({ provider, from, to, at: Date.now() });
+    g.__llmDowngrades.push({ provider, from, to, reason, at: Date.now() });
+  } catch { /* 기록 실패가 생성을 막지 않는다 */ }
+}
+
+/**
+ * v3.8.734 — 사용자에게 **보이는** 알림 창구.
+ * 예전엔 하향을 console.warn 으로만 찍고 `__llmDowngrades` 는 아무도 읽지 않았다 — 사용자는 terra 로 쓴 줄 안다.
+ * 생성 파이프라인이 시작할 때 `globalThis.__llmNotice = onLog` 를 걸어 두면 화면 로그로 나간다.
+ */
+function notifyUser(message: string): void {
+  console.warn(`[LLM] ${message}`);
+  try { (globalThis as any).__llmNotice?.(message); } catch { /* 알림 실패가 생성을 막지 않는다 */ }
+}
+
+/** 이번 생성에서 실제로 쓴 모델을 센다 — 장부의 actualModel 이 여기서 나온다 */
+function recordActualModel(provider: string, model: string): void {
+  try {
+    const g: any = globalThis as any;
+    if (!g.__llmActualModels) g.__llmActualModels = {};
+    const key = `${provider}/${model}`;
+    g.__llmActualModels[key] = (g.__llmActualModels[key] || 0) + 1;
   } catch { /* 기록 실패가 생성을 막지 않는다 */ }
 }
 
@@ -350,9 +375,15 @@ function buildProviderError(
 }
 
 // ─── 통합 호출 함수 ─────────────────────────────
+export interface CallLLMOptions {
+  /** 구조화 출력(JSON). 지원하는 provider 에만 실리고, 거절당하면 그 옵션만 빼고 한 번 더 부른다 */
+  json?: boolean;
+}
+
 export async function callLLM(
   provider: keyof typeof PROVIDERS,
-  prompt: string
+  prompt: string,
+  options: CallLLMOptions = {},
 ): Promise<string> {
   const config = PROVIDERS[provider];
   if (!config) {
@@ -385,6 +416,8 @@ export async function callLLM(
   const queue = [...modelChain];
   const tried = new Set<string>();
   let downgraded = false;
+  /** v3.8.734 — JSON 모드. OpenAI chat/completions 의 response_format 만 쓴다(다른 provider 는 프롬프트 지시 + 검증으로 간다) */
+  let useJsonMode = options.json === true && provider === 'openai';
 
   while (queue.length > 0) {
     const model = queue.shift()!;
@@ -397,9 +430,11 @@ export async function callLLM(
         await waitForTextProviderTurn(config.provider, `${config.name}/${model}`);
         const callTimeout = resolveCallTimeout(config, model);
         console.log(`[LLM] ${config.name} ${model} attempt ${attempt + 1}/${maxRetries} (제한 ${Math.round(callTimeout / 1000)}초)`);
+        const requestBody = config.buildBody(model, prompt);
+        if (useJsonMode) requestBody['response_format'] = { type: 'json_object' };
         const response = await axios.post(
           config.endpoint,
-          config.buildBody(model, prompt),
+          requestBody,
           {
             headers: config.buildHeaders(apiKey),
             timeout: callTimeout,
@@ -435,6 +470,7 @@ export async function callLLM(
 
         const text = config.extractText(response.data);
         if (text) {
+          recordActualModel(config.provider, model);
           return text;
         }
         throw new Error('빈 응답');
@@ -458,6 +494,13 @@ export async function callLLM(
         } catch { /* 기록 실패가 오류 처리를 막지 않는다 */ }
 
         const errorMsg = extractErrorMessage(error);
+        // v3.8.734 — 이 모델이 response_format 을 안 받으면 그 옵션만 빼고 같은 시도를 다시 한다(재시도 횟수를 쓰지 않는다)
+        if (useJsonMode && /response_format|json_object|json mode/i.test(errorMsg)) {
+          useJsonMode = false;
+          console.warn(`[LLM] ${model} 은(는) JSON 모드를 받지 않습니다 — 프롬프트 지시만으로 다시 부릅니다`);
+          attempt -= 1;
+          continue;
+        }
         const kind = classifyProviderFailure(config, error);
         lastKind = kind;
         lastError = buildProviderError(config, kind, model, totalAttempts, errorMsg);
@@ -493,9 +536,9 @@ export async function callLLM(
       const faster = fasterSiblingOf(provider as string, model);
       if (faster && !tried.has(faster)) {
         downgraded = true;
-        recordDowngrade(provider as string, model, faster);
-        const note = `⏱️ ${config.name} ${model} 이(가) 제한시간을 넘겼습니다 → 같은 엔진의 빠른 모델 ${faster} 로 한 번 더 시도합니다 (다른 엔진으로 넘어가지 않습니다).`;
-        console.warn(`[LLM] ${note}`);
+        recordDowngrade(provider as string, model, faster, 'timeout');
+        // v3.8.734 — 화면 로그로도 내보낸다. 고른 모델이 아닌 모델이 글을 쓰게 되는 순간이다
+        notifyUser(`⚠️ 모델 하향: ${config.name} ${model} 이(가) 제한시간을 넘겼습니다 → 같은 엔진의 빠른 모델 ${faster} 로 한 번 더 시도합니다. 이 호출은 ${faster} 가 씁니다 (다른 엔진으로는 넘어가지 않습니다).`);
         queue.push(faster);
       }
     }
@@ -505,9 +548,9 @@ export async function callLLM(
 }
 
 // ─── 하위호환 ────────────────────────────────────
-export const callPerplexityAPI = (prompt: string) => callLLM('perplexity', prompt);
-export const callOpenAIAPI = (prompt: string) => callLLM('openai', prompt);
-export const callClaudeAPI = (prompt: string) => callLLM('claude', prompt);
+export const callPerplexityAPI = (prompt: string, options?: CallLLMOptions) => callLLM('perplexity', prompt, options);
+export const callOpenAIAPI = (prompt: string, options?: CallLLMOptions) => callLLM('openai', prompt, options);
+export const callClaudeAPI = (prompt: string, options?: CallLLMOptions) => callLLM('claude', prompt, options);
 
 // ─── Gemini 클라이언트 (Lazy init) ───────────────
 let _genAI: GoogleGenerativeAI | null = null;

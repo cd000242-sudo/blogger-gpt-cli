@@ -56,6 +56,18 @@ export interface LedgerEntry {
   reportGrade?: string;
   /** 이 글을 만드는 데 든 API 비용 (USD) — v3.8.650 */
   costUsd?: number;
+  /**
+   * v3.8.734 — 어느 모델이 **실제로** 썼는가.
+   * 감사 실측: 시간초과가 나면 terra → luna 로 내려가는데, 그 사실이 console 에만 찍히고 장부엔 모델 칸조차 없었다.
+   * 사용자는 고른 모델로 쓴 줄 안다. 이제 고른 것과 실제로 쓴 것을 나란히 남긴다.
+   */
+  requestedModel?: string;
+  actualModel?: string;
+  downgraded?: boolean;
+  downgradeReason?: string;
+  /** v3.8.734 — 단계 상태 요약(SEARCH_OK · GROUNDING_WEAK …)과 근거 통계 */
+  pipelineStatus?: string;
+  evidence?: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string };
   /** 나중에 애드센스에서 채운다 */
   rpm?: number;
   pageviews?: number;

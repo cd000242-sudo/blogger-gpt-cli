@@ -67,7 +67,10 @@ describe('② 백엔드는 0이면 상한을 걸지 않는다', () => {
   it('⭐⭐ 재료 기반 확장 로직은 그대로 살아 있다', () => {
     // 이 사다리가 사라지면 자동으로 둬도 의미가 없다
     expect(gen).toContain('const materialCount = uniqueCount + demandCount;');
-    expect(gen).toContain('else targetCount = 10;');
+    // v3.8.734: 상한 10 → 8. 재료의 "개수"(경쟁 글 소제목·연관어 수)는 정보의 양이 아니다 —
+    //   근거 6,500자짜리 주제에 소제목 9개가 나와 절마다 분량을 채우느라 글이 늘어졌다.
+    expect(gen).toContain('else targetCount = 8;');
+    expect(gen).not.toContain('else targetCount = 10;');
     expect(gen).toContain('if (rawSignalCount >= 50) targetCount = Math.max(targetCount, 8);');
   });
 

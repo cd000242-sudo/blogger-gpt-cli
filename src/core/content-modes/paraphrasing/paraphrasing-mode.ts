@@ -27,7 +27,7 @@ const paraphrasingModePlugin: ContentModePlugin = {
 핵심: ${sec.contentFocus || ''}
 필수 요소:
 ${reqs}
-(최소 ${sec.minChars || 700}자)
+(참고 분량 ~${sec.minChars || 700}자 — 원문에 있는 만큼만)
 🔄 페러프레이징 4원칙:
   - 의미 보존 (사실/수치/인용은 유지)
   - 표현 재구성 (원문 단어 직접 사용 금지, trigram 유사도 40% 이하 목표)

@@ -90,11 +90,17 @@ describe('v3.8.666 후처리 잔여와 에이전트 후처리', () => {
     const calls: string[] = [];
     const fake = async (q: string) => { calls.push(q); return { text: '[뉴스] 결과', newsCount: 1, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0 } as any; };
     const r = await fetchPromiseGrounding('소상공인 무료 상생보험 7개 지자체 개시 — 내 지역이 대상인지와 신청 경로가 갈리는 지점', '소상공인 무료 상생보험 7개 지자체 개시', (async () => ({ ok: true, items: [] })) as any, fake);
-    expect(calls).toEqual([
-      '소상공인 무료 상생보험 7개 지자체 개시 내 지역이 대상인지',
-      '소상공인 무료 상생보험 7개 지자체 개시 신청 경로가 갈리는 지점',
-    ]);
-    expect(r.blocks).toHaveLength(2);
+    /**
+     * v3.8.734 — 조각을 키워드에 통째로 붙이던 "예전 검색어"를 없앴다. 검색어는 **핵심어 + 확인 대상(명사)** 이다.
+     * 물음·서술 꼬리("대상인지", "갈리는")는 빠지고, 혼자서는 검색어가 못 되는 말(지역·신청)도 핵심어와 함께만 나간다.
+     */
+    expect(calls.length).toBeGreaterThan(0);
+    for (const q of calls) {
+      expect(q.startsWith('소상공인')).toBe(true);
+      expect(q).toContain('상생보험');
+      expect(q).not.toMatch(/대상인지|갈리는/);
+    }
+    expect(r.blocks).toHaveLength(calls.length);
   });
 
   test('⑤ 배선 — 에이전트 경로에 호출 0회 후처리, 답변 블록 제거 로그', () => {

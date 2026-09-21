@@ -14,10 +14,30 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  fetchGrounding as fetchGroundingReal,
-  fetchGroundingSnippets as fetchGroundingSnippetsReal,
+  fetchGrounding as fetchGroundingRaw,
+  fetchGroundingSnippets as fetchGroundingSnippetsRaw,
   describeGrounding, checkFreshness, describeFreshness,
 } from '../src/core/final/naver-grounding';
+
+/**
+ * v3.8.734 — 근거는 이제 **메인 키워드 관련도**를 통과해야 장부에 들어간다(무관한 기사 39% 사고).
+ * 이 파일의 픽스처는 순서·예산·중복 같은 **기계 동작**을 보려고 만든 것이라 "기사 1", "안내 1" 처럼
+ * 검색어를 한 번도 말하지 않는다 — 실제 네이버 결과는 제목·요약에 검색어가 들어 있다.
+ * 그래서 가짜 검색 결과의 요약 끝에 검색어를 붙여 현실과 같게 만든다. 관련도 자체는 v3-8-734 테스트가 따로 본다.
+ */
+const onTopic = (search: any, keyword: string) => (async (...args: any[]) => {
+  const res = await search(...args);
+  if (!res || !Array.isArray(res.items)) return res;
+  return { ...res, items: res.items.map((it: any) => ({ ...it, description: `${it?.description || ''} (${keyword})` })) };
+});
+/** 가짜 본문 수집기의 본문에도 검색어를 붙인다 — 본문을 확인한 근거는 본문으로만 관련도를 재기 때문이다 */
+const bodyOnTopic = (options: any, keyword: string) => (typeof options?.fetchBody === 'function'
+  ? { ...options, fetchBody: async (url: string) => { const b = await options.fetchBody(url); return b ? `${b} (${keyword})` : b; } }
+  : options);
+const fetchGroundingReal = (keyword: string, search: any, options: any = {}) =>
+  fetchGroundingRaw(keyword, typeof search === 'function' ? onTopic(search, keyword) : search, bodyOnTopic(options, keyword));
+const fetchGroundingSnippetsReal = (keyword: string, search: any, options: any = {}) =>
+  fetchGroundingSnippetsRaw(keyword, typeof search === 'function' ? onTopic(search, keyword) : search, bodyOnTopic(options, keyword));
 
 /**
  * v3.8.580 부터 앞쪽 몇 건은 **본문을 긁는다.** 테스트가 진짜 주소를 때리면
@@ -157,7 +177,8 @@ describe('③ 배선 — 발행 경로에서 실제로 쓴다', () => {
   test('발행을 막지 않는다', () => {
     for (const marker of ['fetchGrounding(', 'checkFreshness({']) {
       const at = orch.indexOf(marker);
-      const block = orch.slice(at - 300, at + 600);
+      // v3.8.734: 근거 항목 수집 줄이 늘어 catch 가 뒤로 밀렸다 — 창을 넓힌다
+      const block = orch.slice(at - 300, at + 1500);
       expect(block).toContain('try');
       expect(block).toContain('catch');
       expect(block).not.toContain('throw new Error');
@@ -682,6 +703,9 @@ describe('⑪ 첨부파일에 본문 예산을 낭비하지 않는다', () => {
  * 걱정한 그 일이 그대로 벌어진다 — 엉뚱한 글이 수치를 보증한다.
  */
 describe('⑫ 상위 블로그라도 주제가 어긋나면 안 받는다', () => {
+  // 주제 일치 자체를 보는 자리라 픽스처에 검색어를 붙이지 않는다 (위 onTopic 설명 참고)
+  const fetchGrounding = (keyword: string, search: any, options: any = {}) =>
+    fetchGroundingRaw(keyword, search, { fetchBody: noBody, ...options });
   const KW = '해외 항공권 취소 수수료 면제';
   const blogItem = (title: string, description = '자세히 정리했습니다') =>
     ({ title, description, link: `https://blog.naver.com/x/${encodeURIComponent(title)}` });
@@ -732,6 +756,8 @@ describe('⑫ 상위 블로그라도 주제가 어긋나면 안 받는다', () =
  * v3.8.573 의 CTA 범용 태그 오배송과 같은 병이다.
  */
 describe('⑬ 주제어가 없으면 넓은 낱말이 아무리 겹쳐도 안 받는다', () => {
+  const fetchGrounding = (keyword: string, search: any, options: any = {}) =>
+    fetchGroundingRaw(keyword, search, { fetchBody: noBody, ...options });
   const withBlogs = (items: any[]) => (async (t: string) =>
     ({ ok: true, items: t === 'blog' ? items : [] })) as any;
   const post = (title: string, description: string) =>

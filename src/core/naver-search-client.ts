@@ -179,7 +179,65 @@ export interface NaverCallOptions {
  * 검색 한 번. 어느 쪽 키든 이 함수 하나로 나간다.
  * v3.8.527 — 인증이 막히면(401/403/404) 다른 키로 그 자리에서 넘어간다.
  */
+/**
+ * 🔎 v3.8.734 — 검색 호출 기록. 모든 네이버 검색이 이 창구를 지나므로 여기 한 곳에서 남긴다.
+ *
+ * 예전엔 소스별 실패가 `.catch(() => [])` 로 삼켜져 "0건"과 "실패"를 구분할 수 없었다.
+ * 품질 판단 단계가 "뉴스가 없는 주제"인지 "뉴스 검색이 죽은 것"인지 알아야 한다.
+ * 어떤 검색어가 실제로 나갔는지도 여기 남는다 — "2026년" 같은 검색어가 또 나가면 로그로 보인다.
+ */
+export interface NaverCallRecord {
+  type: string; query: string; sort: string; ok: boolean; count: number; mode: string; error?: string; at: number;
+  raw?: Array<{ title: string; link: string; date: string; description: string }>;
+}
+const callLog: NaverCallRecord[] = [];
+export function resetNaverCallLog(): void { callLog.length = 0; }
+export function getNaverCallLog(): NaverCallRecord[] { return callLog.map((r) => ({ ...r })); }
+function recordCall(type: string, params: Record<string, any>, result: { ok: boolean; items?: any[]; mode: string; error?: string }): void {
+  callLog.push({
+    type, query: String(params?.['query'] || ''), sort: String(params?.['sort'] || 'sim'),
+    ok: result.ok, count: Array.isArray(result.items) ? result.items.length : 0, mode: result.mode,
+    ...(result.error ? { error: result.error } : {}), at: Date.now(),
+    // 회귀 테스트용 RAW 결과 — 평소엔 담지 않는다(메모리). EVIDENCE_DEBUG_RAW=1 일 때만 제목·주소·날짜를 남긴다
+    ...(process.env['EVIDENCE_DEBUG_RAW'] === '1' && Array.isArray(result.items) ? {
+      raw: result.items.map((it: any) => ({
+        title: String(it?.title || '').replace(/<[^>]+>/g, ''),
+        link: String(it?.originallink || it?.link || ''),
+        date: String(it?.pubDate || it?.postdate || ''),
+        description: String(it?.description || '').replace(/<[^>]+>/g, '').slice(0, 160),
+      })),
+    } : {}),
+  } as NaverCallRecord);
+  if (callLog.length > 400) callLog.splice(0, callLog.length - 400);
+}
+
+/** 소스별 한 줄 요약 — "NAVER_NEWS: OK 5 · NAVER_WEB: FAIL(한도 초과)" */
+export function summarizeNaverCalls(records: NaverCallRecord[] = callLog): { line: string; failed: string[]; bySource: Record<string, { ok: number; fail: number; items: number; error?: string }> } {
+  const label: Record<string, string> = { news: 'NAVER_NEWS', blog: 'NAVER_BLOG', webkr: 'NAVER_WEB', kin: 'NAVER_KIN', cafearticle: 'NAVER_CAFE' };
+  const bySource: Record<string, { ok: number; fail: number; items: number; error?: string }> = {};
+  for (const r of records) {
+    const key = label[r.type] || `NAVER_${String(r.type).toUpperCase()}`;
+    const slot = bySource[key] || (bySource[key] = { ok: 0, fail: 0, items: 0 });
+    if (r.ok) { slot.ok += 1; slot.items += r.count; } else { slot.fail += 1; if (r.error) slot.error = r.error; }
+  }
+  const failed = Object.entries(bySource).filter(([, s]) => s.fail > 0 && s.ok === 0).map(([k]) => k);
+  const line = Object.entries(bySource)
+    .map(([k, s]) => (s.ok > 0 ? `${k}: OK ${s.items}${s.fail ? `(실패 ${s.fail}회)` : ''}` : `${k}: FAIL(${String(s.error || '').slice(0, 40)})`))
+    .join(' · ');
+  return { line, failed, bySource };
+}
+
 export async function naverSearch<T = any>(
+  type: NaverSearchType,
+  params: Record<string, any>,
+  options: NaverCallOptions = {},
+): Promise<NaverSearchResult<T>> {
+  const result = await naverSearchRaw<T>(type, params, options);
+  recordCall(type, params, result);
+  return result;
+}
+
+async function naverSearchRaw<T = any>(
   type: NaverSearchType,
   params: Record<string, any>,
   options: NaverCallOptions = {},

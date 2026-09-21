@@ -55,7 +55,7 @@ const internalModePlugin: ContentModePlugin = {
 핵심: ${sec.contentFocus || ''}
 필수 요소:
 ${reqs}
-(최소 ${sec.minChars || 600}자)
+(참고 분량 ~${sec.minChars || 600}자 — 근거가 있는 만큼만. 근거가 얇으면 짧게 끝냅니다)
 ${buildTopicScopeGuard(params.topic)}
 🔴 절대 금지: 과거/미래 시리즈 언급, 다른 글 참조, "1편/2편" 같은 시리즈 번호 표기${additionalGuard}
 ${SOURCE_MANDATE}`;

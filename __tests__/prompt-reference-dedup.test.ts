@@ -51,18 +51,30 @@ describe('orchestration 조립부', () => {
   // 고정 길이(700자)로 자르면 줄 하나만 늘어도 밖으로 밀려난다(v3.8.730 에서 실제로 밀렸다) — 경계로 자른다
   const assembly = blockBetween(orchestration, 'factEnrichedContents = [', 'if (ledgerCoversSources) {');
 
-  it('장부가 소스를 품었으면 officialBlock 을 다시 붙이지 않는다', () => {
-    expect(assembly).toContain('officialBlock && !ledgerCoversSources');
+  /**
+   * v3.8.734 — 지키려는 것은 그대로다: **같은 자료를 두 번 보내지 않는다.**
+   * 방법이 바뀌었다. Writer 에게는 관련도 문을 지난 근거 항목(writerEvidenceBlocks)만 한 번 가고,
+   * 크롤링 원문 통짜(contents)·장부 통짜(factEvidence.context)·기관 블록 단독은 조립부에 아예 없다.
+   */
+  it('officialBlock 을 조립부에서 따로 붙이지 않는다 (보조 근거 묶음에 한 번만 실린다)', () => {
+    expect(assembly).not.toContain('[officialBlock]');
+    expect(orchestration.match(/const supplementEvidence = buildGroundingReference\(\{/g)?.length).toBe(1);
   });
 
-  it('장부가 소스를 품었으면 crawledPosts 본문(contents)을 다시 붙이지 않는다', () => {
-    expect(assembly).toContain('ledgerCoversSources ? [] : contents');
+  it('crawledPosts 본문(contents)을 Writer 에게 다시 붙이지 않는다', () => {
+    expect(assembly).not.toContain(': contents)');
     // 무조건 붙이던 옛 형태가 되살아나지 않게 잠근다
     expect(assembly).not.toMatch(/\n\s*\.\.\.contents,/);
   });
 
-  it('근거 정책 프롬프트와 장부 자체는 항상 들어간다 (수집 실패해도 무제한 생성 금지)', () => {
+  it('근거 정책 프롬프트와 근거 자체는 항상 들어간다 (수집 실패해도 무제한 생성 금지)', () => {
     expect(assembly).toContain('buildFactIntegrityPrompt(keyword, factEvidence)');
-    expect(assembly).toContain('[FACT EVIDENCE - ${factEvidence.provider}]');
+    expect(assembly).toContain('...writerEvidenceBlocks');
+    // Research Packet 은 근거가 0건이어도 들어간다 — 그때는 "구체 수치를 쓰지 말라"는 경고를 싣는다
+    const blocks = blockBetween(orchestration, 'const writerEvidenceBlocks: string[] = [', '];');
+    expect(blocks.indexOf('researchPacketText,')).toBeGreaterThan(-1);
+    expect(blocks.indexOf('researchPacketText,')).toBeLessThan(blocks.indexOf('evidenceRender.text'));
+    // 조건 없이 들어간다 — 삼항·스프레드로 감싸지 않았다
+    expect(blocks).not.toMatch(/\?\s*\[\s*researchPacketText/);
   });
 });
