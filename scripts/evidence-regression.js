@@ -48,6 +48,40 @@ function pickKeywords() {
 
 const slug = (s) => String(s).replace(/[^\w가-힣]+/g, '_').slice(0, 40);
 
+/** Draft(초안) 와 Final(비평·수정 뒤) 을 같은 잣대로 잰다 — 근거 없는 값 · 되풀이 문장 · 의도 누락 · 글자수 · 비용 */
+function draftVsFinal(cq, logs, result) {
+  const out = {};
+  const crit = cq.critique;
+  if (!crit || !cq.draftArticle) return { critique: 'N/A' };
+  const { sectionize, stripHtml, findCrossSectionRepeats } = require(path.join(ROOT, 'dist/core/final/critique-loop'));
+  const { checkClaims, ledgerFromItems } = require(path.join(ROOT, 'dist/core/final/fact-claims'));
+  const ledger = ledgerFromItems([...(cq.items || []).map((i) => ({ id: i.id, text: `${i.title} ${i.cleanedText}` })), { id: 'PACKET', text: cq.packetText || '' }]);
+  const measure = (article) => {
+    const units = sectionize(article);
+    const text = units.map((u) => stripHtml(u.text)).join('\n');
+    const claims = units.flatMap((u) => checkClaims(u.text, ledger).unsupported);
+    return { chars: text.length, ungrounded: claims, repeats: findCrossSectionRepeats(units).length };
+  };
+  const d = measure(cq.draftArticle); const f = measure(cq.finalArticle);
+  const c1 = crit.critic1 || [];
+  const first = c1[0] || { criticalIssues: [], majorIssues: [], minorIssues: [], missingIntentAnswers: [] };
+  const last = c1[c1.length - 1] || first;
+  const cost = (logs.find((l) => /이 글 비용/.test(l)) || '').replace(/.*이 글 비용: /, '');
+  out.titleAudit = cq.titleAudit ? { status: cq.titleAudit.audit && cq.titleAudit.audit.status, attempts: cq.titleAudit.attempts, stripped: cq.titleAudit.stripped, unsupported: (cq.titleAudit.audit || {}).unsupportedClaims } : null;
+  out.critic1First = { critical: first.criticalIssues.length, major: first.majorIssues.length, minor: first.minorIssues.length, intentGaps: (first.missingIntentAnswers || []).length, status: first.status };
+  out.critic1Last = { critical: last.criticalIssues.length, major: last.majorIssues.length, minor: last.minorIssues.length, intentGaps: (last.missingIntentAnswers || []).length };
+  out.critic2 = crit.critic2 ? { major: crit.critic2.majorIssues.length, minor: crit.critic2.minorIssues.length, status: crit.critic2.status } : null;
+  out.criticCycles = crit.criticCycles; out.revisionCycles = crit.revisionCycles; out.researchRounds = crit.researchRounds;
+  out.revisedSections = `${crit.revisedSections}/${crit.totalSections}`; out.unchangedSections = `${crit.unchangedSections}/${crit.totalSections}`;
+  out.revisionDetail = (crit.revisions || []).map((r) => ({ revised: r.revised, rejected: r.rejected }));
+  out.draft = { chars: d.chars, ungrounded: d.ungrounded, repeats: d.repeats };
+  out.final = { chars: f.chars, ungrounded: f.ungrounded, repeats: f.repeats };
+  out.finalJudge = cq.judge ? { decision: cq.judge.decision, blocking: cq.judge.blockingIssues, anotherRevision: cq.judge.anotherRevisionWouldMateriallyImprove } : null;
+  out.hardGates = cq.hardGates; out.qualityConverged = cq.qualityConverged; out.publishDecision = result && result.publishDecision; out.manualReviewReason = cq.manualReviewReason;
+  out.cost = cost; out.keywordProvenance = cq.keywordProvenance ? { hashtag: cq.keywordProvenance.hashtag, dropped: cq.keywordProvenance.semanticKeyword } : null;
+  return out;
+}
+
 function splitSentences(text) {
   return String(text || '').split(/(?<=[.!?。])\s+|\n+/).map((s) => s.replace(/\s+/g, ' ').trim()).filter((s) => s.length >= 18);
 }
@@ -59,6 +93,8 @@ async function runOne(entry, env) {
 
   process.env.PRIMARY_TEXT_MODEL = 'openai-gpt41';
   process.env.EVIDENCE_DEBUG_RAW = '1';
+  // 실행마다 비운다 — 안 비우면 실패한 실행이 앞 글의 기록을 자기 것처럼 저장한다(2026-09-22 실측: 429 로 죽은 두 글이 앞 글 지표를 복사)
+  for (const k of ['__lastEvidenceDebug', '__lastCritiqueDebug', '__lastDraftArticle']) globalThis[k] = null;
   if (!LIVE) process.env.RESEARCH_PACKET_LLM = '0';
 
   const engine = require(path.join(ROOT, 'dist/core/final/gemini-engine'));
@@ -70,7 +106,8 @@ async function runOne(entry, env) {
     prompts.push(p);
     if (LIVE) return realCall(prompt, retries, opts);
     // capture 모드: 제목·소제목만 흉내 내고, 본문 호출에서 멈춘다 — 그때까지의 입력이 곧 Writer Input 이다
-    if (prompts.length === 1) return `${new Date().getFullYear()}년 ${entry.keyword}, 지금 확인할 조건과 일정`;
+    // capture 의 가짜 제목에 일부러 근거에 없을 날짜를 넣는다 — Title Fact Gate 가 잡아 걷어내는지 $0 로 본다
+    if (prompts.length <= 3 && /바이럴 마케터/.test(p.slice(0, 80))) return `${new Date().getFullYear()}년 ${entry.keyword}, 13월 32일 마감 전 확인할 조건`;
     if (p.length < 9000 && /소제목|H2/.test(p.slice(0, 800))) {
       return ['1. 지금 달라진 점', '2. 대상과 조건', '3. 일정과 기간', '4. 신청·이용 방법', '5. 자주 막히는 지점'].join('\n');
     }
@@ -117,13 +154,23 @@ async function runOne(entry, env) {
     .sort((a, b) => b.length - a.length)[0] || [...prompts].sort((a, b) => b.length - a.length)[0] || '';
   prompts.forEach((p, i) => save(`prompt-${String(i + 1).padStart(2, '0')}.txt`, p));
 
-  save('A-search-queries.json', queries);
-  save('B-raw-search-results.json', (debug.queries || []).map((q) => ({ type: q.type, query: q.query, raw: q.raw || [] })));
-  save('C-cleaned-evidence.json', items);
-  save('D-rejected-evidence.json', rejected);
-  save('E-research-packet.json', debug.packet || {});
-  save('F-writer-input.txt', writerInput);
-  if (result && result.html) save('G-final-article.html', result.html);
+  // v3.8.735 산출물 A~L (비평·수정 루프 포함). 수정이 없었으면 revision 파일은 SKIPPED 로 남긴다
+  const cq = globalThis.__lastCritiqueDebug || {};
+  const crit = cq.critique || null;
+  save('A-search.json', { queries, raw: (debug.queries || []).map((q) => ({ type: q.type, query: q.query, raw: q.raw || [] })) });
+  save('B-clean-evidence.json', { items, rejected });
+  save('C-research-packet.json', debug.packet || {});
+  save('D-title.json', { title: cq.title || (result && result.title) || '', history: (cq.titleAudit || debug.titleAudit || {}).history || [], attempts: (cq.titleAudit || {}).attempts, stripped: (cq.titleAudit || {}).stripped });
+  save('E-title-audit.json', (cq.titleAudit || debug.titleAudit || {}).audit || { status: 'N/A' });
+  save('F-draft.json', cq.draftArticle || {});
+  save('G-critic-1.json', crit ? crit.critic1[0] || {} : { status: 'N/A' });
+  save('H-revision-1.json', crit && crit.revisions[0] ? crit.revisions[0] : { status: 'SKIPPED' });
+  save('I-critic-2.json', crit ? (crit.critic1[1] || crit.critic2 || { status: 'N/A' }) : { status: 'N/A' });
+  save('J-revision-2.json', crit && crit.revisions[1] ? crit.revisions[1] : { status: 'SKIPPED' });
+  save('K-final-judge.json', cq.judge || { decision: 'N/A' });
+  if (result && result.html) save('L-final-article.html', result.html);
+  save('critique-report.json', { critique: crit, hardGates: cq.hardGates, qualityConverged: cq.qualityConverged, manualReviewReason: cq.manualReviewReason, finalQaNotes: cq.finalQaNotes, keywordProvenance: cq.keywordProvenance, publishDecision: result && result.publishDecision });
+  save('writer-input.txt', writerInput);
   save('log.txt', logs.join('\n'));
 
   // ─── 지표 ───
@@ -173,6 +220,8 @@ async function runOne(entry, env) {
     forcedLength: /\(최소 \d+자\)/.test(writerInput) || /반드시 600~1000자/.test(writerInput),
     modelLine, articleChars: article.length, duplicateSentences: dup,
     ungroundedValues: ungrounded.slice(0, 12), ungroundedCount: ungrounded.length, claimedValues: claimed.length,
+    // ─── v3.8.735 Draft vs Final ───
+    ...draftVsFinal(cq, logs, result),
   };
   save('metrics.json', metrics);
   return metrics;

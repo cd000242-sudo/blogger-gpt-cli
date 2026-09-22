@@ -61,7 +61,7 @@ describe('orchestration 이 상품명을 넘긴다', () => {
   it('⭐ 쇼핑모드일 때만 상품명을 넘긴다', () => {
     expect(orch).toContain("isShoppingTitle = String((payload as any).contentMode || '') === 'shopping'");
     expect(orch).toContain('const shoppingProductName = isShoppingTitle');
-    expect(braceBlock(orch, 'h1 = await generateH1TitleFinal(')).toContain('shoppingProductName');
+    expect(braceBlock(orch, 'let t = await generateH1TitleFinal(')).toContain('shoppingProductName');
   });
 
   it('상품명을 못 얻었으면 undefined 로 넘긴다 (빈 문자열로 잘못 켜지지 않게)', () => {
@@ -109,7 +109,7 @@ describe('v3.8.427 — 토스/네이버 등 비-쿠팡 제휴 링크도 제목�
 
   it('⭐ 이 새 블록은 실제로 제목 생성(generateH1TitleFinal) 호출보다 코드상 앞에 있다 — 순서가 핵심이다', () => {
     const newBlockIdx = orch.indexOf('const nonCoupangLinks = explicitProvider');
-    const titleCallIdx = orch.indexOf('h1 = await generateH1TitleFinal(');
+    const titleCallIdx = orch.indexOf('let t = await generateH1TitleFinal(');
     expect(newBlockIdx).toBeGreaterThan(-1);
     expect(titleCallIdx).toBeGreaterThan(-1);
     expect(newBlockIdx).toBeLessThan(titleCallIdx);

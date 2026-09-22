@@ -65,6 +65,24 @@ export interface LedgerEntry {
   actualModel?: string;
   downgraded?: boolean;
   downgradeReason?: string;
+  /**
+   * v3.8.735 — Hard Gate 와 비평·수정 루프 기록.
+   * auditScore 는 관문이 하나라도 FAIL 이면 89 를 넘지 못한다(원점수는 auditScoreRaw).
+   */
+  auditScoreRaw?: number;
+  hardGates?: Record<string, boolean>;
+  draftModel?: string;
+  critic1Model?: string;
+  revisionModels?: string;
+  critic2Model?: string;
+  finalJudgeModel?: string;
+  criticCycles?: number;
+  revisionCycles?: number;
+  revisedSections?: number;
+  unchangedSections?: number;
+  finalDecision?: 'AUTO_PUBLISH' | 'MANUAL_REVIEW';
+  qualityConverged?: boolean;
+  manualReviewReason?: string;
   /** v3.8.734 — 단계 상태 요약(SEARCH_OK · GROUNDING_WEAK …)과 근거 통계 */
   pipelineStatus?: string;
   evidence?: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string };

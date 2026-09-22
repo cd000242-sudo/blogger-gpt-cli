@@ -123,7 +123,7 @@ describe('③ 뽑은 후기가 실제로 글 생성에 쓰인다', () => {
   it('⭐ 크롤이 제목 생성보다 먼저 일어난다 (순서가 핵심)', () => {
     const crawlIdx = orch.indexOf('crawlAffiliateLinks(nonCoupangLinks');
     const titleReviewIdx = orch.indexOf('const bodies = [');
-    const titleCallIdx = orch.indexOf('h1 = await generateH1TitleFinal(');
+    const titleCallIdx = orch.indexOf('let t = await generateH1TitleFinal(');
     expect(crawlIdx).toBeGreaterThan(-1);
     expect(crawlIdx).toBeLessThan(titleReviewIdx);
     expect(titleReviewIdx).toBeLessThan(titleCallIdx);

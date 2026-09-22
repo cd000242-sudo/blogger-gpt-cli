@@ -17,6 +17,22 @@ export interface ModelUse {
   downgradeReason?: string;
 }
 
+/** v3.8.735 — 단계별 모델 기록: 단계 전에 찍고(snapshot) 단계 뒤에 차이를 읽는다(modelsSince) */
+export function snapshotModels(): Record<string, number> {
+  try { return { ...((globalThis as any).__llmActualModels || {}) }; } catch { return {}; }
+}
+
+export function modelsSince(snapshot: Record<string, number>): string {
+  try {
+    const now: Record<string, number> = (globalThis as any).__llmActualModels || {};
+    return Object.entries(now)
+      .map(([k, n]) => [k, n - (snapshot[k] || 0)] as const)
+      .filter(([, d]) => d > 0)
+      .map(([k, d]) => (d > 1 ? `${k}×${d}` : k))
+      .join(', ');
+  } catch { return ''; }
+}
+
 export function describeModelUse(): ModelUse {
   try {
     const g: any = globalThis as any;

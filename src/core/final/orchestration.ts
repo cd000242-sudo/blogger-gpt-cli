@@ -473,7 +473,16 @@ export async function generateUltimateMaxModeArticleFinal(
   payload: any,
   env: any,
   onLog?: (s: string) => void
-): Promise<{ html: string; title: string; labels: string[]; thumbnail: string; qualityReport?: any }> {
+): Promise<{
+  html: string; title: string; labels: string[]; thumbnail: string; qualityReport?: any;
+  /** v3.8.735 — 자동 발행 결정. MANUAL_REVIEW 면 발행 창구(publishGeneratedContent)가 같은 본문의 자동 발행을 막는다 */
+  publishDecision?: 'AUTO_PUBLISH' | 'MANUAL_REVIEW';
+  qualityConverged?: boolean;
+  manualReviewReason?: string;
+  hardGates?: Record<string, boolean>;
+  keywordProvenance?: any;
+  hubCharter?: string;
+}> {
   // v3.8.356: 사용자가 선택한 말투/어투를 final 생성 경로에 전달 (module-scope 상태)
   //   generation.ts의 프롬프트 조립과 반말 치환 로직이 이 값을 참조
   try {
@@ -1495,6 +1504,144 @@ export async function generateUltimateMaxModeArticleFinal(
       demandTitleHint = composeTitleDirective(demandHint, angle) ?? undefined;
     } catch { /* 관측 전용 — 어떤 실패도 발행 흐름에 영향을 주지 않는다 */ }
 
+    /**
+     * 📚 v3.8.735 — 근거 1단계를 **제목보다 먼저** 한다.
+     *
+     * 실측(2026-09-22, 경주 APEC 글): 근거에 없는 "11월 2일"이 제목에 들어갔다. 제목이 근거보다 먼저 만들어졌기 때문이다.
+     * 순서를 바꾼다: 검색 → CLEAN → 근거 판정 → 품질 관문 → Research Packet → **제목** → 제목 사실 관문 → 소제목 → 본문.
+     * 제목이 정해진 뒤에만 할 수 있는 것(제목 약속 근거·유료 검색 요약)은 2단계에서 합쳐 장부·패킷을 갱신한다.
+     */
+    const rawFactMode: FactCheckMode = payload.factCheckMode || 'auto';
+    const factCheckMode: FactCheckMode = rawFactMode === 'off' ? 'auto' : rawFactMode;
+    let factEvidence: FactEvidence = { context: '', provider: 'none', trustLevel: 'none', topic: keyword };
+    let naverGrounding = '';
+    let groundingStats: { newsCount: number; webCount: number; officialCount: number } | null = null;
+    const evidenceCandidates: any[] = [];
+    const evidenceRejected: any[] = [];
+    try {
+      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}) });
+      naverGrounding = g.text;
+      evidenceCandidates.push(...(g.items || []));
+      evidenceRejected.push(...(g.rejected || []));
+      // v3.8.633 — 속보 판정을 반환값에서 받는다(전역만 믿으면 지난 판정이 묻어간다)
+      if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
+      groundingStats = g;
+      const summary = describeGrounding(g);
+      console.log(`[GROUNDING] ${summary}`);
+      if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
+    } catch (groundErr: any) {
+      console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const evidenceMod = require('./evidence');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const gateMod = require('./evidence-gate');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { cleanEvidenceText } = require('../crawlers/evidence-clean');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const packetMod = require('./research-packet');
+    const todayKst: string = require('./kst-date').kstToday();
+    const QUESTION_SOURCES = new Set(['naver-kin', 'google-suggest']);
+    const relevantPosts: FinalCrawledPost[] = [];
+    const judgedPosts = new Set<any>();
+    /** 크롤링 글을 관련도 문에 세운다 — 아직 안 본 것만(2단계에서 유료 요약이 더해질 수 있다) */
+    const judgeCrawledPosts = (): void => {
+      for (const post of crawledPosts as any[]) {
+        if (judgedPosts.has(post)) continue;
+        judgedPosts.add(post);
+        const src = String(post?.source || '');
+        if (QUESTION_SOURCES.has(src)) continue;
+        // 사용자가 직접 준 주소·유료 검색 요약은 관련도를 묻지 않는다 — 사람이 골랐거나 이 키워드로 물은 답이다
+        const trusted = manualUrls.includes(post.url) || src.startsWith('factcheck-');
+        const tag = /news/.test(src) ? '뉴스' : /official/.test(src) ? '공식' : /blog/.test(src) ? '블로그' : '웹';
+        const cleaned = cleanEvidenceText(post.content);
+        const verdict = evidenceMod.judgeEvidence({
+          title: String(post.title || ''), url: String(post.originalLink || post.url || ''), tag, query: keyword,
+          text: cleaned.text, pubDate: post.pubDate || null, hasBody: post.hasBody === true || cleaned.cleanLength > 600,
+        }, trusted ? '' : keyword);
+        if (verdict.item) {
+          evidenceCandidates.push({ ...verdict.item, mainKeyword: keyword });
+          relevantPosts.push({ ...post, content: cleaned.text });
+        } else if (verdict.rejected) {
+          evidenceRejected.push(verdict.rejected);
+        }
+      }
+    };
+    judgeCrawledPosts();
+    {
+      const t = require('../crawlers/evidence-clean').getCleanTotals();
+      if (t.docs > 0) pipelineStatus.mark('CLEAN', 'CLEAN_OK', `문서 ${t.docs}건 · RAW ${t.raw.toLocaleString()}자 → CLEAN ${t.clean.toLocaleString()}자 (removed ${(t.raw - t.clean).toLocaleString()}자 · ${t.lines}줄)`);
+    }
+
+    let evidenceItems: any[] = [];
+    let gate: any = null;
+    let evidenceRender: { text: string; used: any[] } = { text: '', used: [] };
+    /** 후보 → 중복 제거·품질순 ID → 관문 평가 → Writer 용 렌더 */
+    const refreshEvidence = (titleForGate: string): void => {
+      evidenceItems = evidenceMod.assembleEvidence(evidenceCandidates, todayKst);
+      gate = gateMod.evaluateEvidence(evidenceItems, keyword, titleForGate);
+      evidenceRender = evidenceMod.renderEvidence(evidenceItems, 11000);
+    };
+    refreshEvidence('');
+    if (gate.status === 'GROUNDING_WEAK' && !sourceScope && contentMode !== 'shopping') {
+      onLog?.(`[PROGRESS] 22% - 🚦 근거 점검: ${gateMod.describeGate(gate)} → 검색어를 바꿔 다시 찾습니다`);
+      const core2 = evidenceMod.coreEntityOf(keyword, 2);
+      const core3 = evidenceMod.coreEntityOf(keyword, 3);
+      const retryQueries: string[] = [];
+      if (core3 && core3 !== keyword.trim()) retryQueries.push(core3);                       // ① 넓은 말을 뗀 검색어
+      if (gate.needsOfficial && gate.stats.official === 0 && core2) retryQueries.push(`${core2} 공식 안내`);  // ② 공식 자료
+      for (const retryQuery of [...new Set(retryQueries)].slice(0, 2)) {
+        try {
+          const again = await fetchGrounding(retryQuery, naverSearch as any, { mainKeyword: keyword, display: 10 });
+          evidenceCandidates.push(...(again.items || []));
+          evidenceRejected.push(...(again.rejected || []));
+          if (again.text) naverGrounding = [naverGrounding, again.text].filter(Boolean).join('\n');
+          onLog?.(`[PROGRESS] 22% - 🔁 재검색 "${retryQuery}" → 통과 ${(again.items || []).length}건 · 버림 ${(again.rejected || []).length}건`);
+        } catch (retryErr: any) {
+          console.warn('[EVIDENCE] 재검색 스킵:', String(retryErr?.message || retryErr).slice(0, 100));
+        }
+      }
+      refreshEvidence('');
+    }
+    pipelineStatus.mark('GROUNDING', gate.status, gateMod.describeGate(gate));
+
+    /**
+     * 🧾 RESEARCH PACKET — 제목보다 먼저. 수치·날짜는 코드가 뽑고, 사실·자격·조건은 LLM 1회로 정리한 뒤 근거와 대조한다.
+     * 쇼핑 글의 근거는 상품 데이터라 LLM 정리를 부르지 않는다.
+     */
+    const packetModelSnap = require('./model-use').snapshotModels();
+    let researchPacket: any = await packetMod.buildResearchPacket({
+      mainKeyword: keyword,
+      title: keyword,
+      items: evidenceRender.used,
+      evidenceText: evidenceRender.text,
+      readerQuestions: demandSignals.userQuestions,
+      searchSuggestions: demandSignals.searchQueries,
+      onLog,
+      ...(contentMode !== 'shopping' ? {
+        callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+      } : {}),
+    });
+    const packetModel = require('./model-use').modelsSince(packetModelSnap);
+    let researchPacketText: string = packetMod.renderPacket(researchPacket);
+    /** 2단계에서 근거가 늘면 수치·날짜·출처표만 다시 뽑는다 — 문장(LLM 정리)은 그대로, 호출 0회 */
+    const refreshPacketValues = (): void => {
+      const code = packetMod.buildCodePacket({ mainKeyword: keyword, title: String(researchPacket.topic || keyword), items: evidenceRender.used, readerQuestions: demandSignals.userQuestions, searchSuggestions: demandSignals.searchQueries });
+      researchPacket = { ...researchPacket, numbers: code.numbers, dates: code.dates, sourceMap: code.sourceMap, status: researchPacket.status === 'EMPTY' && code.status !== 'EMPTY' ? code.status : researchPacket.status };
+      researchPacketText = packetMod.renderPacket(researchPacket);
+    };
+    pipelineStatus.mark('RESEARCH', researchPacket.status === 'OK' ? 'RESEARCH_OK' : researchPacket.status === 'EMPTY' ? 'RESEARCH_EMPTY' : 'RESEARCH_WEAK',
+      `사실 ${researchPacket.facts.length} · 자격 ${researchPacket.eligibility.length} · 조건 ${researchPacket.conditions.length} · 기관발표 ${researchPacket.officialStatements.length} · 수치 ${researchPacket.numbers.length} · 날짜 ${researchPacket.dates.length}${researchPacket.notes.length ? ` · ${researchPacket.notes.join(' / ')}` : ''}`);
+    /** 제목·본문의 값을 대조할 장부(근거 항목 + 패킷). 제목 사실 관문·비평·최종 심사가 같은 장부를 본다 */
+    const claimLedger = (): Array<{ id: string; text: string }> => require('./fact-claims').ledgerFromItems([
+      ...evidenceItems.map((i: any) => ({ id: i.id, text: `${i.title} ${i.cleanedText}` })),
+      { id: 'PACKET', text: researchPacketText },
+    ]);
+    let titleGateResult: any = null;
+    /** 비평이 제목 문제를 지적했을 때 다시 만들 수 있게 — 제목 생성 분기 안에서 채운다 */
+    let makeTitleRef: (directive: string) => Promise<string> = async () => String(h1 || '');
+
     let h1: string;
     /**
      * ✍️ v3.8.653 — 사람이 정한 제목이 있으면 **그것을 쓴다.**
@@ -1565,22 +1712,40 @@ export async function generateUltimateMaxModeArticleFinal(
         if (t) onLog?.(`[PROGRESS] 25% - 🧠 제목 생성 모델: ${t.provider} / ${t.modelId}`);
       } catch { /* 표시용 — 실패해도 제목은 만든다 */ }
 
-      h1 = await generateH1TitleFinal(
-        keyword,
-        titles,
-        demandTitleHint,
-        shoppingProductName,
-        shoppingTitleDirective,
-        // v3.8.455: 검색자 실제 질문을 제목에도 넘긴다 — 예전엔 H2 에만 갔다
-        demandSignals,
-        // v3.8.478: 디스커버 모드는 제목 규칙이 다르다 (쿼리 없음 + 클릭베이트 감점)
-        contentMode,
-        // v3.8.594: "키워드 맨 앞" 옵션을 **모델에게** 알려 준다 (예전엔 사후 문자열 재조립뿐이었다)
-        !!payload.keywordFront,
-      );
-      h1 = repairTitleYear(h1);
-      // v3.8.594: 연도는 맨 앞에. 단 "키워드 맨 앞" 옵션이 켜져 있으면 그 옵션이 이긴다.
-      if (!payload.keywordFront) h1 = frontTitleYear(h1);
+      /**
+       * v3.8.735 — 제목도 Research Packet 을 보고 만든다. 값(날짜·금액·비율·인원)은 패킷·근거에 있는 것만.
+       * 만든 뒤 Title Fact Gate: 근거에 없는 값이 있으면 다시 만들고(최대 2회), 그래도 남으면 그 값을 걷어낸다.
+       * 근거 없는 값이 든 제목으로는 본문을 쓰지 않는다.
+       */
+      const makeTitle = async (directive: string): Promise<string> => {
+        let t = await generateH1TitleFinal(
+          keyword,
+          titles,
+          demandTitleHint,
+          shoppingProductName,
+          shoppingTitleDirective,
+          // v3.8.455: 검색자 실제 질문을 제목에도 넘긴다 — 예전엔 H2 에만 갔다
+          demandSignals,
+          // v3.8.478: 디스커버 모드는 제목 규칙이 다르다 (쿼리 없음 + 클릭베이트 감점)
+          contentMode,
+          // v3.8.594: "키워드 맨 앞" 옵션을 **모델에게** 알려 준다 (예전엔 사후 문자열 재조립뿐이었다)
+          !!payload.keywordFront,
+          `${researchPacketText.slice(0, 5000)}${directive ? `\n\n${directive}` : ''}`,
+        );
+        t = repairTitleYear(t);
+        // v3.8.594: 연도는 맨 앞에. 단 "키워드 맨 앞" 옵션이 켜져 있으면 그 옵션이 이긴다.
+        if (!payload.keywordFront) t = frontTitleYear(t);
+        return t;
+      };
+      makeTitleRef = makeTitle;
+      const titleModelSnap = require('./model-use').snapshotModels();
+      const firstTitle = await makeTitle('');
+      const { ensureGroundedTitle } = require('./title-fact-gate');
+      titleGateResult = await ensureGroundedTitle(firstTitle, claimLedger(), makeTitle, { maxRetries: 2, onLog });
+      titleGateResult.model = require('./model-use').modelsSince(titleModelSnap);
+      h1 = titleGateResult.title;
+      pipelineStatus.mark('TITLE_FACT', titleGateResult.audit.status === 'PASS' ? 'TITLE_FACT_PASS' : 'TITLE_FACT_FAIL',
+        `뒷받침된 값 ${titleGateResult.audit.supportedClaims.length}${titleGateResult.audit.unsupportedClaims.length ? ` · 근거 없는 값 ${titleGateResult.audit.unsupportedClaims.join(', ')}` : ''}${titleGateResult.attempts ? ` · 재생성 ${titleGateResult.attempts}회` : ''}${titleGateResult.stripped ? ' · 값 걷어냄' : ''}`);
 
       /**
        * 🔎 v3.8.478 — 디스커버 정책 위반어 검사.
@@ -2405,9 +2570,7 @@ ${quoted}
     onLog?.('[PROGRESS] 45% - 📝 AI가 전체 본문 생성 중 (1회 호출)...');
 
     // 🔍 팩트체크: 글 생성 전 실시간 검색으로 팩트 수집 (할루시네이션 방지)
-    // v3.8.265: 'off' 명시해도 강제로 'auto'로 폴백 (거미줄에서 팩트체크 끄면 가짜 통계 위험 큼)
-    const rawFactMode: FactCheckMode = payload.factCheckMode || 'auto';
-    const factCheckMode: FactCheckMode = rawFactMode === 'off' ? 'auto' : rawFactMode;
+    // v3.8.735: rawFactMode / factCheckMode 는 제목 앞(근거 1단계)에서 정한다
 
     // v3.8.333: Grounding 자동 폴백 완전 차단 (사용자 보고: "그라운딩은 폴백으로 쓰지말고 선택으로 바꿔줘 자동폴백되면 과금원인")
     //   Grounding은 편당 ₩500~1,500 과금. 사용자 명시 선택(factCheckMode='grounding') 아니면 자동 비활성화.
@@ -2428,45 +2591,7 @@ ${quoted}
       onLog?.('[PROGRESS] 44% - ⚠️ 거미줄 모드에서 factCheckMode=off는 위험 → 자동으로 auto로 폴백');
     }
     let factEnrichedContents = contents;
-    let factEvidence: FactEvidence = {
-      context: '',
-      provider: 'none',
-      trustLevel: 'none',
-      topic: keyword,
-    };
-    /**
-     * ① 무료 근거를 **먼저** 모은다. (v3.8.582)
-     *
-     * 사장님: "내가 원하는 건 최후의 보루로 퍼플렉인데 네이버 api랑 크롤링만 해도 충분할까?"
-     *
-     * 그래서 순서를 뒤집었다. 예전엔 퍼플렉시티를 먼저 부르고 네이버는 그 뒤에 보탰다 —
-     * 즉 **모든 글이 과금됐다.** 지금은 무료로 먼저 채우고, 그것으로 모자랄 때만 올라간다.
-     *
-     * 장부가 얇으면 fact-guard 가 맞는 문장까지 지운다(실측: 62자 문단이 24자가 됐다).
-     * 그래서 근거 상태는 **항상** 남긴다 — 못 찾았으면 조용히 넘어가지 않는다.
-     */
-    let naverGrounding = '';
-    let groundingStats: { newsCount: number; webCount: number; officialCount: number } | null = null;
-    // v3.8.734 — 근거를 글자와 함께 **항목으로도** 모은다(출처·날짜·검색어·관련도). 버린 것도 남긴다
-    const evidenceCandidates: any[] = [];
-    const evidenceRejected: any[] = [];
-    try {
-      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}) });
-      naverGrounding = g.text;
-      evidenceCandidates.push(...(g.items || []));
-      evidenceRejected.push(...(g.rejected || []));
-      /**
-       * v3.8.633 — 속보 판정을 **반환값에서** 받는다.
-       * 전역만 믿으면 근거 수집이 다른 경로로 돌 때 지난 판정이 묻어간다.
-       */
-      if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
-      groundingStats = g;
-      const summary = describeGrounding(g);
-      console.log(`[GROUNDING] ${summary}`);
-      if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
-    } catch (groundErr: any) {
-      console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
-    }
+    // v3.8.735: factEvidence · naverGrounding · 근거 후보는 제목 앞(근거 1단계)에서 이미 모았다 — 여기서는 제목 약속 근거를 보탠다
 
     /**
      * v3.8.656 — 제목이 약속한 조각을 **검색어로** 더 찾는다. (무료, LLM 호출 0)
@@ -2788,99 +2913,23 @@ ${quoted}
      * ③ 모자라면 검색어를 바꿔 다시·공식 자료를 다시 찾고 ④ 그래도 모자라면 모자란 채로 **표시**한다.
      * 지식iN·자동완성은 사실 근거가 아니라 질문 소재라 장부에 넣지 않는다(Research Packet 의 질문 칸으로 간다).
      */
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const evidenceMod = require('./evidence');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const gateMod = require('./evidence-gate');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { cleanEvidenceText } = require('../crawlers/evidence-clean');
-    const todayKst: string = require('./kst-date').kstToday();
-    const QUESTION_SOURCES = new Set(['naver-kin', 'google-suggest']);
-    const relevantPosts: FinalCrawledPost[] = [];
-    let cleanRaw = 0; let cleanKept = 0;
-    for (const post of crawledPosts as any[]) {
-      const src = String(post?.source || '');
-      if (QUESTION_SOURCES.has(src)) continue;
-      // 사용자가 직접 준 주소·유료 검색 요약은 관련도를 묻지 않는다 — 사람이 골랐거나 이 키워드로 물은 답이다
-      const trusted = manualUrls.includes(post.url) || src.startsWith('factcheck-');
-      const tag = /news/.test(src) ? '뉴스' : /official/.test(src) ? '공식' : /blog/.test(src) ? '블로그' : '웹';
-      const cleaned = cleanEvidenceText(post.content);
-      cleanRaw += cleaned.rawLength; cleanKept += cleaned.cleanLength;
-      const verdict = evidenceMod.judgeEvidence({
-        title: String(post.title || ''), url: String(post.originalLink || post.url || ''), tag, query: keyword,
-        text: cleaned.text, pubDate: post.pubDate || null, hasBody: post.hasBody === true || cleaned.cleanLength > 600,
-      }, trusted ? '' : keyword);
-      if (verdict.item) {
-        evidenceCandidates.push({ ...verdict.item, mainKeyword: keyword });
-        relevantPosts.push({ ...post, content: cleaned.text });
-      } else if (verdict.rejected) {
-        evidenceRejected.push(verdict.rejected);
-      }
-    }
-    {
-      // 추출기 안에서 돈 정제(기사·기관 페이지 본문)까지 합친 총량이다 — 위 cleanRaw/cleanKept 는 그중 크롤링 글 몫
-      const t = require('../crawlers/evidence-clean').getCleanTotals();
-      if (t.docs > 0) pipelineStatus.mark('CLEAN', 'CLEAN_OK', `문서 ${t.docs}건 · RAW ${t.raw.toLocaleString()}자 → CLEAN ${t.clean.toLocaleString()}자 (removed ${(t.raw - t.clean).toLocaleString()}자 · ${t.lines}줄)`);
-      void cleanRaw; void cleanKept;
-    }
-
-    let evidenceItems: any[] = evidenceMod.assembleEvidence(evidenceCandidates, todayKst);
-    let gate = gateMod.evaluateEvidence(evidenceItems, keyword, String(h1 || ''));
-    if (gate.status === 'GROUNDING_WEAK' && !sourceScope && contentMode !== 'shopping') {
-      onLog?.(`[PROGRESS] 46% - 🚦 근거 점검: ${gateMod.describeGate(gate)} → 검색어를 바꿔 다시 찾습니다`);
-      const core2 = evidenceMod.coreEntityOf(keyword, 2);
-      const core3 = evidenceMod.coreEntityOf(keyword, 3);
-      const retryQueries: string[] = [];
-      if (core3 && core3 !== keyword.trim()) retryQueries.push(core3);                       // ① 넓은 말을 뗀 검색어
-      if (gate.needsOfficial && gate.stats.official === 0 && core2) retryQueries.push(`${core2} 공식 안내`);  // ② 공식 자료
-      for (const retryQuery of [...new Set(retryQueries)].slice(0, 2)) {
-        try {
-          const again = await fetchGrounding(retryQuery, naverSearch as any, { mainKeyword: keyword, display: 10 });
-          evidenceCandidates.push(...(again.items || []));
-          evidenceRejected.push(...(again.rejected || []));
-          if (again.text) naverGrounding = [naverGrounding, again.text].filter(Boolean).join('\n');
-          onLog?.(`[PROGRESS] 46% - 🔁 재검색 "${retryQuery}" → 통과 ${(again.items || []).length}건 · 버림 ${(again.rejected || []).length}건`);
-        } catch (retryErr: any) {
-          console.warn('[EVIDENCE] 재검색 스킵:', String(retryErr?.message || retryErr).slice(0, 100));
-        }
-      }
-      evidenceItems = evidenceMod.assembleEvidence(evidenceCandidates, todayKst);
-      gate = gateMod.evaluateEvidence(evidenceItems, keyword, String(h1 || ''));
-    }
+    /**
+     * v3.8.735 — 근거 2단계: 제목이 정해진 뒤 보탠 것(제목 약속 근거·유료 검색 요약)을 합쳐 장부·패킷을 **갱신**한다.
+     * 패킷의 문장(LLM 정리)은 그대로 두고 수치·날짜(코드 추출)만 다시 뽑는다 — 호출 0회.
+     */
+    judgeCrawledPosts();
+    refreshEvidence(String(h1 || ''));
     pipelineStatus.mark('GROUNDING', gate.status, gateMod.describeGate(gate));
     if (evidenceRejected.length > 0) {
       onLog?.(`[PROGRESS] 46% - 🧹 메인 키워드와 무관해 버린 자료 ${evidenceRejected.length}건 (예: ${evidenceRejected.slice(0, 2).map((r: any) => `"${String(r.title).slice(0, 24)}"`).join(', ')})`);
     }
-
-    /**
-     * 🧾 v3.8.734 — RESEARCH PACKET. Writer 가 읽기 전에 근거를 **사실 목록(출처 id 포함)** 으로 정리한다.
-     * 수치·날짜는 코드가 근거 원문에서 뽑고, 자격·조건·기관 발표는 LLM 1회로 정리한 뒤 근거와 대조해 검증한다.
-     * 쇼핑 글의 근거는 상품 데이터라 LLM 정리를 부르지 않는다.
-     */
-    const evidenceRender: { text: string; used: any[] } = evidenceMod.renderEvidence(evidenceItems, 11000);
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const packetMod = require('./research-packet');
-    const researchPacket = await packetMod.buildResearchPacket({
-      mainKeyword: keyword,
-      title: String(h1 || keyword),
-      items: evidenceRender.used,
-      evidenceText: evidenceRender.text,
-      readerQuestions: demandSignals.userQuestions,
-      searchSuggestions: demandSignals.searchQueries,
-      onLog,
-      ...(contentMode !== 'shopping' ? {
-        callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
-      } : {}),
-    });
+    refreshPacketValues();
     const packetStatus = researchPacket.status === 'OK' ? 'RESEARCH_OK' : researchPacket.status === 'EMPTY' ? 'RESEARCH_EMPTY' : 'RESEARCH_WEAK';
-    pipelineStatus.mark('RESEARCH', packetStatus,
-      `사실 ${researchPacket.facts.length} · 자격 ${researchPacket.eligibility.length} · 조건 ${researchPacket.conditions.length} · 기관발표 ${researchPacket.officialStatements.length} · 수치 ${researchPacket.numbers.length} · 날짜 ${researchPacket.dates.length}${researchPacket.notes.length ? ` · ${researchPacket.notes.join(' / ')}` : ''}`);
-    const researchPacketText: string = packetMod.renderPacket(researchPacket);
     evidenceLedgerStats = {
       total: gate.stats.total, official: gate.stats.official, withDate: gate.stats.withDate, withUrl: gate.stats.withUrl,
       rejected: evidenceRejected.length, packet: researchPacket.status,
     };
-    (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate };
+    (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate, titleAudit: titleGateResult };
     pipelineStatus.mark('WRITER', gate.status === 'GROUNDING_OK' && researchPacket.status !== 'EMPTY' ? 'WRITER_READY' : 'WRITER_READY_WEAK',
       gate.status === 'GROUNDING_OK' ? '' : '근거가 모자랍니다 — 근거 밖의 수치·일정은 쓰지 않도록 지시합니다');
 
@@ -3422,6 +3471,7 @@ ${quoted}
 - 전체 분량은 줄이지 마세요. **같은 내용을 더 잘게 나누는 것**입니다.
 `;
 
+    const draftModelSnap = require('./model-use').snapshotModels();
     let allSectionsObj = await generateAllSectionsFinal(
       keyword,
       h2Titles,
@@ -3433,6 +3483,7 @@ ${quoted}
       skipQualityBoost,
       articleThread,   // v3.8.673 — 보강 호출이 실 위반도 고친다
     );
+    const draftModel = require('./model-use').modelsSince(draftModelSnap);
 
     // 🧬 v3.8.390: 자기중복 관측 — **차단하지 않는다.** 재고만 하고 발행은 그대로 진행한다.
     //   v3.8.385 에 넣은 buildUniquenessBlock(기존 글 제목을 보여줘 각도를 다르게 잡게 하는 예방책)이
@@ -3799,6 +3850,79 @@ ${quoted}
       }
     }
 
+    /**
+     * 🔁 v3.8.735 — 비평·수정 루프. 사람이 GPTs 에서 "초안 → 비평 → 고치기 → 다시 비평 → 이제 됐다" 하는 과정을 여기서 한다.
+     *   Critic 1(사실·의도·밀도) → 문제 있는 절만 수정 → 재비평 → Critic 2(읽는 품질) → major 만 수정 → 끝.
+     *   수정은 최대 3회. 남으면 MANUAL_REVIEW(자동 발행 안 함). 자세한 것은 critique-loop.ts 머리말.
+     * 쇼핑·페러프레이징 글은 근거가 상품 데이터·원문이라 이 루프를 돌리지 않는다(예전 그대로).
+     */
+    let critiqueReport: any = null;
+    let titleRevisedByCritic = false;
+    if (contentMode !== 'shopping' && contentMode !== 'paraphrasing' && (payload as any).skipCritiqueLoop !== true) {
+      try {
+        const loopMod = require('./critique-loop');
+        const modelUse = require('./model-use');
+        const loopModel = (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) });
+        const currentEvidenceItems = () => evidenceRender.used.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText }));
+        onLog?.('[PROGRESS] 76% - 🩺 비평·수정 루프 시작 (Critic 1 → 문제 절만 수정 → 재비평 → Critic 2 → Final Judge)');
+        let stageSnap = modelUse.snapshotModels();
+        const modelOf = () => { const m = modelUse.modelsSince(stageSnap); stageSnap = modelUse.snapshotModels(); return m; };
+        (globalThis as any).__lastDraftArticle = JSON.parse(JSON.stringify(allSectionsObj));   // 회귀 하네스가 Draft vs Final 을 잰다
+        const loop = await loopMod.runCritiqueLoop({
+          title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
+          packetText: researchPacketText, evidenceText: evidenceRender.text, items: currentEvidenceItems(),
+          callModel: loopModel, onLog, modelOf, maxRevisions: 3,
+          // 비평이 "근거가 모자란다"고 하면 상상하지 않고 검색으로 되돌아간다
+          moreResearch: async (queries: string[]) => {
+            const core = evidenceMod.coreEntityOf(keyword, 2);
+            let added = 0;
+            for (const q of queries.slice(0, 2)) {
+              const query = q.includes(core.split(' ')[0] || '') ? q : `${core} ${q}`;
+              try {
+                const again = await fetchGrounding(query, naverSearch as any, { mainKeyword: keyword, display: 8 });
+                evidenceCandidates.push(...(again.items || [])); evidenceRejected.push(...(again.rejected || []));
+                added += (again.items || []).length;
+                onLog?.(`[PROGRESS] 77% - 🔁 보강 검색 "${query}" → 통과 ${(again.items || []).length}건`);
+              } catch (e: any) { console.warn('[CRITIQUE] 보강 검색 스킵:', String(e?.message || e).slice(0, 80)); }
+            }
+            if (added === 0) return null;
+            refreshEvidence(String(h1 || ''));
+            refreshPacketValues();
+            return { packetText: researchPacketText, evidenceText: evidenceRender.text, items: currentEvidenceItems() };
+          },
+        });
+        allSectionsObj = loop.article;
+        critiqueReport = loop.report;
+        /**
+         * 제목 문제는 본문 편집기로 고치지 않는다 — 제목을 다시 만들고 Title Fact Gate 를 다시 지난다.
+         * 제목이 크게 바뀌면(핵심어가 달라지면) 소제목이 새 약속을 맡는지 다시 검사한다.
+         */
+        if (loop.report.titleIssues.length > 0 && titleGateResult) {
+          const before = String(h1 || '');
+          const directive = `🚧 **비평이 제목 문제를 지적했습니다:**\n${loop.report.titleIssues.map((t: any) => `  - ${t.problem} → ${t.requiredChange}`).join('\n')}\n본문의 실제 내용에 맞게 제목을 다시 지으세요. 값은 Research Packet 에 있는 것만.`;
+          try {
+            const { ensureGroundedTitle } = require('./title-fact-gate');
+            const rerun = await ensureGroundedTitle(await makeTitleRef(directive), claimLedger(), makeTitleRef, { maxRetries: 1, onLog });
+            if (rerun.title && rerun.title !== before) {
+              h1 = rerun.title; titleGateResult = { ...rerun, model: titleGateResult.model, revisedByCritic: true }; titleRevisedByCritic = true;
+              onLog?.(`[PROGRESS] 78% - ✍️ 제목 수정: "${before}" → "${h1}" (사실 관문 ${rerun.audit.status})`);
+              const { titlePromises } = require('./reader-retention');
+              const bodyText = JSON.stringify(allSectionsObj);
+              const unmet = titlePromises(h1).filter((p: string) => !evidenceMod.distinctiveTokens(p).some((w: string) => bodyText.includes(w)));
+              if (unmet.length) onLog?.(`[PROGRESS] 78% - ⚠️ 새 제목의 약속 중 본문이 아직 안 맡은 조각: ${unmet.join(' / ')}`);
+            }
+          } catch (titleErr: any) { console.warn('[CRITIQUE] 제목 수정 스킵:', String(titleErr?.message || titleErr).slice(0, 80)); }
+        }
+        onLog?.(`[PROGRESS] 79% - 🔁 루프 종료: 비평 ${loop.report.criticCycles}회 · 수정 ${loop.report.revisionCycles}회 · 고친 절 ${loop.report.revisedSections}/${loop.report.totalSections} · ${loop.report.converged ? '수렴(QUALITY_CONVERGED 후보)' : `미수렴 — ${loop.report.manualReviewReason}`}`);
+      } catch (loopErr: any) {
+        if ((loopErr as any)?.canceled === true) throw loopErr;
+        console.warn('[CRITIQUE] 루프 실패 — 초안 그대로 진행:', String(loopErr?.message || loopErr).slice(0, 120));
+        onLog?.(`[PROGRESS] 79% - ⚠️ 비평 루프 오류 (초안 그대로 진행, 자동 발행은 막습니다): ${String(loopErr?.message || loopErr).slice(0, 80)}`);
+        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, critic1: [], critic2: null, revisions: [], titleIssues: [], remaining: { critical: 0, major: 0, minor: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: [], revision: [], critic2: '' } };
+      }
+    }
+    void titleRevisedByCritic;
+
     const sections = allSectionsObj.sections;
     /**
      * v3.8.484 - 값을 약속해놓고 못 지킨 소제목을 들어낸다.
@@ -4044,7 +4168,105 @@ ${quoted}
     }
 
     // 7. 해시태그
-    const hashtags = await generateHashtagsFinal(keyword, h2Titles);
+    const hashtagsRaw = await generateHashtagsFinal(keyword, h2Titles);
+    /**
+     * 🏷️ v3.8.735 — 태그 출처를 가른다. 모델이 키워드·소제목만 보고 만든 태그(semanticKeyword)는 본문에 없으면 버리고,
+     * 실제 자동완성(actualSearchKeyword) 중 이 글의 핵심어가 든 것을 더한다. "연관검색어"라는 이름은 실제 검색어에만 쓴다.
+     */
+    let hashtags = hashtagsRaw;
+    let keywordProvenance: any = null;
+    try {
+      const { buildKeywordProvenance } = require('./keyword-provenance');
+      keywordProvenance = buildKeywordProvenance({
+        mainKeyword: keyword, title: String(h1 || ''), bodyText: articleTextForAux.replace(/<[^>]+>/g, ' '),
+        generatedTags: String(hashtagsRaw || '').split(/[,\n]/), actualSuggestions: demandSignals.searchQueries,
+      });
+      if (keywordProvenance.hashtag.length >= 3) hashtags = keywordProvenance.hashtag.join(', ');
+      onLog?.(`[PROGRESS] 75% - 🏷️ 태그 ${keywordProvenance.hashtag.length}개 (본문에 있는 태그 ${keywordProvenance.articleKeyword.length} · 실제 검색어 ${keywordProvenance.actualSearchKeyword.length} · 본문에 없어 버린 모델 태그 ${keywordProvenance.semanticKeyword.length})`);
+    } catch (tagErr: any) { console.warn('[TAGS] 출처 구분 스킵:', String(tagErr?.message || tagErr).slice(0, 80)); }
+
+    /**
+     * ⚖️ v3.8.735 — 전체 Final QA. 본문이 좋아도 FAQ·요약표·CTA 에서 오류가 다시 들어올 수 있다.
+     *   ① FAQ·요약표의 값을 근거와 대조 — 근거에 없는 값이 든 FAQ 항목·요약표 행은 뺀다(새 값을 만들지 않는다)
+     *   ② Final Judge — "이대로 발행해도 되는가" 한 가지만 묻는다
+     */
+    let finalJudge: any = null;
+    let finalQaNotes: string[] = [];
+    const runFinalQa = contentMode !== 'shopping' && contentMode !== 'paraphrasing' && (payload as any).skipCritiqueLoop !== true;
+    if (runFinalQa) {
+      try {
+        const { checkClaims } = require('./fact-claims');
+        const ledgerNow = claimLedger();
+        const beforeFaq = faqs.length;
+        faqs = faqs.filter((f: any) => {
+          const c = checkClaims(`${f.question} ${f.answer}`, ledgerNow);
+          if (c.unsupported.length) { finalQaNotes.push(`FAQ 제외: "${String(f.question).slice(0, 30)}" — 근거 없는 값 ${c.unsupported.join(', ')}`); return false; }
+          return true;
+        });
+        if (beforeFaq !== faqs.length) onLog?.(`[PROGRESS] 75% - 🧹 근거 없는 값이 든 FAQ ${beforeFaq - faqs.length}개 제외`);
+        const beforeRows = (summaryTable.rows || []).length;
+        summaryTable = { ...summaryTable, rows: (summaryTable.rows || []).filter((row: string[]) => {
+          const c = checkClaims(row.join(' '), ledgerNow);
+          if (c.unsupported.length) { finalQaNotes.push(`요약표 행 제외: ${row.join(' | ').slice(0, 40)} — ${c.unsupported.join(', ')}`); return false; }
+          return true;
+        }) };
+        if (beforeRows !== (summaryTable.rows || []).length) onLog?.(`[PROGRESS] 75% - 🧹 근거 없는 값이 든 요약표 행 ${beforeRows - (summaryTable.rows || []).length}개 제외`);
+        if (summaryTable.answer) {
+          const c = checkClaims(String(summaryTable.answer), ledgerNow);
+          if (c.unsupported.length) finalQaNotes.push(`답변 상자에 근거 없는 값: ${c.unsupported.join(', ')}`);
+        }
+
+        const modelUse = require('./model-use');
+        const judgeSnap = modelUse.snapshotModels();
+        finalJudge = await require('./critique-loop').runFinalJudge({
+          title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
+          packetText: researchPacketText, evidenceText: evidenceRender.text,
+          items: evidenceRender.used.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
+          faqText: faqs.map((f: any) => `Q. ${f.question}\nA. ${f.answer}`).join('\n'),
+          summaryText: [String(summaryTable.answer || ''), ...(summaryTable.headers || []), ...(summaryTable.rows || []).map((r: string[]) => r.join(' | '))].join('\n'),
+          ctaText: ctas.map((c) => `${c.hookingMessage || c.hook || ''} [${c.buttonText || c.text || ''}] ${c.url || ''}`).join('\n'),
+          callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+          onLog,
+        });
+        finalJudge.model = modelUse.modelsSince(judgeSnap);
+        onLog?.(`[PROGRESS] 76% - ⚖️ Final Judge: ${finalJudge.decision}${finalJudge.blockingIssues.length ? ` — ${finalJudge.blockingIssues.slice(0, 3).join(' / ')}` : ''}${finalJudge.anotherRevisionWouldMateriallyImprove ? ' · 한 번 더 고치면 나아진다고 봄' : ''}`);
+      } catch (qaErr: any) {
+        if ((qaErr as any)?.canceled === true) throw qaErr;
+        console.warn('[FINAL-QA] 스킵:', String(qaErr?.message || qaErr).slice(0, 100));
+        finalJudge = { decision: 'FAIL', blockingIssues: [`Final QA 오류: ${String(qaErr?.message || qaErr).slice(0, 80)}`], unsupportedClaims: [], searchIntentCovered: false, titlePromiseResolved: false, majorRedundancy: false, anotherRevisionWouldMateriallyImprove: false };
+      }
+    }
+
+    /**
+     * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
+     * 전부 PASS 이고 비평 루프가 수렴했고 심사가 "한 번 더 고쳐도 별 차이 없다"고 하면 QUALITY_CONVERGED → 자동 발행.
+     * 아니면 MANUAL_REVIEW — 글은 돌려주되 자동으로 발행하지 않는다.
+     */
+    const bodyClaimCheck = (() => { try { return require('./fact-claims').checkClaims(articleTextForAux, claimLedger()); } catch { return { supported: [], unsupported: [] }; } })();
+    const hardGates: Record<string, boolean> = {
+      TITLE_FACT_PASS: titleGateResult ? titleGateResult.audit.status === 'PASS' : require('./title-fact-gate').auditTitle(String(h1 || ''), claimLedger()).status === 'PASS',
+      EVIDENCE_GATE_PASS: gate ? gate.status === 'GROUNDING_OK' : false,
+      RESEARCH_PACKET_PASS: researchPacket ? researchPacket.status !== 'EMPTY' : false,
+      BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0 && (!finalJudge || finalJudge.unsupportedClaims.length === 0),
+      SEARCH_INTENT_PASS: (!critiqueReport || (critiqueReport.remaining.critical === 0 && critiqueReport.remaining.major === 0)) && (!finalJudge || finalJudge.searchIntentCovered !== false),
+      NO_MAJOR_REDUNDANCY: !finalJudge || finalJudge.majorRedundancy !== true,
+      FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
+    };
+    const hardGatesAllPass = Object.values(hardGates).every(Boolean);
+    const qualityConverged = runFinalQa
+      ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true && !!finalJudge && finalJudge.anotherRevisionWouldMateriallyImprove !== true
+      : hardGatesAllPass;
+    const manualReviewReason = qualityConverged ? '' : [
+      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => k),
+      ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
+      ...(finalJudge?.anotherRevisionWouldMateriallyImprove ? ['심사: 한 번 더 고치면 실질적으로 나아진다'] : []),
+    ].filter(Boolean).join(' · ');
+    const publishDecision: 'AUTO_PUBLISH' | 'MANUAL_REVIEW' = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
+    pipelineStatus.mark('FINAL', qualityConverged ? 'QUALITY_CONVERGED' : 'MANUAL_REVIEW', manualReviewReason);
+    onLog?.(qualityConverged
+      ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.`
+      : `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}`);
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceRender.used.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     // 8. HTML 조립
     onLog?.('[PROGRESS] 75% - 🎨 백서(White Paper) 구조 조립 중...');
@@ -6754,12 +6976,35 @@ ${conclusionHTML}
           onLog?.(`[PROGRESS] 98% - 💰 이 글 비용: ${line}`);
         }
       } catch { /* 비용 계산 실패가 발행을 막지 않는다 */ }
+      /**
+       * v3.8.735 — 100점은 자기평가가 아니라 **Hard Gate 통과**를 뜻한다.
+       * 실측: 근거에 없는 "11월 2일"이 제목에 들어간 글이 100점이었다 — auditArticle 은 값을 근거와 대조하지 않는다.
+       * 관문이 하나라도 FAIL 이면 점수 상한을 둔다(원점수는 auditScoreRaw 로 남긴다).
+       */
+      const gatedScore = hardGatesAllPass ? audited.score : Math.min(audited.score, 89);
       appendLedgerEntry(ledgerPath(), {
         at: new Date().toISOString(),
         url: '',
         title: String(h1 || keyword || ''),
         keyword: String(keyword || ''),
-        auditScore: audited.score,
+        auditScore: gatedScore,
+        auditScoreRaw: audited.score,
+        hardGates,
+        // v3.8.735 — 비평·수정 루프 기록
+        ...(critiqueReport ? {
+          draftModel: String(draftModel || ''),
+          critic1Model: (critiqueReport.models?.critic1 || []).join(', '),
+          revisionModels: [...new Set(critiqueReport.models?.revision || [])].join(', '),
+          critic2Model: String(critiqueReport.models?.critic2 || ''),
+          criticCycles: Number(critiqueReport.criticCycles) || 0,
+          revisionCycles: Number(critiqueReport.revisionCycles) || 0,
+          revisedSections: Number(critiqueReport.revisedSections) || 0,
+          unchangedSections: Number(critiqueReport.unchangedSections) || 0,
+        } : {}),
+        ...(finalJudge ? { finalJudgeModel: String(finalJudge.model || '') } : {}),
+        finalDecision: publishDecision,
+        qualityConverged,
+        ...(manualReviewReason ? { manualReviewReason } : {}),
         auditKinds: kinds,
         selfOverlapMax: Number(overlap.max) || 0,
         selfOverlapHits: Number(overlap.count) || 0,
@@ -6784,7 +7029,7 @@ ${conclusionHTML}
         if (use.downgraded) onLog?.(`[PROGRESS] 98% - ⚠️ 모델 하향 발생: 고른 모델 ${use.requestedModel} → 실제 ${use.actualModel} (${use.downgradeReason}) — 장부에 기록했습니다`);
         else if (use.actualModel) onLog?.(`[PROGRESS] 98% - 🧠 실제 사용 모델: ${use.actualModel} (하향 없음)`);
       }
-      onLog?.(`[PROGRESS] 98% - 📒 품질 ${audited.score}점 · 중복 ${((Number(overlap.max)||0)).toFixed(2)} 를 장부에 남겼습니다`);
+      onLog?.(`[PROGRESS] 98% - 📒 품질 ${gatedScore}점${gatedScore !== audited.score ? ` (원점수 ${audited.score} · 관문 미통과로 상한)` : ''} · 중복 ${((Number(overlap.max)||0)).toFixed(2)} · ${publishDecision} 를 장부에 남겼습니다`);
     } catch (ledgerError: any) {
       // 장부는 있으면 좋은 것이지 발행 조건이 아니다
       console.warn('[LEDGER] 건너뜀:', String(ledgerError?.message || ledgerError).slice(0, 100));
@@ -6825,11 +7070,21 @@ ${conclusionHTML}
       throw new Error(`빈 블록이 남아 발행을 중단했습니다 (${detail}). 깨진 글을 올리는 것보다 안 올리는 편이 낫습니다.`);
     }
 
+    // v3.8.735 — 발행 창구가 이 본문의 지문으로 결정을 찾는다. 사람이 편집기에서 고치면 지문이 달라져 막지 않는다
+    try { require('./publish-gate').recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || '')); } catch { /* 기록 실패가 생성을 막지 않는다 */ }
+    if (publishDecision === 'MANUAL_REVIEW') onLog?.(`[PROGRESS] 99% - 🛑 이 글은 MANUAL_REVIEW 입니다 — 자동 발행하지 않습니다. 미리보기에서 확인 후 직접 발행하세요. 사유: ${manualReviewReason}`);
+
     return {
       html,
       title: h1,
       labels: hashtags.split(',').map(t => t.trim()).slice(0, 15),
       thumbnail: thumbnailUrl,
+      // v3.8.735 — 발행 결정과 품질 루프 요약
+      publishDecision,
+      qualityConverged,
+      manualReviewReason,
+      hardGates,
+      ...(keywordProvenance ? { keywordProvenance } : {}),
       qualityReport: finalQualityReport, // v3.5.84: UI 모달 노출용 품질 리포트
       // v3.8.544: 허브 헌장(단일 일관 모드에서만 채워진다) — 왜 이 허브를 발행했는지의 기록
       ...(hubCharterSentence ? { hubCharter: hubCharterSentence } : {}),

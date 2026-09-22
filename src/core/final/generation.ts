@@ -498,6 +498,11 @@ export async function generateH1TitleFinal(
    * 재조립은 모델이 말을 안 들었을 때만 쓰는 **폴백**으로 내린다.
    */
   keywordFront?: boolean,
+  /**
+   * v3.8.735 — Research Packet(사실·수치·날짜·자격·기관 발표·검색자 질문·출처 id).
+   * 제목의 값은 여기 있는 것만 쓴다. 실측: 패킷 없이 만든 제목에 근거에 없는 "11월 2일"이 들어갔다.
+   */
+  researchBlock?: string,
 ): Promise<string> {
   // 🔥 현재 날짜 주입
   const currentYear = new Date().getFullYear();
@@ -577,12 +582,16 @@ export async function generateH1TitleFinal(
     console.warn('[TITLE] 영어 제목이 비어 한국어 경로로 되돌립니다');
   }
 
+  const researchSection = researchBlock && researchBlock.trim()
+    ? `${researchBlock.trim()}\n\n🔒 **제목의 값 규칙 (v3.8.735 — 다른 규칙보다 우선):** 날짜·금액·비율·인원·기간·발언·순위·숫자는 위 Research Packet 에 **글자로 있는 값만** 씁니다. 후킹을 위해 값을 만들지 마세요. 패킷에 값이 없으면 값 없이 조건·상황으로 씁니다. 제목의 값은 발행 전에 근거와 대조되며, 근거에 없는 값이 있으면 제목이 버려집니다.\n\n`
+    : '';
+
   const prompt = `당신은 대한민국 최고의 바이럴 마케터입니다.
 현재: ${currentYear}년 ${currentMonth}월 (오늘: ${todayH1})
 
 키워드: ${keyword}
 
-${titleReference}
+${researchSection}${titleReference}
 ${demandHint ? `
 **검색 실측 (최우선 규칙 — 아래 스타일보다 우선):**
 ${demandHint}

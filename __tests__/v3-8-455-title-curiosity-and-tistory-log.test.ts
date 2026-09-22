@@ -32,7 +32,7 @@ describe('① 검색자의 실제 질문이 제목까지 간다', () => {
   });
 
   it('⭐⭐ orchestration 이 실제로 넘긴다 (배선 누락 방지)', () => {
-    const call = blockBetween(orch, 'h1 = await generateH1TitleFinal(', ');');
+    const call = blockBetween(orch, 'let t = await generateH1TitleFinal(', ');');
     expect(call).toContain('demandSignals');
   });
 

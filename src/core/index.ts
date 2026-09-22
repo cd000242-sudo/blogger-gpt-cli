@@ -1774,6 +1774,20 @@ export async function publishGeneratedContent(
     try { onLog?.(msg); } catch { /* 로깅 실패가 발행을 막지 않는다 */ }
     console.log(msg);
   };
+  /**
+   * 🚦 v3.8.735 — 생성 단계가 MANUAL_REVIEW 로 판정한 본문은 **그대로는** 자동 발행하지 않는다.
+   * 본문 지문으로 찾는다: 사람이 편집기에서 고쳤으면 지문이 달라져 막지 않는다(사람이 검토한 것이다).
+   * payload.forcePublish 로 사람이 명시하면 막지 않는다.
+   */
+  try {
+    const { checkPublishDecision } = require('./final/publish-gate');
+    const hold = checkPublishDecision(html);
+    if (hold && hold.decision === 'MANUAL_REVIEW' && payload?.forcePublish !== true) {
+      const reason = `MANUAL_REVIEW — 품질 관문을 통과하지 못해 자동 발행하지 않았습니다. 사유: ${hold.reason || '알 수 없음'}. 미리보기에서 확인해 고친 뒤 발행하거나, 그대로 발행하려면 forcePublish 를 켜 주세요.`;
+      emit(`[PUBLISH] 🛑 ${reason}`);
+      return { ok: false, error: reason, blockedReason: 'MANUAL_REVIEW', recoverable: true };
+    }
+  } catch { /* 관문 조회 실패가 발행을 막지 않는다 */ }
   try {
     // 플랫폼 값 정규화: 'blogger'와 'blogspot' 통일
     // v3.8.141: payload.platform이 누락되어도 무조건 'blogspot' default였던 버그 fix
