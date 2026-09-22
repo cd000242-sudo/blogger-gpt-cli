@@ -258,7 +258,7 @@ async function runOne(entry, env) {
   process.env.PRIMARY_TEXT_MODEL = TIER;
   process.env.EVIDENCE_DEBUG_RAW = '1';
   // 실행마다 비운다 — 안 비우면 실패한 실행이 앞 글의 기록을 자기 것처럼 저장한다(2026-09-22 실측: 429 로 죽은 두 글이 앞 글 지표를 복사)
-  for (const k of ['__lastEvidenceDebug', '__lastCritiqueDebug', '__lastDraftArticle']) globalThis[k] = null;
+  for (const k of ['__lastEvidenceDebug', '__lastCritiqueDebug', '__lastDraftArticle', '__judgeInvocations', '__llmUsage', '__llmCallLog']) globalThis[k] = null;
   globalThis.__llmCallLog = [];
   try { require(path.join(ROOT, 'dist/core/llm/usage-cost')).resetUsage(); } catch { /* 없으면 orchestration 이 비운다 */ }
   if (!LIVE) process.env.RESEARCH_PACKET_LLM = '0';

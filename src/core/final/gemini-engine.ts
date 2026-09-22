@@ -457,11 +457,14 @@ function getProviderKey(provider: Provider): string {
   return '';
 }
 
-export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1, opts?: { timeoutMs?: number; json?: boolean }): Promise<string> {
+export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1, opts?: { timeoutMs?: number; json?: boolean; cacheSegments?: Array<{ text: string; cache?: boolean }> }): Promise<string> {
   // v3.8.736 — NO_LIVE_LLM=1 이면 어느 provider 든 여기서 막는다 (gemini 경로는 callLLM 을 안 지난다)
   if (process.env['NO_LIVE_LLM'] === '1') throw new Error('NO_LIVE_LLM=1 — 유료 LLM 호출이 막혀 있습니다 (callGeminiWithRetry)');
   // v3.8.734 — json: 구조화 출력(Research Packet). provider 가 받으면 JSON 모드로, 아니면 프롬프트 지시 + 검증으로 간다
-  const llmOptions = opts?.json ? { json: true } : undefined;
+  // v3.8.748 — cacheSegments: Claude 프롬프트 캐싱 조각(이어 붙이면 prompt 와 같다). 다른 provider 는 무시된다
+  const llmOptions = (opts?.json || opts?.cacheSegments)
+    ? { ...(opts?.json ? { json: true } : {}), ...(opts?.cacheSegments ? { cacheSegments: opts.cacheSegments } : {}) }
+    : undefined;
   const primaryProvider = getPrimaryProvider();
   const modelValue = process.env['PRIMARY_TEXT_MODEL'] || resolveDefaultTierValue();
   const tier = findTier(modelValue);
@@ -480,7 +483,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
         return repairBrokenGeneratedText(`${providerName} response`, await callOpenAIAPI(prompt, llmOptions));
       }
       if (primaryProvider === 'claude') {
-        return repairBrokenGeneratedText(`${providerName} response`, await callClaudeAPI(prompt));
+        return repairBrokenGeneratedText(`${providerName} response`, await callClaudeAPI(prompt, llmOptions));
       }
       if (primaryProvider === 'perplexity') {
         return repairBrokenGeneratedText(`${providerName} response`, await callPerplexityAPI(prompt));

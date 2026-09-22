@@ -32,10 +32,10 @@ const packetText = '[RESEARCH PACKET]\n▸ 확인된 사실\n- 10월 7일부터 
 const evidenceText = items.map((i) => `[${i.id}][뉴스] ${i.title}\n${i.cleanedText}`).join('\n\n');
 const PASS = JSON.stringify({ status: 'PASS', issues: [], missingIntentAnswers: [], titleIssues: [], researchQueries: [] });
 const PASS_JUDGE = JSON.stringify({ decision: 'PASS', blockingIssues: [], advisory: [] });
-const isEditor = (p: string) => p.startsWith('당신은 교정자입니다');
+const isEditor = (p: string) => p.includes('당신은 교정자입니다');
 const isVerify = (p: string) => p.includes('OPEN 지적 각각이 해결됐는가');
-const isEditorial = (p: string) => p.startsWith('당신은 편집자입니다');
-const isCritic1 = (p: string) => p.startsWith('당신은 검수자입니다. 칭찬하지 않고');
+const isEditorial = (p: string) => p.includes('당신은 편집자입니다');
+const isCritic1 = (p: string) => p.includes('당신은 검수자입니다. 칭찬하지 않고');
 
 const article = (): ArticleSections => ({
   introduction: '<p>청년미래적금 2차 신청을 앞두고 가구원 동의부터 확인해야 합니다.</p>',

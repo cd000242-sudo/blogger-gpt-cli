@@ -97,8 +97,8 @@ const article = (): ArticleSections => ({
 });
 
 describe('② MISSING_INFORMATION(ADD) 만 소제목을 insertionAnchor 로', () => {
-  const isCritic1 = (p: string) => p.startsWith('당신은 검수자입니다. 칭찬하지 않고');
-  const isEditor = (p: string) => p.startsWith('당신은 교정자입니다');
+  const isCritic1 = (p: string) => p.includes('당신은 검수자입니다. 칭찬하지 않고');
+  const isEditor = (p: string) => p.includes('당신은 교정자입니다');
   const isVerify = (p: string) => p.includes('OPEN 지적 각각이 해결됐는가');
   it('⭐⭐ 여행 fixture: "미리 예약하는 편이 좋습니다" 만 있고 3~6개월 전이 빠짐 → 소제목 span 의 MAJOR 가 blocking 으로 살아남고 anchor=heading', async () => {
     const r = await runCritic1({ title: 't', mainKeyword: '경주 APEC 기간 숙소 예약', article: article(), packetText, evidenceText, items, callModel: async () => JSON.stringify({ status: 'REVISION_REQUIRED', issues: [

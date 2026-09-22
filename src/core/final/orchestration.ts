@@ -7109,6 +7109,26 @@ ${conclusionHTML}
 
     if (runFinalQa && !finalJudge) {
       try {
+        /**
+         * 🔎 v3.8.748 — Judge 호출 흔적만 남긴다(동작 변경 0).
+         * live 여행3 에서 관문 요약이 **서로 다른** 「최종 심사자」 프롬프트가 2개 나왔다(재시도라면 같아야 한다).
+         * 호출 지점은 소스상 여기 한 곳뿐이라 원인이 안 잡힌다 — 다음 실행 한 번으로 누가 두 번째를 불렀는지 확정하려는 기록이다.
+         */
+        const judgeTrace = {
+          invocationId: `J-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+          caller: 'orchestration:FINAL_JUDGE(visible)',
+          revisionCycle: Number(critiqueReport?.revisionCycles ?? -1),
+          criticCycles: Number(critiqueReport?.criticCycles ?? -1),
+          articleFingerprint: require('crypto').createHash('sha1').update(String(judgeBodyText || '')).digest('hex').slice(0, 12),
+          openIssueFingerprint: require('crypto').createHash('sha1').update(((critiqueReport?.issueLedger || []) as any[]).filter((i: any) => i.status === 'OPEN' || i.status === 'REGRESSED').map((i: any) => i.issueKey).sort().join('|')).digest('hex').slice(0, 12),
+          editorialStatus: critiqueReport?.editorial ? String(critiqueReport.editorial.status) : 'N/A',
+          hardGateSummary: `critical ${critiqueReport?.open?.critical ?? '?'} · major ${critiqueReport?.open?.major ?? '?'} · pending ${critiqueReport?.open?.pending ?? '?'}`,
+          reason: 'post-mutation visible-article judge (single call site)',
+          at: new Date().toISOString(),
+        };
+        (globalThis as any).__judgeInvocations = [...((globalThis as any).__judgeInvocations || []), judgeTrace];
+        console.log(`[JUDGE-TRACE] ${JSON.stringify(judgeTrace)}`);
+        onLog?.(`[PROGRESS] 97% - 🔎 Judge 호출 #${((globalThis as any).__judgeInvocations || []).length} ${judgeTrace.invocationId} · 원고지문 ${judgeTrace.articleFingerprint} · ${judgeTrace.hardGateSummary} · Editorial ${judgeTrace.editorialStatus}`);
         const modelUse = require('./model-use');
         const judgeSnap = modelUse.snapshotModels();
         finalJudge = await require('./critique-loop').runFinalJudge({

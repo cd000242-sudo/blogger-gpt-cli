@@ -416,6 +416,23 @@ function buildProviderError(
 export interface CallLLMOptions {
   /** 구조화 출력(JSON). 지원하는 provider 에만 실리고, 거절당하면 그 옵션만 빼고 한 번 더 부른다 */
   json?: boolean;
+  /**
+   * 🗄️ v3.8.748 — 프롬프트 캐싱용 조각. 이어 붙이면 `prompt` 와 **글자 그대로 같아야 한다**(모델이 보는 내용은 안 바뀐다).
+   * `cache: true` 인 조각 끝에 캐시 경계를 둔다 — 그 앞부분이 재사용된다.
+   * Claude 만 쓴다. 다른 provider 는 `prompt` 를 그대로 받아 예전과 동일하게 동작한다.
+   */
+  cacheSegments?: Array<{ text: string; cache?: boolean }>;
+}
+
+/** 캐시 조각을 Anthropic content 블록으로. 경계가 없으면 null(예전 경로 그대로) */
+export function buildClaudeCacheContent(segments: CallLLMOptions['cacheSegments']): Array<Record<string, unknown>> | null {
+  const list = (segments || []).filter((s) => String(s?.text || '').length > 0);
+  if (list.length === 0 || !list.some((s) => s.cache)) return null;
+  return list.map((s) => ({
+    type: 'text',
+    text: s.text,
+    ...(s.cache ? { cache_control: { type: 'ephemeral' } } : {}),
+  }));
 }
 
 /**
@@ -493,6 +510,14 @@ export async function callLLM(
         const requestBody = config.buildBody(model, prompt);
         if (useJsonMode) requestBody['response_format'] = { type: 'json_object' };
         for (const p of droppedParams) delete requestBody[p];
+        /**
+         * 🗄️ v3.8.748 — 캐시 경계가 있으면 user 메시지를 블록으로 바꾼다.
+         * 이어 붙인 글자는 prompt 와 같으므로 **모델이 보는 내용·순서는 그대로**다.
+         */
+        if (provider === 'claude' && options.cacheSegments) {
+          const content = buildClaudeCacheContent(options.cacheSegments);
+          if (content) requestBody['messages'] = [{ role: 'user', content }];
+        }
         const response = await axios.post(
           config.endpoint,
           requestBody,
@@ -519,6 +544,18 @@ export async function callLLM(
             if (!g.__llmUsage) g.__llmUsage = { calls: 0, input: 0, output: 0, byModel: {} };
             const inTok = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
             const outTok = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+            /**
+             * 🗄️ v3.8.748 — 캐시 실적. write 는 입력 단가의 1.25배, read 는 0.1배라 금액이 크게 갈린다.
+             * thinking 토큰도 함께 남긴다(출력의 30~43%를 차지한다 — 748 감사).
+             */
+            const cacheWrite = Number(usage.cache_creation_input_tokens ?? 0) || 0;
+            const cacheRead = Number(usage.cache_read_input_tokens ?? 0) || 0;
+            const thinkTok = Number(usage.output_tokens_details?.thinking_tokens ?? 0) || 0;
+            g.__llmUsage.cacheWrite = (g.__llmUsage.cacheWrite || 0) + cacheWrite;
+            g.__llmUsage.cacheRead = (g.__llmUsage.cacheRead || 0) + cacheRead;
+            g.__llmUsage.thinking = (g.__llmUsage.thinking || 0) + thinkTok;
+            if (cacheRead > 0) g.__llmUsage.cacheHits = (g.__llmUsage.cacheHits || 0) + 1;
+            else if (cacheWrite > 0) g.__llmUsage.cacheMisses = (g.__llmUsage.cacheMisses || 0) + 1;
             g.__llmUsage.calls += 1;
             g.__llmUsage.input += inTok;
             g.__llmUsage.output += outTok;
@@ -528,7 +565,8 @@ export async function callLLM(
             g.__llmUsage.byModel[key] = slot;
             // v3.8.736 live 검증 — 호출 하나하나를 남긴다(단계별 비용 분해용). 프롬프트 머리만 남겨 단계를 알아본다
             if (!Array.isArray(g.__llmCallLog)) g.__llmCallLog = [];
-            g.__llmCallLog.push({ at: Date.now(), provider: config.provider, model, input: inTok, output: outTok, promptHead: String(prompt || '').slice(0, 80), promptChars: String(prompt || '').length });
+            g.__llmCallLog.push({ at: Date.now(), provider: config.provider, model, input: inTok, output: outTok, cacheWrite, cacheRead, thinking: thinkTok, promptHead: String(prompt || '').slice(0, 80), promptChars: String(prompt || '').length });
+            if (cacheWrite || cacheRead) console.log(`[CACHE] ${config.provider}/${model} write ${cacheWrite} · read ${cacheRead} (입력 ${inTok})`);
           }
         } catch { /* 기록 실패가 생성을 막지 않는다 */ }
 
