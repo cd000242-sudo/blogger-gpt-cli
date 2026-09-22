@@ -380,11 +380,20 @@ export interface CallLLMOptions {
   json?: boolean;
 }
 
+/**
+ * 🚫 v3.8.736 — 유료 호출 안전장치. NO_LIVE_LLM=1 이면 네트워크에 닿기 전에 던진다.
+ * 회귀 하네스·재현 스크립트·테스트가 실수로 과금하지 않게(2026-09-22: capture 인데 본문 5회가 과금된 전례).
+ */
+export function assertLiveLlmAllowed(where: string): void {
+  if (process.env['NO_LIVE_LLM'] === '1') throw new Error(`NO_LIVE_LLM=1 — 유료 LLM 호출이 막혀 있습니다 (${where})`);
+}
+
 export async function callLLM(
   provider: keyof typeof PROVIDERS,
   prompt: string,
   options: CallLLMOptions = {},
 ): Promise<string> {
+  assertLiveLlmAllowed(`callLLM/${String(provider)}`);
   const config = PROVIDERS[provider];
   if (!config) {
     throw new Error(`Unknown LLM provider: ${provider}`);

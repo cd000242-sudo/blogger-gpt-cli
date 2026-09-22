@@ -3857,21 +3857,33 @@ ${quoted}
      * 쇼핑·페러프레이징 글은 근거가 상품 데이터·원문이라 이 루프를 돌리지 않는다(예전 그대로).
      */
     let critiqueReport: any = null;
+    let qualityLoopCalls = 0;   // v3.8.736 — 품질 루프(비평·편집·검증·심사)가 쓴 호출 수. 생성 호출과 따로 센다
     let titleRevisedByCritic = false;
-    if (contentMode !== 'shopping' && contentMode !== 'paraphrasing' && (payload as any).skipCritiqueLoop !== true) {
+    /**
+     * v3.8.735 — **켜야만 돈다.** (사장님: "한번에 릴리즈하면 회귀될 수 있잖아")
+     * live 실측 3편이 전부 MANUAL_REVIEW·비용 3배였고, 교착을 고친 뒤 재검증을 못 했다(크레딧 0).
+     * 기본은 734 와 똑같이 동작하고, payload.qualityLoop === true 또는 QUALITY_LOOP=1 일 때만 루프·심사·발행 차단이 켜진다.
+     */
+    const qualityLoopOn = (payload as any).qualityLoop === true || process.env['QUALITY_LOOP'] === '1';
+    if (qualityLoopOn && contentMode !== 'shopping' && contentMode !== 'paraphrasing') {
       try {
         const loopMod = require('./critique-loop');
         const modelUse = require('./model-use');
         const loopModel = (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) });
-        const currentEvidenceItems = () => evidenceRender.used.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText }));
-        onLog?.('[PROGRESS] 76% - 🩺 비평·수정 루프 시작 (Critic 1 → 문제 절만 수정 → 재비평 → Critic 2 → Final Judge)');
+        /**
+         * v3.8.736 — 값 대조 장부는 Hard Gate(claimLedger)와 **같은 전체 근거**를 쓴다.
+         * 735 실측: 루프는 Writer 에게 보인 근거만 봐서 "4770대"를 근거 없음으로 잡았는데, 관문은 전체 근거로 통과시켰다 — 같은 값을 두 잣대로 쟀다.
+         */
+        const currentEvidenceItems = () => evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText }));
+        onLog?.('[PROGRESS] 76% - 🩺 비평·수정 루프 시작 (코드 관문 → Critic 1 → 문제 절만 한 번에 수정 → 검증 → 편집 비평 → Final Judge · 수정 최대 2회)');
+        const loopCallsSnap = Number(((globalThis as any).__llmUsage || {}).calls) || 0;
         let stageSnap = modelUse.snapshotModels();
         const modelOf = () => { const m = modelUse.modelsSince(stageSnap); stageSnap = modelUse.snapshotModels(); return m; };
         (globalThis as any).__lastDraftArticle = JSON.parse(JSON.stringify(allSectionsObj));   // 회귀 하네스가 Draft vs Final 을 잰다
         const loop = await loopMod.runCritiqueLoop({
           title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
           packetText: researchPacketText, evidenceText: evidenceRender.text, items: currentEvidenceItems(),
-          callModel: loopModel, onLog, modelOf, maxRevisions: 3,
+          callModel: loopModel, onLog, modelOf, maxRevisions: 2,
           // 비평이 "근거가 모자란다"고 하면 상상하지 않고 검색으로 되돌아간다
           moreResearch: async (queries: string[]) => {
             const core = evidenceMod.coreEntityOf(keyword, 2);
@@ -3913,12 +3925,13 @@ ${quoted}
             }
           } catch (titleErr: any) { console.warn('[CRITIQUE] 제목 수정 스킵:', String(titleErr?.message || titleErr).slice(0, 80)); }
         }
-        onLog?.(`[PROGRESS] 79% - 🔁 루프 종료: 비평 ${loop.report.criticCycles}회 · 수정 ${loop.report.revisionCycles}회 · 고친 절 ${loop.report.revisedSections}/${loop.report.totalSections} · ${loop.report.converged ? '수렴(QUALITY_CONVERGED 후보)' : `미수렴 — ${loop.report.manualReviewReason}`}`);
+        qualityLoopCalls += Math.max(0, (Number(((globalThis as any).__llmUsage || {}).calls) || 0) - loopCallsSnap);
+        onLog?.(`[PROGRESS] 79% - 🔁 루프 종료: 비평 ${loop.report.criticCycles}회 · 수정 ${loop.report.revisionCycles}회 · 호출 ${loop.report.qualityLoopCalls}회 · 고친 절 ${loop.report.revisedSections}/${loop.report.totalSections} · OPEN critical ${loop.report.open.critical} · major ${loop.report.open.major} · ${loop.report.converged ? '수렴(QUALITY_CONVERGED 후보)' : `미수렴 — ${loop.report.manualReviewReason}`}`);
       } catch (loopErr: any) {
         if ((loopErr as any)?.canceled === true) throw loopErr;
         console.warn('[CRITIQUE] 루프 실패 — 초안 그대로 진행:', String(loopErr?.message || loopErr).slice(0, 120));
         onLog?.(`[PROGRESS] 79% - ⚠️ 비평 루프 오류 (초안 그대로 진행, 자동 발행은 막습니다): ${String(loopErr?.message || loopErr).slice(0, 80)}`);
-        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, critic1: [], critic2: null, revisions: [], titleIssues: [], remaining: { critical: 0, major: 0, minor: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: [], revision: [], critic2: '' } };
+        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], open: { critical: 0, major: 0, minor: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
       }
     }
     void titleRevisedByCritic;
@@ -4192,7 +4205,7 @@ ${quoted}
      */
     let finalJudge: any = null;
     let finalQaNotes: string[] = [];
-    const runFinalQa = contentMode !== 'shopping' && contentMode !== 'paraphrasing' && (payload as any).skipCritiqueLoop !== true;
+    const runFinalQa = qualityLoopOn && contentMode !== 'shopping' && contentMode !== 'paraphrasing';
     if (runFinalQa) {
       try {
         const { checkClaims } = require('./fact-claims');
@@ -4204,13 +4217,22 @@ ${quoted}
           return true;
         });
         if (beforeFaq !== faqs.length) onLog?.(`[PROGRESS] 75% - 🧹 근거 없는 값이 든 FAQ ${beforeFaq - faqs.length}개 제외`);
-        const beforeRows = (summaryTable.rows || []).length;
-        summaryTable = { ...summaryTable, rows: (summaryTable.rows || []).filter((row: string[]) => {
-          const c = checkClaims(row.join(' '), ledgerNow);
-          if (c.unsupported.length) { finalQaNotes.push(`요약표 행 제외: ${row.join(' | ').slice(0, 40)} — ${c.unsupported.join(', ')}`); return false; }
-          return true;
-        }) };
-        if (beforeRows !== (summaryTable.rows || []).length) onLog?.(`[PROGRESS] 75% - 🧹 근거 없는 값이 든 요약표 행 ${beforeRows - (summaryTable.rows || []).length}개 제외`);
+        /**
+         * v3.8.736 — 요약표는 **행을 지우지 않는다.** 실측: 행을 빼니 표가 비어 심사가 막았다.
+         * 근거 없는 값이 든 칸만 그 값을 걷어내고, 칸이 비면 "공식 자료 확인 필요" 로 채운다. 새 값을 만들지 않는다.
+         */
+        const { stripClaims } = require('./fact-claims');
+        let cellsFixed = 0;
+        summaryTable = { ...summaryTable, rows: (summaryTable.rows || []).map((row: string[]) => row.map((cell: string, ci: number) => {
+          if (ci === 0) return cell;   // 첫 칸은 항목 이름
+          const c = checkClaims(cell, ledgerNow);
+          if (!c.unsupported.length) return cell;
+          cellsFixed += 1;
+          const stripped = String(stripClaims(String(cell), c.unsupported) || '').replace(/^[\s,·\-–—:]+|[\s,·\-–—:]+$/g, '').trim();
+          finalQaNotes.push(`요약표 칸 수정: "${String(cell).slice(0, 30)}" — 근거 없는 값 ${c.unsupported.join(', ')} 걷어냄`);
+          return stripped.length >= 4 ? stripped : '공식 자료 확인 필요';
+        })) };
+        if (cellsFixed) onLog?.(`[PROGRESS] 75% - 🧹 요약표 칸 ${cellsFixed}개에서 근거 없는 값을 걷어냈습니다 (행은 유지)`);
         if (summaryTable.answer) {
           const c = checkClaims(String(summaryTable.answer), ledgerNow);
           if (c.unsupported.length) finalQaNotes.push(`답변 상자에 근거 없는 값: ${c.unsupported.join(', ')}`);
@@ -4221,19 +4243,29 @@ ${quoted}
         finalJudge = await require('./critique-loop').runFinalJudge({
           title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
           packetText: researchPacketText, evidenceText: evidenceRender.text,
-          items: evidenceRender.used.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
+          items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
           faqText: faqs.map((f: any) => `Q. ${f.question}\nA. ${f.answer}`).join('\n'),
           summaryText: [String(summaryTable.answer || ''), ...(summaryTable.headers || []), ...(summaryTable.rows || []).map((r: string[]) => r.join(' | '))].join('\n'),
           ctaText: ctas.map((c) => `${c.hookingMessage || c.hook || ''} [${c.buttonText || c.text || ''}] ${c.url || ''}`).join('\n'),
+          // 심사는 이미 나온 관문 결과를 종합한다 — 처음부터 다시 판단하지 않는다
+          gateSummary: [
+            `TitleFactGate: ${titleGateResult ? titleGateResult.audit.status : 'N/A'}`,
+            `EvidenceGate: ${gate ? gate.status : 'N/A'}`,
+            `ResearchPacket: ${researchPacket ? researchPacket.status : 'N/A'}`,
+            `BodyFactGate(코드): 근거 없는 값 ${require('./fact-claims').checkClaims(articleTextForAux, ledgerNow).unsupported.length}개`,
+            `Critic: OPEN critical ${critiqueReport?.open?.critical ?? 0} · major ${critiqueReport?.open?.major ?? 0} · 해결 ${(critiqueReport?.issueLedger || []).filter((i: any) => i.status === 'RESOLVED').length}`,
+            `Editorial: ${critiqueReport?.editorial ? critiqueReport.editorial.status : 'N/A'}`,
+          ].join('\n'),
           callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
           onLog,
         });
         finalJudge.model = modelUse.modelsSince(judgeSnap);
-        onLog?.(`[PROGRESS] 76% - ⚖️ Final Judge: ${finalJudge.decision}${finalJudge.blockingIssues.length ? ` — ${finalJudge.blockingIssues.slice(0, 3).join(' / ')}` : ''}${finalJudge.anotherRevisionWouldMateriallyImprove ? ' · 한 번 더 고치면 나아진다고 봄' : ''}`);
+        qualityLoopCalls += 1;
+        onLog?.(`[PROGRESS] 76% - ⚖️ Final Judge: ${finalJudge.decision}${finalJudge.blockingIssues.length ? ` — ${finalJudge.blockingIssues.slice(0, 3).map((b: any) => `${b.sectionId} ${b.type}: ${b.reason}`).join(' / ')}` : ''}${finalJudge.advisory?.length ? ` · 참고 ${finalJudge.advisory.length}건(발행 안 막음)` : ''}`);
       } catch (qaErr: any) {
         if ((qaErr as any)?.canceled === true) throw qaErr;
         console.warn('[FINAL-QA] 스킵:', String(qaErr?.message || qaErr).slice(0, 100));
-        finalJudge = { decision: 'FAIL', blockingIssues: [`Final QA 오류: ${String(qaErr?.message || qaErr).slice(0, 80)}`], unsupportedClaims: [], searchIntentCovered: false, titlePromiseResolved: false, majorRedundancy: false, anotherRevisionWouldMateriallyImprove: false };
+        finalJudge = { decision: 'BLOCK', blockingIssues: [{ sectionId: 'QA', exactSpan: '', type: 'QA_ERROR', reason: `Final QA 오류: ${String(qaErr?.message || qaErr).slice(0, 80)}` }], advisory: [] };
       }
     }
 
@@ -4247,26 +4279,27 @@ ${quoted}
       TITLE_FACT_PASS: titleGateResult ? titleGateResult.audit.status === 'PASS' : require('./title-fact-gate').auditTitle(String(h1 || ''), claimLedger()).status === 'PASS',
       EVIDENCE_GATE_PASS: gate ? gate.status === 'GROUNDING_OK' : false,
       RESEARCH_PACKET_PASS: researchPacket ? researchPacket.status !== 'EMPTY' : false,
-      BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0 && (!finalJudge || finalJudge.unsupportedClaims.length === 0),
-      SEARCH_INTENT_PASS: (!critiqueReport || (critiqueReport.remaining.critical === 0 && critiqueReport.remaining.major === 0)) && (!finalJudge || finalJudge.searchIntentCovered !== false),
-      NO_MAJOR_REDUNDANCY: !finalJudge || finalJudge.majorRedundancy !== true,
+      // v3.8.736 — 값 대조는 코드만. OPEN critical/major 0 · 편집 blocking 0. "한 번 더 고치면 나아진다" 조건은 뺐다(늘 true 라 수렴을 막았다)
+      BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0,
+      SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0),
+      NO_MAJOR_REDUNDANCY: !finalJudge || !finalJudge.blockingIssues.some((b: any) => b.type === 'REDUNDANCY'),
       FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
     };
     const hardGatesAllPass = Object.values(hardGates).every(Boolean);
     const qualityConverged = runFinalQa
-      ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true && !!finalJudge && finalJudge.anotherRevisionWouldMateriallyImprove !== true
+      ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
       : hardGatesAllPass;
     const manualReviewReason = qualityConverged ? '' : [
       ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => k),
       ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
-      ...(finalJudge?.anotherRevisionWouldMateriallyImprove ? ['심사: 한 번 더 고치면 실질적으로 나아진다'] : []),
+      ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
     ].filter(Boolean).join(' · ');
     const publishDecision: 'AUTO_PUBLISH' | 'MANUAL_REVIEW' = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
     pipelineStatus.mark('FINAL', qualityConverged ? 'QUALITY_CONVERGED' : 'MANUAL_REVIEW', manualReviewReason);
     onLog?.(qualityConverged
       ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.`
       : `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}`);
-    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceRender.used.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     // 8. HTML 조립
     onLog?.('[PROGRESS] 75% - 🎨 백서(White Paper) 구조 조립 중...');
@@ -6997,6 +7030,9 @@ ${conclusionHTML}
           revisionModels: [...new Set(critiqueReport.models?.revision || [])].join(', '),
           critic2Model: String(critiqueReport.models?.critic2 || ''),
           criticCycles: Number(critiqueReport.criticCycles) || 0,
+          qualityLoopCalls,
+          totalCalls: Number(((globalThis as any).__llmUsage || {}).calls) || 0,
+          baseGenerationCalls: Math.max(0, (Number(((globalThis as any).__llmUsage || {}).calls) || 0) - qualityLoopCalls),
           revisionCycles: Number(critiqueReport.revisionCycles) || 0,
           revisedSections: Number(critiqueReport.revisedSections) || 0,
           unchangedSections: Number(critiqueReport.unchangedSections) || 0,

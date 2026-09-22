@@ -116,6 +116,10 @@ export async function fetchFactContext(
   if (mode === 'off' || !keyword.trim()) {
     return { context: '', provider: 'none', success: true, trustLevel: 'none' };
   }
+  // v3.8.736 — 유료 팩트체크(퍼플렉시티 등)도 NO_LIVE_LLM=1 이면 부르지 않는다
+  if (process.env['NO_LIVE_LLM'] === '1') {
+    return { context: '', provider: 'none', success: false, trustLevel: 'none', error: 'NO_LIVE_LLM=1' } as any;
+  }
 
   const env = getCachedEnv();
   const hasNaverKey = (

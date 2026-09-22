@@ -77,6 +77,10 @@ export interface LedgerEntry {
   critic2Model?: string;
   finalJudgeModel?: string;
   criticCycles?: number;
+  /** v3.8.736 — 품질 루프 호출 / 전체 호출 / 생성 호출 */
+  qualityLoopCalls?: number;
+  totalCalls?: number;
+  baseGenerationCalls?: number;
   revisionCycles?: number;
   revisedSections?: number;
   unchangedSections?: number;

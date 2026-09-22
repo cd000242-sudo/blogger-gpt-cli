@@ -458,6 +458,8 @@ function getProviderKey(provider: Provider): string {
 }
 
 export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1, opts?: { timeoutMs?: number; json?: boolean }): Promise<string> {
+  // v3.8.736 — NO_LIVE_LLM=1 이면 어느 provider 든 여기서 막는다 (gemini 경로는 callLLM 을 안 지난다)
+  if (process.env['NO_LIVE_LLM'] === '1') throw new Error('NO_LIVE_LLM=1 — 유료 LLM 호출이 막혀 있습니다 (callGeminiWithRetry)');
   // v3.8.734 — json: 구조화 출력(Research Packet). provider 가 받으면 JSON 모드로, 아니면 프롬프트 지시 + 검증으로 간다
   const llmOptions = opts?.json ? { json: true } : undefined;
   const primaryProvider = getPrimaryProvider();
@@ -633,6 +635,7 @@ export async function callGeminiWithGrounding(
   onGroundingEvidence?: (sourceUrls: string[]) => void,
   opts?: { timeoutMs?: number },
 ): Promise<string> {
+  if (process.env['NO_LIVE_LLM'] === '1') throw new Error('NO_LIVE_LLM=1 — 유료 LLM 호출이 막혀 있습니다 (callGeminiWithGrounding)');
   const primaryProvider = getPrimaryProvider();
   if (!forceGeminiSearch && primaryProvider !== 'gemini') {
     console.log(`[Grounding] ${primaryProvider} selected; using selected provider without Gemini Search.`);
