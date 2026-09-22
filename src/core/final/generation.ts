@@ -232,7 +232,7 @@ import type { ActionIntent } from '../../cta/action-intent';
 import { analyzeArticleContext, resolveActionLink, keywordTokens } from '../../cta/action-link-harness';
 import { gateCtaDestination, isDocumentUrl } from '../../cta/destination-gate';
 import { collectActionVenues, resolveActionVenues, venueButtonText } from '../../cta/action-venues';
-import { judgeCtaHost, describeHostVerdict } from '../../cta/host-trust';
+import { judgeCtaHost, describeHostVerdict, apexHost, sameSite } from '../../cta/host-trust';
 import { createCtaPageFetcher } from '../../cta/page-fetcher';
 import { resolveAgencyHost } from '../../cta/agency-registry';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
@@ -3403,7 +3403,35 @@ async function findActionPageOnSite(homeUrl: string, siteName: string, doing: st
   return '';
 }
 
-export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[]): Promise<FinalCTAData[]> {
+/**
+ * v3.8.740 — CTA 후보가 **다른 집(apex)** 이면 채택하지 않는다.
+ * live(부산국제영화제): 근거는 biff.kr 8건, 처음 CTA 도 biff.kr 이었는데 "행동 화면 교체" 가 검색으로 찾은 biky.or.kr(부산국제어린이청소년영화제)로 갈아끼웠다.
+ * Judge 가 MIXED_ENTITY 로 막았지만 마지막 방어선이 첫 방어선이어선 안 된다. 후보는 ① 원래 CTA 와 같은 집이거나 ② 근거·공식 출처에 있는 집이어야 한다.
+ * 어느 쪽도 아니면 CTA_CROSS_ENTITY 로 버리고 — 검증된 원래 주소를 지키거나, 원래 주소도 못 믿으면 버튼을 뺀다. 다른 기관 사이트로 자동 대체하지 않는다.
+ * 표(ACTION_DESTINATIONS)에서 나온 후보는 사람이 확인한 키워드→기관 대응이라 이 검사를 받지 않는다.
+ */
+export function ctaCandidateVerdict(originalUrl: string, candidateUrl: string, allowedHosts: ReadonlySet<string> | undefined): { ok: boolean; reason: string } {
+  const cand = apexHost(candidateUrl);
+  if (!cand) return { ok: false, reason: 'CTA_CROSS_ENTITY: 후보 주소의 호스트를 읽을 수 없다' };
+  const orig = apexHost(originalUrl);
+  if (orig && sameSite(orig, cand)) return { ok: true, reason: `같은 집(${cand})` };
+  if (allowedHosts && allowedHosts.size > 0) {
+    const hit = [...allowedHosts].find((h) => sameSite(h, cand));
+    if (hit) return { ok: true, reason: `근거·공식 출처에 있는 집(${hit})` };
+    return { ok: false, reason: `CTA_CROSS_ENTITY: ${cand} 은(는) 원래 주소(${orig || '없음'})와도, 근거 출처(${[...allowedHosts].slice(0, 4).join(', ')})와도 다른 집` };
+  }
+  // 근거 호스트 목록이 없으면(옛 호출 경로 — 회귀 방지) 예전처럼 검사하지 않는다. 검사는 orchestration 이 목록을 줄 때만 산다
+  return { ok: true, reason: '근거 호스트 목록 없음 — 검사 생략' };
+}
+
+/** 근거·공식 출처의 URL 에서 허용 호스트(apex) 집합을 만든다 */
+export function allowedHostsFrom(urls: Array<string | undefined | null>): Set<string> {
+  const out = new Set<string>();
+  for (const u of urls) { const a = apexHost(String(u || '')); if (a) out.add(a); }
+  return out;
+}
+
+export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[], allowedHosts?: ReadonlySet<string>): Promise<FinalCTAData[]> {
   /**
    * v3.8.616: **키워드가 먼저다.**
    *
@@ -3450,7 +3478,10 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
     if ((!better || better === cta.url) && wrongHost) {
       // 상업 오배송 — 그 호스트를 버리고 기관을 새로 찾는다
       const picked = await findInstitutionalActionPage(keyword, routerSite || ctaArticleAgencies[0] || '', doing);
-      if (picked) {
+      const verdict = picked ? ctaCandidateVerdict(cta.url, picked.url, allowedHosts) : null;
+      if (picked && verdict && !verdict.ok) {
+        console.warn(`[CTA] 🚫 후보를 버립니다 — ${verdict.reason}: ${picked.url}`);
+      } else if (picked) {
         better = picked.url;
         /**
          * v3.8.616: 라벨은 **찾은 곳**에서 만든다.
@@ -3465,7 +3496,10 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
     if (!better || better === cta.url) {
       const siteName = routerSite || label || '';
       const found = await findActionPageOnSite(cta.url, siteName, doing);
-      if (found) {
+      const verdict = found ? ctaCandidateVerdict(cta.url, found, allowedHosts) : null;
+      if (found && verdict && !verdict.ok) {
+        console.warn(`[CTA] 🚫 후보를 버립니다 — ${verdict.reason}: ${found}`);
+      } else if (found) {
         better = found;
         label = siteName || '공식 사이트';
         console.log(`[CTA] 🔎 기관 안에서 행동 화면을 찾았습니다: ${found}`);
@@ -3473,11 +3507,14 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
     }
 
     if (!better || better === cta.url) {
-      if (wrongHost) {
+      // v3.8.740 — 원래 주소가 근거·공식 출처에 있는 집이면 "오배송" 이 아니다. 검증된 주소는 지킨다(biff.kr 은 .or.kr 이 아니어도 근거 8건의 집이었다)
+      const originalVerified = !!allowedHosts && allowedHosts.size > 0 && [...allowedHosts].some((h) => sameSite(h, apexHost(cta.url)));
+      if (wrongHost && !originalVerified) {
         // 공공 주제에 상업 사이트를 물리느니 버튼을 빼는 게 낫다 (독자를 오해시킨다)
         console.warn(`[CTA] 🚫 공공 주제 오배송을 대체하지 못해 CTA 를 뺍니다: ${cta.url}`);
         continue;
       }
+      if (wrongHost && originalVerified) console.log(`[CTA] ✅ 원래 주소가 근거 출처의 집이라 그대로 둡니다: ${cta.url}`);
       console.warn(`[CTA] 🏠 행동 화면을 못 찾아 홈으로 남깁니다 — 주제: "${keyword}": ${cta.url}`);
       out.push(cta);
       continue;
@@ -3514,7 +3551,11 @@ export async function generateCTAsFinal(
    * 그때 마지막으로 기댈 곳은 **내 블로그의 관련 글**이다. 이 값이 없으면 그 길도 막힌다.
    */
   blogUrl?: string,
+  /** v3.8.740 — 근거(EvidenceItem)의 URL. 공식 출처와 합쳐 CTA 후보의 "허용된 집" 목록이 된다. 안 주면 옛 경로(검사 없음) */
+  evidenceUrls?: string[],
 ): Promise<FinalCTAData[]> {
+  const allowedHosts = evidenceUrls ? allowedHostsFrom([...evidenceUrls, ...(officialSources || []).map((s) => s?.url)]) : undefined;
+  if (allowedHosts && allowedHosts.size) console.log(`[CTA] 🏠 허용된 집(근거·공식 출처 apex): ${[...allowedHosts].slice(0, 8).join(', ')}${allowedHosts.size > 8 ? ` 외 ${allowedHosts.size - 8}` : ''}`);
   // 🛡️ 애드센스 모드: CTA 완전 차단
   if (contentMode === 'adsense') {
     console.log('[CTA] 🛡️ 애드센스 모드 — CTA 생성 생략 (승인 정책 준수)');
@@ -4386,7 +4427,7 @@ JSON만 출력:
       });
       console.log(`[CTA] 🎯 행동 화면으로 연결(${doing}): ${actionUrl}`);
       onLog?.(`[PROGRESS] 70% - 🎯 CTA: ${actionHit!.label} ${doing} 화면`);
-      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies);
+      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies, allowedHosts);
     }
 
     const found = findFallbackSite([keyword, routerSite, ...ctaArticleAgencies]);
@@ -4583,7 +4624,7 @@ JSON만 출력:
    * v3.8.616: 마지막 관문 — 홈 주소면 행동 화면으로 갈아끼운다.
    * 라우터는 이미 물어봤으면 캐시에서 즉시 돌아온다(ensureSmartTarget 이 한 번만 부른다).
    */
-  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies);
+  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies, allowedHosts);
 }
 
 /**

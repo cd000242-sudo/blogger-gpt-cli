@@ -25,11 +25,12 @@ describe('배선 — 인자가 실제로 전달되는가', () => {
   const orchestration = read('src/core/final/orchestration.ts');
 
   it('generateCTAsFinal 이 blogUrl 을 받는다', () => {
-    expect(/export async function generateCTAsFinal\([\s\S]*?blogUrl\?: string,\s*\): Promise/.test(generation)).toBe(true);
+    // v3.8.740 부터 blogUrl 뒤에 evidenceUrls 가 더 있다 — blogUrl 이 매개변수로 남아 있는지만 본다
+    expect(/export async function generateCTAsFinal\([\s\S]*?blogUrl\?: string,[\s\S]*?\): Promise/.test(generation)).toBe(true);
   });
 
   it('호출부가 blogUrl 을 실제로 넘긴다 — 안 넘기면 폴백이 조용히 죽는다', () => {
-    expect(orchestration).toMatch(/generateCTAsFinal\(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl\)/);
+    expect(orchestration).toMatch(/generateCTAsFinal\(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl[,)]/);
   });
 
   it('넘기는 값이 빈 문자열로 굳어 있지 않다', () => {

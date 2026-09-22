@@ -4157,7 +4157,8 @@ ${quoted}
         (payload as any).blogUrl || (payload as any).wordpressSiteUrl || (payload as any).siteUrl || (payload as any).url ||
         loadEnvFromFile()['WORDPRESS_SITE_URL'] || ''
       ).trim().replace(/\/+$/, '');
-      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl);
+      // v3.8.740 — 근거 URL 을 넘겨 CTA 후보가 근거·공식 출처와 다른 집이면 버리게 한다(biff.kr → biky.or.kr 오배송)
+      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl, evidenceItems.map((i: any) => String(i?.url || '')).filter(Boolean));
     }
 
     // CTA 배치
