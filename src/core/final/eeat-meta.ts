@@ -149,17 +149,23 @@ export function buildEeatMeta(input: EeatMetaInput): EeatMetaResult {
     };
 }
 
-/** CSS 정의 — html.ts 또는 mode CSS에 inject */
+/**
+ * CSS 정의 — 스킨(html.ts generateCSSFinal)이 자기 <style> 안에 싣는다.
+ *
+ * v3.8.749: 예전에는 orchestration 이 이걸 **두 번째 <style>** 로 글 앞에 붙였고, 선택자가
+ * `.eeat-meta-box` 그대로라 글 밖(테마·위젯)의 같은 이름까지 꾸밀 수 있었다.
+ * 이제 스킨 한 블록 안에서 `.bgpt-content` 안만 꾸민다. `:where()` 는 점수를 더하지 않는다.
+ */
 export const EEAT_META_CSS = `
 /* E-E-A-T 메타 보강 */
-.eeat-meta-box { margin: 16px 0 28px; padding: 14px 18px; background: rgba(15,23,42,0.04); border-left: 3px solid #6366f1; border-radius: 6px; font-size: 13px; color: #475569; line-height: 1.7; }
-.eeat-meta-box span { white-space: nowrap; }
-.eeat-meta-box strong { color: #1e293b; font-weight: 700; }
-.eeat-meta-box em { color: #64748b; font-style: normal; font-size: 12px; }
-.eeat-meta-box time { color: #475569; font-weight: 500; }
-.eeat-cite { font-style: normal; color: #1e40af; border-bottom: 1px dotted rgba(30,64,175,0.4); cursor: help; }
+:where(.bgpt-content) .eeat-meta-box { margin: 16px 0 28px; padding: 14px 18px; background: rgba(15,23,42,0.04); border-left: 3px solid #6366f1; border-radius: 6px; font-size: 13px; color: #475569; line-height: 1.7; }
+:where(.bgpt-content) .eeat-meta-box span { white-space: nowrap; }
+:where(.bgpt-content) .eeat-meta-box strong { color: #1e293b; font-weight: 700; }
+:where(.bgpt-content) .eeat-meta-box em { color: #64748b; font-style: normal; font-size: 12px; }
+:where(.bgpt-content) .eeat-meta-box time { color: #475569; font-weight: 500; }
+:where(.bgpt-content) .eeat-cite { font-style: normal; color: #1e40af; border-bottom: 1px dotted rgba(30,64,175,0.4); cursor: help; }
 @media (max-width: 768px) {
-  .eeat-meta-box { font-size: 12px; padding: 12px 14px; }
-  .eeat-meta-box > div { flex-direction: column; align-items: flex-start !important; gap: 6px !important; }
+  :where(.bgpt-content) .eeat-meta-box { font-size: 12px; padding: 12px 14px; }
+  :where(.bgpt-content) .eeat-meta-box > div { flex-direction: column; align-items: flex-start !important; gap: 6px !important; }
 }
 `;

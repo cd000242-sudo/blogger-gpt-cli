@@ -6,6 +6,8 @@
  * - generateBloggerTOCFinal: 블로그스팟 목차
  */
 
+import { EEAT_META_CSS } from './eeat-meta';
+
 type EyeComfortPalette = {
   name: string;
   primary: string;
@@ -207,11 +209,20 @@ export function generateCSSFinal(platform?: string, contentMode?: string): strin
    ============================================
    !important: only on layout/container overrides.
    Typography uses specificity.
+   ============================================
+
+   v3.8.749 — 이 스킨은 **글 안(.bgpt-content)만** 꾸민다.
+     · 테마의 틀(#primary·#main·.site-content·.entry-content·article.post …)은 건드리지 않는다.
+       예전엔 여기에 width·padding !important 를 걸어 사장님 블로그 본문 상자가 메뉴 막대보다
+       40px 튀어나왔고, 사이드바를 쓰는 테마에서는 사이드바를 밀어냈다.
+     · .bgpt-content 로 시작하지 않는 선택자는 앞에 :where(.bgpt-content) 를 붙인다.
+       :where() 는 점수를 더하지 않아 아래 「먹과 놋쇠」 층이 이기던 순서가 그대로다.
+     · @import 는 반드시 맨 앞에 둔다. 규칙 뒤의 @import 는 브라우저가 버린다 —
+       Gowun Batang 이 규칙 77개 뒤에 있어 승인한 제목 글꼴이 한 번도 안 나갔다.
    ============================================ */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
-
-html { scroll-behavior: smooth !important; }
-
+@import url("https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+${EEAT_META_CSS}
 /* === CSS Custom Properties === */
 .bgpt-content {
   --rv-primary: ${theme.primary};
@@ -239,7 +250,7 @@ html { scroll-behavior: smooth !important; }
 }
 
 /* 🛡️ 플랫폼 테마 강제 오버라이드 (티스토리/블로그스팟/워드프레스 공용) */
-.gradient-frame {
+:where(.bgpt-content) .gradient-frame {
   width: 100% !important;
   max-width: 100% !important;
   background: linear-gradient(135deg, ${theme.gradientStart} 0%, ${theme.gradientEnd} 100%) !important;
@@ -252,7 +263,7 @@ html { scroll-behavior: smooth !important; }
   overflow: hidden !important;
 }
 
-.white-paper {
+:where(.bgpt-content) .white-paper {
   background-color: #FFFFFF !important;
   border-radius: 20px !important;
   padding: 60px 40px !important;
@@ -264,7 +275,7 @@ html { scroll-behavior: smooth !important; }
 }
 
 /* === 타이포그래피 === */
-.white-paper h1.post-title {
+:where(.bgpt-content) .white-paper h1.post-title {
   font-size: 32px !important;
   font-weight: 900;
   color: ${theme.heading1};
@@ -273,7 +284,7 @@ html { scroll-behavior: smooth !important; }
   word-break: keep-all !important;
 }
 
-.white-paper h2 {
+:where(.bgpt-content) .white-paper h2 {
   color: ${theme.primary};
   font-weight: 800;
   font-size: 26px !important;
@@ -291,7 +302,7 @@ html { scroll-behavior: smooth !important; }
 /* v3.8.419: H3가 그냥 굵은 텍스트뿐이라 H2 사이 구간에서 눈에 안 띈다는 지적 —
    눈에 편안한 파스텔 색상 박스로 감싼다. 완전 무작위가 아니라 순서대로 6색을 돌려
    같은 글 안에서 색이 튀지 않고 그래도 섹션마다 구분되게 한다. */
-.white-paper h3 {
+:where(.bgpt-content) .white-paper h3 {
   font-size: 21px !important;
   font-weight: 700;
   color: #0f172a;
@@ -302,14 +313,14 @@ html { scroll-behavior: smooth !important; }
   border-radius: 12px !important;
   border: 1.5px solid transparent !important;
 }
-.white-paper h3:nth-of-type(6n+1) { background: #fef3f2 !important; border-color: #fecdca !important; }
-.white-paper h3:nth-of-type(6n+2) { background: #eff8ff !important; border-color: #b9e0fe !important; }
-.white-paper h3:nth-of-type(6n+3) { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
-.white-paper h3:nth-of-type(6n+4) { background: #fefbea !important; border-color: #fde68a !important; }
-.white-paper h3:nth-of-type(6n+5) { background: #f5f3ff !important; border-color: #ddd6fe !important; }
-.white-paper h3:nth-of-type(6n+6) { background: #fdf2f8 !important; border-color: #fbcfe8 !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+1) { background: #fef3f2 !important; border-color: #fecdca !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+2) { background: #eff8ff !important; border-color: #b9e0fe !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+3) { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+4) { background: #fefbea !important; border-color: #fde68a !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+5) { background: #f5f3ff !important; border-color: #ddd6fe !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+6) { background: #fdf2f8 !important; border-color: #fbcfe8 !important; }
 
-.white-paper p {
+:where(.bgpt-content) .white-paper p {
   font-size: 17px !important;
   line-height: 1.75;
   margin: 0 0 14px !important;
@@ -317,21 +328,21 @@ html { scroll-behavior: smooth !important; }
   word-break: keep-all !important;
 }
 
-.white-paper strong {
+:where(.bgpt-content) .white-paper strong {
   color: ${theme.primary} !important;
   font-weight: 700 !important;
   background: linear-gradient(180deg, transparent 60%, ${theme.primaryLight} 40%) !important;
 }
 
 /* === 목차 (TOC Grid) === */
-.toc-grid-container {
+:where(.bgpt-content) .toc-grid-container {
   margin: 40px 0 !important;
   padding: 30px !important;
   background: #f8fafc !important;
   border-radius: 20px !important;
   border: 1px solid #e2e8f0 !important;
 }
-.toc-grid-container h3 {
+:where(.bgpt-content) .toc-grid-container h3 {
   margin: 0 0 20px 0 !important;
   font-size: 20px !important;
   font-weight: 800 !important;
@@ -340,13 +351,13 @@ html { scroll-behavior: smooth !important; }
   align-items: center !important;
   gap: 8px !important;
 }
-.toc-grid {
+:where(.bgpt-content) .toc-grid {
   display: flex !important;
   flex-direction: column !important;
   gap: 8px !important;
   width: 100% !important;
 }
-.toc-btn {
+:where(.bgpt-content) .toc-btn {
   background: #ffffff !important;
   border: 1px solid #e2e8f0 !important;
   padding: 14px 16px !important;
@@ -363,14 +374,14 @@ html { scroll-behavior: smooth !important; }
   transition: all 0.2s ease;
   box-shadow: 0 2px 4px rgba(0,0,0,0.02);
 }
-.toc-btn:hover {
+:where(.bgpt-content) .toc-btn:hover {
   background: ${theme.gradientStart} !important;
   color: ${theme.ctaAccent};
   border-color: ${theme.tocBtnHoverBorder} !important;
   transform: translateY(-2px) !important;
   box-shadow: 0 6px 12px rgba(0,0,0,0.05);
 }
-.toc-number {
+:where(.bgpt-content) .toc-number {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -405,7 +416,7 @@ html { scroll-behavior: smooth !important; }
   100% { transform: translateX(220%)  skewX(-20deg); }
 }
 
-.cta-box {
+:where(.bgpt-content) .cta-box {
   position: relative !important;
   width: 100% !important;
   max-width: 640px !important;
@@ -429,7 +440,7 @@ html { scroll-behavior: smooth !important; }
   overflow: hidden;
 }
 /* 부드러운 상단 광택 (글래스 느낌) */
-.cta-box::before {
+:where(.bgpt-content) .cta-box::before {
   content: "" !important;
   position: absolute !important;
   inset: 0 0 auto 0 !important;
@@ -439,7 +450,7 @@ html { scroll-behavior: smooth !important; }
   z-index: 0;
 }
 /* 좌측 골드 액센트 라인 (프리미엄 시그니처) */
-.cta-box::after {
+:where(.bgpt-content) .cta-box::after {
   content: "" !important;
   position: absolute !important;
   left: 0; top: 18%; bottom: 18% !important;
@@ -448,9 +459,9 @@ html { scroll-behavior: smooth !important; }
   border-radius: 0 4px 4px 0 !important;
   z-index: 1;
 }
-.cta-box > * { position: relative; z-index: 2; }
+:where(.bgpt-content) .cta-box > * { position: relative; z-index: 2; }
 /* 골드 배지 (LIMITED / 권장 표식) */
-.cta-box .cta-badge {
+:where(.bgpt-content) .cta-box .cta-badge {
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
@@ -467,7 +478,7 @@ html { scroll-behavior: smooth !important; }
     0 1px 0 rgba(255,255,255,0.6) inset,
     0 4px 10px rgba(245, 158, 11, 0.4) !important;
 }
-.cta-box p {
+:where(.bgpt-content) .cta-box p {
   margin: 0 auto !important;
   font-size: 21px !important;
   font-weight: 800 !important;
@@ -477,7 +488,7 @@ html { scroll-behavior: smooth !important; }
   word-break: keep-all;
   max-width: 92% !important;
 }
-.cta-btn {
+:where(.bgpt-content) .cta-btn {
   position: relative !important;
   display: inline-flex !important;
   align-items: center !important;
@@ -504,12 +515,12 @@ html { scroll-behavior: smooth !important; }
   z-index: 0 !important;
 }
 /* v3.8.32: cta-btn 내부 텍스트는 광택보다 위에 — 흐릿함 차단 */
-.cta-btn > * {
+:where(.bgpt-content) .cta-btn > * {
   position: relative !important;
   z-index: 2 !important;
 }
 /* 우측 화살표 — hover 시 미세 슬라이드 */
-.cta-btn::after {
+:where(.bgpt-content) .cta-btn::after {
   content: "→" !important;
   font-size: 20px !important;
   font-weight: 900 !important;
@@ -519,7 +530,7 @@ html { scroll-behavior: smooth !important; }
   z-index: 2 !important;
 }
 /* 광택 슬라이드 — v3.8.32: alpha 35%→15%로 약화 + z-index 1 (텍스트 뒤로) */
-.cta-btn::before {
+:where(.bgpt-content) .cta-btn::before {
   content: "" !important;
   position: absolute !important;
   top: 0; left: 0; bottom: 0; width: 40% !important;
@@ -528,15 +539,15 @@ html { scroll-behavior: smooth !important; }
   pointer-events: none !important;
   z-index: 1 !important;
 }
-.cta-btn:hover {
+:where(.bgpt-content) .cta-btn:hover {
   transform: translateY(-3px) scale(1.015) !important;
   box-shadow:
     0 1px 0 rgba(255,255,255,0.5) inset,
     0 10px 26px rgba(220, 38, 38, 0.55),
     0 22px 54px -10px rgba(220, 38, 38, 0.65) !important;
 }
-.cta-btn:hover::after { transform: translateX(6px) !important; }
-.cta-microcopy {
+:where(.bgpt-content) .cta-btn:hover::after { transform: translateX(6px) !important; }
+:where(.bgpt-content) .cta-microcopy {
   display: block !important;
   margin: 0 !important;
   font-size: 13px !important;
@@ -547,7 +558,7 @@ html { scroll-behavior: smooth !important; }
 }
 
 /* === 면책 조항 === */
-.disclaimer {
+:where(.bgpt-content) .disclaimer {
   font-size: 13px !important;
   color: #94a3b8 !important;
   background: #f8fafc !important;
@@ -576,55 +587,19 @@ html { scroll-behavior: smooth !important; }
 }
 
 /* === 🔥 플랫폼 테마 폭 강제 확장 (부모 컨테이너 override) === */
-.entry-content,
-.post-content,
-.page-content,
-.site-content,
-.site-content .content-area,
-.content-area,
-.site-main,
-main.site-main,
-#primary,
-#main,
-.wp-site-blocks,
-.type-post .entry-content,
-.single-post .entry-content,
-article .entry-content,
-.wp-block-post-content,
-.entry-content > .wp-block-group,
-.entry-content > .wp-block-group > .wp-block-group__inner-container,
-.entry-content > .alignwide,
-.entry-content > .alignfull,
-.wp-block-table,
-.wp-block-table table,
-.post-body,
-.post-body.entry-content,
-.post-outer,
-.blog-posts,
-.blog-posts .post,
-.blog-posts .post-outer,
-.Blog .post,
-article.post,
-article.hentry {
-  max-width: 100% !important;
-  width: 100% !important;
-  padding-left: 0 !important;
-  padding-right: 0 !important;
-  box-sizing: border-box !important;
-}
 
 /* === 이미지 === */
-.white-paper .section-image {
+:where(.bgpt-content) .white-paper .section-image {
   margin: 32px 0 40px !important;
 }
-.white-paper .section-image img {
+:where(.bgpt-content) .white-paper .section-image img {
   width: 100% !important;
   height: auto !important;
   border-radius: 12px !important;
   display: block !important;
   box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05) !important;
 }
-.white-paper .section-image figcaption {
+:where(.bgpt-content) .white-paper .section-image figcaption {
   text-align: center !important;
   font-size: 13px !important;
   color: #64748b !important;
@@ -635,7 +610,7 @@ article.hentry {
 /* === 인용구 (Blockquote) === */
 /* v3.8.419: 왼쪽 색 줄만 있던 연한 박스가 흐릿해 눈에 잘 안 띈다는 지적 —
    테두리를 검은색으로 뚜렷하게 둘러 그린다(사용자: "테두리를 검은색으로 뚜렷하게 보이게"). */
-.white-paper blockquote {
+:where(.bgpt-content) .white-paper blockquote {
   margin: 32px 0 !important;
   padding: 24px 30px !important;
   background: #f8fafc !important;
@@ -647,20 +622,20 @@ article.hentry {
 }
 
 /* === 표 === */
-.white-paper .table-wrapper {
+:where(.bgpt-content) .white-paper .table-wrapper {
   width: 100% !important;
   overflow-x: auto !important;
   margin: 32px 0 !important;
   border-radius: 12px !important;
   border: 1px solid #e2e8f0 !important;
 }
-.white-paper table {
+:where(.bgpt-content) .white-paper table {
   width: 100% !important;
   min-width: 500px !important;
   border-collapse: collapse !important;
   font-size: 15px !important;
 }
-.white-paper th {
+:where(.bgpt-content) .white-paper th {
   background: #f1f5f9 !important;
   color: #1e293b;
   font-weight: 800;
@@ -668,13 +643,13 @@ article.hentry {
   text-align: left !important;
   border-bottom: 2px solid #cbd5e1 !important;
 }
-.white-paper td {
+:where(.bgpt-content) .white-paper td {
   padding: 16px 20px !important;
   border-bottom: 1px solid #e2e8f0 !important;
   color: #334155;
   background: #ffffff !important;
 }
-.white-paper tr:nth-child(even) td {
+:where(.bgpt-content) .white-paper tr:nth-child(even) td {
   background: #f8fafc !important;
 }
 
@@ -724,14 +699,14 @@ article.hentry {
    🛡️ AdSense Ad-Safe Zone — Auto-Ads가 표/CTA 내부에 광고를 삽입하지 못하도록 차단
    (Google은 class="ad-safe-zone", data-ad-region, role 기반으로 광고 배치를 회피)
    ═══════════════════════════════════════════════════════════════ */
-.ad-safe-zone {
+:where(.bgpt-content) .ad-safe-zone {
   position: relative !important;
   isolation: isolate !important;  /* 광고 주입 stacking context 격리 */
   contain: layout style !important;  /* 레이아웃 오염 방지 */
   overflow-x: auto !important;
   -webkit-overflow-scrolling: touch !important;
 }
-.ad-safe-zone[data-ad-region="no-ad"]::before {
+:where(.bgpt-content) .ad-safe-zone[data-ad-region="no-ad"]::before {
   /* AdSense 크롤러 시그널 — 이 영역은 광고 배치 불가 */
   content: "";
   display: none;
@@ -740,24 +715,24 @@ article.hentry {
 /* ═══════════════════════════════════════════════════════════════
    📊 Responsive Table — 반응형 표 (모바일 최적화 + AdSense 침입 차단)
    ═══════════════════════════════════════════════════════════════ */
-.table-wrapper {
+:where(.bgpt-content) .table-wrapper {
   width: 100% !important;
   max-width: 100% !important;
   overflow-x: auto !important;
   -webkit-overflow-scrolling: touch !important;
   margin: 28px 0 !important;
 }
-.summary-container {
+:where(.bgpt-content) .summary-container {
   padding: 24px !important;
 }
-.responsive-table {
+:where(.bgpt-content) .responsive-table {
   width: 100% !important;
   max-width: 100% !important;
   border-collapse: collapse !important;
   table-layout: auto !important;
 }
-.responsive-table th,
-.responsive-table td {
+:where(.bgpt-content) .responsive-table th,
+:where(.bgpt-content) .responsive-table td {
   word-break: break-word !important;
   overflow-wrap: break-word !important;
   white-space: normal !important;
@@ -765,47 +740,6 @@ article.hentry {
 
 /* ===== 📱 스마트폰 반응형 (max-width: 768px) ===== */
 @media (max-width: 768px) {
-  .entry-content,
-  .post-content,
-  .page-content,
-  .site-content,
-  .site-content .content-area,
-  .content-area,
-  .site-main,
-  main.site-main,
-  #primary,
-  #main,
-  .wp-site-blocks,
-  .type-post .entry-content,
-  .single-post .entry-content,
-  article .entry-content,
-  .wp-block-post-content,
-  .entry-content > .wp-block-group,
-  .entry-content > .wp-block-group > .wp-block-group__inner-container,
-  .entry-content > .alignwide,
-  .entry-content > .alignfull,
-  .wp-block-table,
-  .wp-block-table table,
-  .post-body,
-  .post-body.entry-content,
-  .post-outer,
-  .blog-posts,
-  .blog-posts .post,
-  .blog-posts .post-outer,
-  .Blog .post,
-  article.post,
-  article.hentry {
-    max-width: 100% !important;
-    width: 100% !important;
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    border-left: 0 !important;
-    border-right: 0 !important;
-    box-shadow: none !important;
-    box-sizing: border-box !important;
-  }
 
   .bgpt-content {
     width: calc(100vw - 12px) !important;
@@ -817,7 +751,7 @@ article.hentry {
     box-sizing: border-box !important;
     overflow: visible !important;
   }
-  .gradient-frame {
+  :where(.bgpt-content) .gradient-frame {
     width: 100% !important;
     max-width: 100% !important;
     background: transparent !important;
@@ -826,7 +760,7 @@ article.hentry {
     margin: 18px 0 28px !important;
     overflow: visible !important;
   }
-  .white-paper {
+  :where(.bgpt-content) .white-paper {
     width: 100% !important;
     max-width: 100% !important;
     padding: 18px 4px 44px !important;
@@ -834,11 +768,11 @@ article.hentry {
     border: 0 !important;
     box-shadow: none !important;
   }
-  .white-paper h1.post-title { font-size: 26px !important; }
-  .white-paper h2 { font-size: 22px !important; margin: 40px 0 20px !important; }
-  .white-paper p { font-size: 16px !important; line-height: 1.8 !important; }
+  :where(.bgpt-content) .white-paper h1.post-title { font-size: 26px !important; }
+  :where(.bgpt-content) .white-paper h2 { font-size: 22px !important; margin: 40px 0 20px !important; }
+  :where(.bgpt-content) .white-paper p { font-size: 16px !important; line-height: 1.8 !important; }
 
-  .toc-grid-container {
+  :where(.bgpt-content) .toc-grid-container {
     margin: 28px 0 !important;
     padding: 0 !important;
     background: transparent !important;
@@ -846,9 +780,9 @@ article.hentry {
     border-radius: 0 !important;
     box-shadow: none !important;
   }
-  .toc-btn { padding: 14px 16px !important; font-size: 15px !important; }
+  :where(.bgpt-content) .toc-btn { padding: 14px 16px !important; font-size: 15px !important; }
 
-  .cta-box {
+  :where(.bgpt-content) .cta-box {
     margin: 28px 0 !important;
     padding: 0 !important;
     max-width: 100% !important;
@@ -857,7 +791,7 @@ article.hentry {
     border-radius: 0 !important;
     box-shadow: none !important;
   }
-  .cta-btn {
+  :where(.bgpt-content) .cta-btn {
     padding: 14px 16px !important;
     font-size: 16px !important;
     width: 100% !important;
@@ -865,7 +799,7 @@ article.hentry {
   }
 
   /* 📊 모바일 표 — 글자/패딩 축소 + 줄바꿈 강제 */
-  .table-wrapper {
+  :where(.bgpt-content) .table-wrapper {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
@@ -878,30 +812,30 @@ article.hentry {
     overflow-x: visible !important;
     box-sizing: border-box !important;
   }
-  .ad-safe-zone,
-  .white-paper .table-wrapper,
-  .wp-block-table {
+  :where(.bgpt-content) .ad-safe-zone,
+  :where(.bgpt-content) .white-paper .table-wrapper,
+  :where(.bgpt-content) .wp-block-table {
     contain: none !important;
     overflow: visible !important;
   }
-  .white-paper table,
-  .responsive-table {
+  :where(.bgpt-content) .white-paper table,
+  :where(.bgpt-content) .responsive-table {
     width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
     table-layout: auto !important;
   }
-  .responsive-table {
+  :where(.bgpt-content) .responsive-table {
     font-size: 14px !important;
   }
-  .responsive-table th,
-  .responsive-table .rt-th {
+  :where(.bgpt-content) .responsive-table th,
+  :where(.bgpt-content) .responsive-table .rt-th {
     padding: 10px 10px !important;
     font-size: 12px !important;
     letter-spacing: 0.02em !important;
   }
-  .responsive-table td,
-  .responsive-table .rt-td {
+  :where(.bgpt-content) .responsive-table td,
+  :where(.bgpt-content) .responsive-table .rt-td {
     padding: 11px 9px !important;
     font-size: 14px !important;
     line-height: 1.58 !important;
@@ -910,25 +844,25 @@ article.hentry {
     overflow-wrap: break-word !important;
     white-space: normal !important;
   }
-  .responsive-table,
-  .responsive-table tbody,
-  .responsive-table tr,
-  .responsive-table td {
+  :where(.bgpt-content) .responsive-table,
+  :where(.bgpt-content) .responsive-table tbody,
+  :where(.bgpt-content) .responsive-table tr,
+  :where(.bgpt-content) .responsive-table td {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
   }
-  .responsive-table thead {
+  :where(.bgpt-content) .responsive-table thead {
     display: none !important;
   }
-  .responsive-table {
+  :where(.bgpt-content) .responsive-table {
     border-collapse: separate !important;
     border-spacing: 0 !important;
     background: transparent !important;
     overflow: visible !important;
   }
-  .responsive-table tr {
+  :where(.bgpt-content) .responsive-table tr {
     margin: 0 0 12px !important;
     overflow: hidden !important;
     border: 1px solid #dbe3ef !important;
@@ -936,8 +870,8 @@ article.hentry {
     background: #ffffff !important;
     box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06) !important;
   }
-  .responsive-table td,
-  .responsive-table .rt-td {
+  :where(.bgpt-content) .responsive-table td,
+  :where(.bgpt-content) .responsive-table .rt-td {
     padding: 12px 14px !important;
     border: 0 !important;
     border-bottom: 1px solid #edf2f7 !important;
@@ -947,10 +881,10 @@ article.hentry {
     line-height: 1.6 !important;
     text-align: left !important;
   }
-  .responsive-table td:last-child {
+  :where(.bgpt-content) .responsive-table td:last-child {
     border-bottom: 0 !important;
   }
-  .responsive-table td::before {
+  :where(.bgpt-content) .responsive-table td::before {
     content: attr(data-label);
     display: block !important;
     margin-bottom: 4px !important;
@@ -960,17 +894,17 @@ article.hentry {
     color: #64748b !important;
     letter-spacing: 0 !important;
   }
-  .responsive-table td[data-label=""]::before {
+  :where(.bgpt-content) .responsive-table td[data-label=""]::before {
     display: none !important;
   }
   /* 이미지 — 모바일에서도 100% 유지 */
-  .white-paper img {
+  :where(.bgpt-content) .white-paper img {
     max-width: 100% !important;
     height: auto !important;
   }
 
   /* 📊 상단 요약표 컨테이너 — 모바일 패딩 축소로 표 짤림 방지 */
-  .summary-container {
+  :where(.bgpt-content) .summary-container {
     width: 100% !important;
     max-width: 100% !important;
     padding: 0 !important;
@@ -981,30 +915,30 @@ article.hentry {
     background: transparent !important;
     overflow: visible !important;
   }
-  .summary-container .table-wrapper {
+  :where(.bgpt-content) .summary-container .table-wrapper {
     margin: 12px 0 0 !important;
     width: 100% !important;
     max-width: 100% !important;
     overflow: visible !important;
   }
-  .summary-container .summary-table,
-  .summary-container .summary-table tbody,
-  .summary-container .summary-table tr,
-  .summary-container .summary-table td {
+  :where(.bgpt-content) .summary-container .summary-table,
+  :where(.bgpt-content) .summary-container .summary-table tbody,
+  :where(.bgpt-content) .summary-container .summary-table tr,
+  :where(.bgpt-content) .summary-container .summary-table td {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
   }
-  .summary-container .summary-table thead {
+  :where(.bgpt-content) .summary-container .summary-table thead {
     display: none !important;
   }
-  .summary-container .summary-table {
+  :where(.bgpt-content) .summary-container .summary-table {
     border-collapse: separate !important;
     border-spacing: 0 !important;
     font-size: 14px !important;
   }
-  .summary-container .summary-table tr {
+  :where(.bgpt-content) .summary-container .summary-table tr {
     margin: 0 0 12px !important;
     overflow: hidden !important;
     border: 1px solid #dbe3ef !important;
@@ -1012,8 +946,8 @@ article.hentry {
     background: #ffffff !important;
     box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06) !important;
   }
-  .summary-container .summary-table td,
-  .summary-container .summary-table .rt-td {
+  :where(.bgpt-content) .summary-container .summary-table td,
+  :where(.bgpt-content) .summary-container .summary-table .rt-td {
     padding: 12px 14px !important;
     border: 0 !important;
     border-bottom: 1px solid #edf2f7 !important;
@@ -1026,10 +960,10 @@ article.hentry {
     overflow-wrap: break-word !important;
     white-space: normal !important;
   }
-  .summary-container .summary-table td:last-child {
+  :where(.bgpt-content) .summary-container .summary-table td:last-child {
     border-bottom: 0 !important;
   }
-  .summary-container .summary-table td::before {
+  :where(.bgpt-content) .summary-container .summary-table td::before {
     content: attr(data-label);
     display: block !important;
     margin-bottom: 4px !important;
@@ -1044,17 +978,17 @@ article.hentry {
      다른 다중 컬럼 표(스펙 비교표 등)는 카드형이 맞지만, 이 표는 라벨이 짧은 2열
      key-value 표라 나란히 두는 편이 오히려 더 압축적이고 빨리 읽힌다 — 카드형 스택을
      여기서만 되돌린다(선택자 특이도가 위 규칙보다 높아 우선 적용된다). */
-  .summary-container .summary-table {
+  :where(.bgpt-content) .summary-container .summary-table {
     display: table !important;
     table-layout: fixed !important;
   }
-  .summary-container .summary-table thead {
+  :where(.bgpt-content) .summary-container .summary-table thead {
     display: table-header-group !important;
   }
-  .summary-container .summary-table tbody {
+  :where(.bgpt-content) .summary-container .summary-table tbody {
     display: table-row-group !important;
   }
-  .summary-container .summary-table tr {
+  :where(.bgpt-content) .summary-container .summary-table tr {
     display: table-row !important;
     margin: 0 !important;
     overflow: visible !important;
@@ -1063,29 +997,29 @@ article.hentry {
     background: transparent !important;
     box-shadow: none !important;
   }
-  .summary-container .summary-table td,
-  .summary-container .summary-table .rt-td {
+  :where(.bgpt-content) .summary-container .summary-table td,
+  :where(.bgpt-content) .summary-container .summary-table .rt-td {
     display: table-cell !important;
     border: 0 !important;
     border-bottom: 1px solid #edf2f7 !important;
   }
-  .summary-container .summary-table td::before {
+  :where(.bgpt-content) .summary-container .summary-table td::before {
     content: none !important;
     display: none !important;
   }
-  .summary-container .summary-table th:first-child,
-  .summary-container .summary-table td:first-child {
+  :where(.bgpt-content) .summary-container .summary-table th:first-child,
+  :where(.bgpt-content) .summary-container .summary-table td:first-child {
     width: 34% !important;
     font-weight: 700 !important;
     color: #475569 !important;
   }
-  .white-paper .highlight,
-  .white-paper .warning,
-  .white-paper .success,
-  .white-paper .data-box,
-  .white-paper .checklist,
-  .white-paper .quote,
-  .white-paper .cta-section {
+  :where(.bgpt-content) .white-paper .highlight,
+  :where(.bgpt-content) .white-paper .warning,
+  :where(.bgpt-content) .white-paper .success,
+  :where(.bgpt-content) .white-paper .data-box,
+  :where(.bgpt-content) .white-paper .checklist,
+  :where(.bgpt-content) .white-paper .quote,
+  :where(.bgpt-content) .white-paper .cta-section {
     margin: 22px 0 !important;
     padding: 0 !important;
     background: transparent !important;
@@ -1094,14 +1028,14 @@ article.hentry {
     box-shadow: none !important;
     max-width: 100% !important;
   }
-  .white-paper .data-box {
+  :where(.bgpt-content) .white-paper .data-box {
     border-left-width: 4px !important;
   }
-  .white-paper .data-box h4 {
+  :where(.bgpt-content) .white-paper .data-box h4 {
     font-size: 18px !important;
     margin-bottom: 12px !important;
   }
-  .white-paper .data-box p {
+  :where(.bgpt-content) .white-paper .data-box p {
     font-size: 16px !important;
     line-height: 1.75 !important;
   }
@@ -1110,40 +1044,40 @@ article.hentry {
 /* ===== 📱 초소형 스마트폰 반응형 (max-width: 380px) ===== */
 @media (max-width: 380px) {
   .bgpt-content { padding: 0 !important; }
-  .white-paper { padding: 18px 4px 42px !important; }
-  .white-paper h1.post-title { font-size: 22px !important; }
-  .white-paper h2 { font-size: 19px !important; }
-  .white-paper p { font-size: 15px !important; }
-  .toc-grid-container,
-  .cta-box,
-  .summary-container,
-  .white-paper .highlight,
-  .white-paper .warning,
-  .white-paper .success,
-  .white-paper .data-box,
-  .white-paper .checklist,
-  .white-paper .quote,
-  .white-paper .cta-section {
+  :where(.bgpt-content) .white-paper { padding: 18px 4px 42px !important; }
+  :where(.bgpt-content) .white-paper h1.post-title { font-size: 22px !important; }
+  :where(.bgpt-content) .white-paper h2 { font-size: 19px !important; }
+  :where(.bgpt-content) .white-paper p { font-size: 15px !important; }
+  :where(.bgpt-content) .toc-grid-container,
+  :where(.bgpt-content) .cta-box,
+  :where(.bgpt-content) .summary-container,
+  :where(.bgpt-content) .white-paper .highlight,
+  :where(.bgpt-content) .white-paper .warning,
+  :where(.bgpt-content) .white-paper .success,
+  :where(.bgpt-content) .white-paper .data-box,
+  :where(.bgpt-content) .white-paper .checklist,
+  :where(.bgpt-content) .white-paper .quote,
+  :where(.bgpt-content) .white-paper .cta-section {
     padding-left: 12px !important;
     padding-right: 12px !important;
   }
 
-  .responsive-table {
+  :where(.bgpt-content) .responsive-table {
     font-size: 12px !important;
   }
-  .responsive-table th,
-  .responsive-table .rt-th {
+  :where(.bgpt-content) .responsive-table th,
+  :where(.bgpt-content) .responsive-table .rt-th {
     padding: 8px 6px !important;
     font-size: 11px !important;
   }
-  .responsive-table td,
-  .responsive-table .rt-td {
+  :where(.bgpt-content) .responsive-table td,
+  :where(.bgpt-content) .responsive-table .rt-td {
     padding: 8px 6px !important;
     font-size: 12px !important;
   }
 
   /* 📊 초소형 화면 — 요약표 컨테이너 패딩 추가 축소 */
-  .summary-container {
+  :where(.bgpt-content) .summary-container {
     padding: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
@@ -1176,7 +1110,7 @@ article.hentry {
 }
 
 /* === 📦 시맨틱 콘텐츠 클래스 (prompt.ts 출력용) === */
-.white-paper .highlight {
+:where(.bgpt-content) .white-paper .highlight {
   background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
   padding: 20px !important;
   border-radius: 12px !important;
@@ -1184,7 +1118,7 @@ article.hentry {
   margin: 20px 0 !important;
   box-shadow: 0 2px 10px rgba(245, 158, 11, 0.15) !important;
 }
-.white-paper .warning {
+:where(.bgpt-content) .white-paper .warning {
   background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
   border: 3px solid #fecaca !important;
   color: #dc2626 !important;
@@ -1192,7 +1126,7 @@ article.hentry {
   border-radius: 12px !important;
   margin: 20px 0 !important;
 }
-.white-paper .success {
+:where(.bgpt-content) .white-paper .success {
   background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%) !important;
   border: 3px solid #bbf7d0 !important;
   color: #16a34a !important;
@@ -1200,7 +1134,7 @@ article.hentry {
   border-radius: 12px !important;
   margin: 20px 0 !important;
 }
-.white-paper .data-box {
+:where(.bgpt-content) .white-paper .data-box {
   background: #dbeafe !important;
   border-left: 5px solid #2563eb !important;
   padding: 24px 28px !important;
@@ -1208,7 +1142,7 @@ article.hentry {
   margin: 24px 0 !important;
   color: #111827 !important;
 }
-.white-paper .data-box h4 {
+:where(.bgpt-content) .white-paper .data-box h4 {
   color: #111827 !important;
   margin: 0 0 22px !important;
   font-size: 24px !important;
@@ -1217,31 +1151,31 @@ article.hentry {
   padding: 0 !important;
   border: 0 !important;
 }
-.white-paper .data-box p {
+:where(.bgpt-content) .white-paper .data-box p {
   color: #111827 !important;
   margin: 0 0 14px !important;
   font-size: 22px !important;
   line-height: 1.65 !important;
 }
-.white-paper .data-box a {
+:where(.bgpt-content) .white-paper .data-box a {
   color: ${theme.ctaHover} !important;
   text-decoration: underline !important;
   border-bottom: 0 !important;
   font-weight: 700 !important;
 }
-.white-paper .checklist {
+:where(.bgpt-content) .white-paper .checklist {
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%) !important;
   padding: 20px !important;
   border-radius: 12px !important;
   border: 3px solid #bae6fd !important;
   margin: 20px 0 !important;
 }
-.white-paper .checklist li {
+:where(.bgpt-content) .white-paper .checklist li {
   margin: 10px 0 !important;
   padding-left: 12px !important;
   position: relative !important;
 }
-.white-paper .quote {
+:where(.bgpt-content) .white-paper .quote {
   border-left: 5px solid ${theme.primary} !important;
   padding: 16px 20px !important;
   margin: 20px 0 !important;
@@ -1250,15 +1184,15 @@ article.hentry {
   background: #f8fafc !important;
   border-radius: 0 8px 8px 0 !important;
 }
-.white-paper .comparison-table {
+:where(.bgpt-content) .white-paper .comparison-table {
   background: linear-gradient(135deg, #fefce8 0%, #fef3c7 100%) !important;
   border: 3px solid #fde047 !important;
 }
-.white-paper .comparison-table th {
+:where(.bgpt-content) .white-paper .comparison-table th {
   background: linear-gradient(135deg, #fef3c7 0%, #fde047 100%) !important;
   color: #92400e !important;
 }
-.white-paper .cta-section {
+:where(.bgpt-content) .white-paper .cta-section {
   background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%) !important;
   padding: 24px !important;
   border-radius: 16px !important;
@@ -1266,19 +1200,19 @@ article.hentry {
   text-align: center !important;
   border: 2px solid ${theme.primary} !important;
 }
-.white-paper .cta-section h3 {
+:where(.bgpt-content) .white-paper .cta-section h3 {
   color: ${theme.heading1} !important;
   margin: 0 0 16px !important;
   font-size: 1.3em !important;
   font-weight: 700 !important;
 }
-.white-paper .cta-section p {
+:where(.bgpt-content) .white-paper .cta-section p {
   color: #374151 !important;
   margin: 0 0 20px !important;
   font-size: 1.05em !important;
   line-height: 1.6 !important;
 }
-.white-paper .cta-button {
+:where(.bgpt-content) .white-paper .cta-button {
   display: inline-block !important;
   background: linear-gradient(135deg, var(--rv-cta-button-start) 0%, var(--rv-cta-button-end) 100%) !important;
   color: white !important;
@@ -1291,11 +1225,11 @@ article.hentry {
   transition: all 0.3s ease;
   box-shadow: 0 4px 15px var(--rv-cta-shadow);
 }
-.white-paper .cta-button:hover {
+:where(.bgpt-content) .white-paper .cta-button:hover {
   transform: translateY(-2px) !important;
   box-shadow: 0 6px 20px var(--rv-cta-shadow);
 }
-.white-paper .tags {
+:where(.bgpt-content) .white-paper .tags {
   display: flex !important;
   flex-wrap: wrap !important;
   gap: 8px !important;
@@ -1303,7 +1237,7 @@ article.hentry {
   margin: 28px 0 !important;
   list-style: none !important;
 }
-.white-paper .tags li {
+:where(.bgpt-content) .white-paper .tags li {
   background: #f3f4f6 !important;
   color: #374151 !important;
   padding: 6px 12px !important;
@@ -1314,7 +1248,7 @@ article.hentry {
 }
 
 /* === 📝 내부 일관성 모드 전용 컴포넌트 === */
-.series-badge {
+:where(.bgpt-content) .series-badge {
   display: inline-flex !important; align-items: center !important; gap: 8px !important;
   background: linear-gradient(135deg, ${theme.gradientStart}, ${theme.gradientEnd}) !important;
   border: 1px solid ${theme.tocBtnHoverBorder} !important;
@@ -1324,43 +1258,43 @@ article.hentry {
   color: ${theme.primary} !important;
   margin-bottom: 20px !important;
 }
-.takeaway-box {
+:where(.bgpt-content) .takeaway-box {
   background: linear-gradient(135deg, ${theme.gradientStart}, ${theme.gradientEnd}) !important;
   border: 2px solid ${theme.heading2Border} !important;
   border-radius: 14px !important;
   padding: 20px 24px !important;
   margin: 32px 0 !important;
 }
-.takeaway-box .takeaway-title {
+:where(.bgpt-content) .takeaway-box .takeaway-title {
   font-size: 17px !important; font-weight: 800;
   color: ${theme.primary}; margin-bottom: 12px !important;
 }
-.takeaway-box ul { padding-left: 20px !important; }
-.takeaway-box li {
+:where(.bgpt-content) .takeaway-box ul { padding-left: 20px !important; }
+:where(.bgpt-content) .takeaway-box li {
   color: ${theme.heading1}; font-size: 15px !important;
   margin-bottom: 6px !important; line-height: 1.6;
 }
-.takeaway-box .one-liner {
+:where(.bgpt-content) .takeaway-box .one-liner {
   margin-top: 12px !important; padding-top: 12px !important;
   border-top: 1px solid ${theme.tocBtnHoverBorder} !important;
   font-weight: 700; color: ${theme.ctaHover};
 }
-.next-episode-card {
+:where(.bgpt-content) .next-episode-card {
   background: linear-gradient(135deg, ${theme.gradientStart}, ${theme.gradientEnd}) !important;
   border: 2px dashed ${theme.heading2Border} !important;
   border-radius: 14px !important;
   padding: 20px 24px !important;
   margin-top: 36px !important;
 }
-.next-episode-card .next-label {
+:where(.bgpt-content) .next-episode-card .next-label {
   font-size: 13px !important; font-weight: 700;
   color: ${theme.ctaAccent}; margin-bottom: 8px !important;
 }
-.next-episode-card .next-topic {
+:where(.bgpt-content) .next-episode-card .next-topic {
   font-size: 18px !important; font-weight: 800;
   color: ${theme.heading1}; margin-bottom: 6px !important;
 }
-.next-episode-card .next-reason {
+:where(.bgpt-content) .next-episode-card .next-reason {
   font-size: 14px !important; color: ${theme.ctaHover};
 }
 
@@ -1375,7 +1309,6 @@ article.hentry {
      · 금색은 면이 아니라 **선**으로. 면으로 칠하면 촌스러워진다.
      · 숫자는 얼굴을 달리한다. 이 사이트는 숫자가 곧 답이다.
    ═══════════════════════════════════════════════ */
-@import url("https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
 .bgpt-content {
   --ink-paper: #FAF9F6;

@@ -102,7 +102,7 @@ function getFolderImageH2Titles(payload: any): string[] {
     .slice(0, 12);
 }
 import { generateCSSFinal, generateTOCFinal } from './html';
-import { buildEeatMeta, EEAT_META_CSS } from './eeat-meta';
+import { buildEeatMeta } from './eeat-meta';
 import { scanSubstance, buildSubstanceRetryBlock } from './substance-gate';
 import { acquireEngineLock } from './engine-lock';
 import { buildSchemaJsonLd } from './schema-jsonld';
@@ -6480,11 +6480,8 @@ ${conclusionHTML}
         reviewerTitle: authorInfo.title || undefined,
       });
       // placeholder 치환
+      // v3.8.749: 상자 CSS 는 스킨(generateCSSFinal)이 자기 <style> 안에 싣는다 — 두 번째 <style> 을 붙이지 않는다
       html = eeat.contentHtml.replace('<!-- EEAT_META_PLACEHOLDER -->', eeat.metaBox);
-      // CSS 주입 — 이미 generateCSSFinal에 없으므로 inline <style>로 head 안에 추가
-      if (!html.includes('eeat-meta-box {')) {
-        html = `<style>${EEAT_META_CSS}</style>\n${html}`;
-      }
       onLog?.(`[PROGRESS] 98% - 🛡️ E-E-A-T 메타 보강 완료 (${eeat.stats.readingTimeMinutes}분 / 출처 ${eeat.stats.citationCount}개)`);
     } catch (eeatErr: any) {
       console.warn('[EEAT-META] ⚠️ 메타 보강 실패(원본 유지):', eeatErr?.message);
