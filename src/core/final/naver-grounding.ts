@@ -44,7 +44,9 @@ import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceD
 export type NaverSearchFn = (
   type: 'webkr' | 'news' | 'blog',
   params: Record<string, any>,
-) => Promise<{ ok: boolean; items: any[]; error?: string }>;
+  /** 748 — 창구 옵션(cache 등). 테스트 가짜 검색기는 무시해도 된다 */
+  options?: { cache?: boolean },
+) => Promise<{ ok: boolean; items: any[]; error?: string; status?: string }>;
 
 /**
  * 본문 수집기도 주입받는다 — 검색기와 같은 이유다(테스트가 네트워크를 타면 안 된다).
@@ -382,21 +384,21 @@ export async function fetchGrounding(
 
   try {
     const [news, web, blog, agencyWeb] = await Promise.all([
-      naverSearch('news', { query, display, sort: 'date' }).catch(() => ({ ok: false, items: [] })),
-      naverSearch('webkr', { query, display }).catch(() => ({ ok: false, items: [] })),
+      naverSearch('news', { query, display, sort: 'date' }, { cache: true }).catch(() => ({ ok: false, items: [] })),
+      naverSearch('webkr', { query, display }, { cache: true }).catch(() => ({ ok: false, items: [] })),
       /**
        * 정확도순(sort 를 주지 않으면 'sim')이 곧 상위노출 순이다. (v3.8.581)
        * 최신순으로 받으면 안 된다 — 어제 올라온 아무 글이 1등이 되어 버린다.
        * 우리가 믿는 건 "새 글"이 아니라 "위에 있는 글"이다.
        */
-      naverSearch('blog', { query, display }).catch(() => ({ ok: false, items: [] })),
+      naverSearch('blog', { query, display }, { cache: true }).catch(() => ({ ok: false, items: [] })),
       /**
        * 🏛️ v3.8.730 — 공고형 글이면 **기관 이름을 붙여 한 번 더** 찾는다.
        * "인천 부천 든든전세 4차" 만으로는 HUG·매물 페이지가 위에 오고 LH 공고는 안 잡힌다(실측).
        * `site:` 연산자는 네이버 검색 API 가 받아 준다는 보장이 없어 쓰지 않는다 — 이름을 붙이고 도메인으로 거른다.
        */
       sourceScope
-        ? naverSearch('webkr', { query: `${sourceScope.agency} ${query}`, display }).catch(() => ({ ok: false, items: [] }))
+        ? naverSearch('webkr', { query: `${sourceScope.agency} ${query}`, display }, { cache: true }).catch(() => ({ ok: false, items: [] }))
         : Promise.resolve({ ok: false, items: [] as any[] }),
     ]);
 
@@ -486,7 +488,7 @@ export async function fetchGrounding(
       const seen = seenLinks;
       const rounds = await Promise.all(
         OFFICIAL_QUERY_HINTS.map((hint) =>
-          naverSearch('webkr', { query: `${query} ${hint}`, display })
+          naverSearch('webkr', { query: `${query} ${hint}`, display }, { cache: true })
             .catch(() => ({ ok: false, items: [] })),
         ),
       );

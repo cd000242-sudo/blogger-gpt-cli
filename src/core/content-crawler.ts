@@ -810,7 +810,7 @@ ${contents.slice(0, 10).map((c, i) => `
          */
         const res = await naverSearch('blog', {
           query: searchQuery, display: maxResults, sort: 'sim',
-        }, { payload: { naverClientId, naverClientSecret }, timeoutMs: 15000 });
+        }, { payload: { naverClientId, naverClientSecret }, timeoutMs: 15000, cache: true });
 
         const requestTime = Date.now() - requestStartTime;
         console.log(`[NAVER-DEBUG] ✅ 응답 수신 (${requestTime}ms, ${res.mode} 키)`);
@@ -941,7 +941,7 @@ ${contents.slice(0, 10).map((c, i) => `
       // v3.8.553: 창구 경유 — HUB/기존 키 자동 토스가 여기에도 걸린다
       const res = await naverSearch('blog', {
         query: decodeURIComponent(encodedQuery), display: maxResults, sort: 'date',
-      }, { payload: { naverClientId, naverClientSecret }, timeoutMs: 8000 });
+      }, { payload: { naverClientId, naverClientSecret }, timeoutMs: 8000, cache: true });
       if (res.ok) recent = res.items;
     } catch (e: any) {
       console.warn('[NAVER] 최신순 보강 실패 (유사도 결과만 사용):', String(e?.message || e).slice(0, 60));
@@ -1086,7 +1086,7 @@ ${contents.slice(0, 10).map((c, i) => `
       console.log(`[NAVER-KIN] "${topic}" 지식인 검색...`);
       // v3.8.553: 창구 경유 (HUB 우선 → 막히면 기존 키로 자동 토스)
       const res = await naverSearch('kin', { query: topic, display: maxResults, sort: 'sim' },
-        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000, cache: true });
       if (!res.ok) {
         console.warn(`[NAVER-KIN] API 실패(${res.mode}): ${res.error}`);
         return [];
@@ -1157,7 +1157,7 @@ ${contents.slice(0, 10).map((c, i) => `
       console.log(`[NAVER-NEWS] "${topic}" 최신 뉴스 검색...`);
       // v3.8.553: 창구 경유
       const res = await naverSearch('news', { query: topic, display: maxResults, sort: 'date' },
-        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000, cache: true });
       if (!res.ok) {
         console.warn(`[NAVER-NEWS] API 실패(${res.mode}): ${res.error}`);
         return [];
@@ -1228,7 +1228,7 @@ ${contents.slice(0, 10).map((c, i) => `
       console.log(`[NAVER-WEB] "${topic}" 웹문서 검색...`);
       // v3.8.553: 창구 경유
       const res = await naverSearch('webkr', { query: topic, display: maxResults },
-        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000 });
+        { payload: { naverClientId, naverClientSecret }, timeoutMs: 10000, cache: true });
       if (!res.ok) {
         console.warn(`[NAVER-WEB] API 실패(${res.mode}): ${res.error}`);
         return [];

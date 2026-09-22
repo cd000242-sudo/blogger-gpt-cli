@@ -158,12 +158,26 @@ export function describeNaverFailure(status: number, mode: NaverCredentials['mod
   return `네이버 API 오류 (${status}). 계속되면 ${hub}`;
 }
 
+/**
+ * 748 Search Pipeline — 검색 채널 상태. "0건" 과 "실패" 를 같은 것으로 보지 않는다.
+ *   SUCCESS                 정상 응답에 결과가 있다
+ *   EMPTY_VALID             정상 응답인데 진짜 0건
+ *   CACHE_HIT               같은 KST 날짜 버킷의 성공 결과를 재사용했다(호출 0)
+ *   RECOVERED_AFTER_RETRY   429 를 한 번 맞고 재시도해서 살렸다
+ *   RATE_LIMITED            재시도 뒤에도 429 — 결과 [] 는 "없음" 이 아니라 "못 받음"
+ *   FAILED                  인증·네트워크·타임아웃 등
+ */
+export type NaverChannelStatus = 'SUCCESS' | 'EMPTY_VALID' | 'CACHE_HIT' | 'RECOVERED_AFTER_RETRY' | 'RATE_LIMITED' | 'FAILED';
+
 export interface NaverSearchResult<T = any> {
   ok: boolean;
   items: T[];
   total: number;
   error?: string;
   mode: NaverCredentials['mode'];
+  status?: NaverChannelStatus;
+  statusCode?: number;
+  attempts?: number;
 }
 
 export interface NaverCallOptions {
@@ -173,7 +187,25 @@ export interface NaverCallOptions {
   preferMode?: 'hub' | 'legacy';
   /** 테스트에서 갈아끼우는 fetch */
   fetchImpl?: typeof fetch;
+  /** 748 — 같은 날 같은 검색어의 성공 결과를 재사용한다(생성 파이프라인만 켠다. 실시간 트렌드 등은 끈 채로) */
+  cache?: boolean;
+  /** 748 — 429 재시도 대기(ms). Retry-After 가 있으면 그것을 상한 안에서 따른다. 테스트는 0 */
+  retryDelayMs?: number;
 }
+
+/** 429 재시도 — 딱 한 번. 대기는 Retry-After(초) 를 따르되 상한을 둔다. 평상시 성공 경로엔 호출이 늘지 않는다 */
+const RATE_LIMIT_MAX_RETRIES = 1;
+const RATE_LIMIT_DEFAULT_DELAY_MS = 1200;
+const RATE_LIMIT_MAX_DELAY_MS = 5000;
+function retryDelayFrom(res: any, fallbackMs: number): number {
+  try {
+    const header = typeof res?.headers?.get === 'function' ? res.headers.get('retry-after') : null;
+    const secs = header ? Number(header) : NaN;
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, RATE_LIMIT_MAX_DELAY_MS);
+  } catch { /* 헤더 없음 */ }
+  return Math.min(Math.max(fallbackMs, 0), RATE_LIMIT_MAX_DELAY_MS);
+}
+const sleep = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
 /**
  * 검색 한 번. 어느 쪽 키든 이 함수 하나로 나간다.
@@ -188,15 +220,30 @@ export interface NaverCallOptions {
  */
 export interface NaverCallRecord {
   type: string; query: string; sort: string; ok: boolean; count: number; mode: string; error?: string; at: number;
+  /** 748 — 채널 상태·HTTP 코드·시도 횟수. 429 는 count 0 이 아니라 RATE_LIMITED 로 읽는다 */
+  status?: NaverChannelStatus; statusCode?: number; attempts?: number;
   raw?: Array<{ title: string; link: string; date: string; description: string }>;
 }
 const callLog: NaverCallRecord[] = [];
 export function resetNaverCallLog(): void { callLog.length = 0; }
 export function getNaverCallLog(): NaverCallRecord[] { return callLog.map((r) => ({ ...r })); }
-function recordCall(type: string, params: Record<string, any>, result: { ok: boolean; items?: any[]; mode: string; error?: string }): void {
+/** 748 — 이번 실행의 검색 채널 진단: 한도 초과·캐시·실제 호출 수. 검색이 "약해진 채" 글이 나갔는지 장부에 남기려고 */
+export function summarizeNaverChannels(records: NaverCallRecord[] = callLog): { searchDegraded: boolean; rateLimited: number; recovered: number; cacheHits: number; apiCalls: number; failed: number; total: number } {
+  const count = (s: NaverChannelStatus) => records.filter((r) => r.status === s).length;
+  const rateLimited = count('RATE_LIMITED'); const failed = count('FAILED');
+  const cacheHits = count('CACHE_HIT');
+  const apiCalls = records.reduce((n, r) => n + (r.status === 'CACHE_HIT' ? 0 : Math.max(1, Number(r.attempts) || 1)), 0);
+  return { searchDegraded: rateLimited > 0 || failed > 0, rateLimited, recovered: count('RECOVERED_AFTER_RETRY'), cacheHits, apiCalls, failed, total: records.length };
+}
+function recordCall(type: string, params: Record<string, any>, result: { ok: boolean; items?: any[]; mode: string; error?: string; status?: NaverChannelStatus; statusCode?: number; attempts?: number }): void {
+  const status: NaverChannelStatus = result.status || (result.ok ? ((result.items || []).length ? 'SUCCESS' : 'EMPTY_VALID') : 'FAILED');
+  if (status === 'RATE_LIMITED' || status === 'RECOVERED_AFTER_RETRY') {
+    console.warn(`[SEARCH_CHANNEL_RATE_LIMITED] provider=${result.mode} type=${type} query="${String(params?.['query'] || '').slice(0, 40)}" sort=${String(params?.['sort'] || 'sim')} attempts=${result.attempts ?? 1} statusCode=${result.statusCode ?? 429} outcome=${status}`);
+  }
   callLog.push({
     type, query: String(params?.['query'] || ''), sort: String(params?.['sort'] || 'sim'),
     ok: result.ok, count: Array.isArray(result.items) ? result.items.length : 0, mode: result.mode,
+    status, ...(result.statusCode ? { statusCode: result.statusCode } : {}), attempts: result.attempts ?? 1,
     ...(result.error ? { error: result.error } : {}), at: Date.now(),
     // 회귀 테스트용 RAW 결과 — 평소엔 담지 않는다(메모리). EVIDENCE_DEBUG_RAW=1 일 때만 제목·주소·날짜를 남긴다
     ...(process.env['EVIDENCE_DEBUG_RAW'] === '1' && Array.isArray(result.items) ? {
@@ -232,8 +279,27 @@ export async function naverSearch<T = any>(
   params: Record<string, any>,
   options: NaverCallOptions = {},
 ): Promise<NaverSearchResult<T>> {
+  // 748 — 같은 날 같은 검색어의 성공 결과가 있으면 호출하지 않는다 (호출부가 켠 경우만)
+  let cacheKeyStr = '';
+  if (options.cache) {
+    try {
+      const cacheMod = require('./naver-search-cache');
+      const mode = options.preferMode || getNaverModeMemo() || (resolveAllNaverCredentials(options.payload)[0]?.mode ?? 'none');
+      cacheKeyStr = cacheMod.cacheKey(mode, type, params);
+      const hit = cacheMod.readCache(cacheKeyStr);
+      if (hit) {
+        const result: NaverSearchResult<T> = { ok: true, items: hit.items, total: hit.total, mode: hit.mode as any, status: 'CACHE_HIT', attempts: 0 };
+        recordCall(type, params, result);
+        return result;
+      }
+    } catch { cacheKeyStr = ''; }
+  }
   const result = await naverSearchRaw<T>(type, params, options);
   recordCall(type, params, result);
+  // 성공만 저장한다 — 429·타임아웃·오류의 [] 를 "오늘은 0건" 으로 굳히면 다음 실행까지 망친다
+  if (cacheKeyStr && result.ok) {
+    try { require('./naver-search-cache').writeCache(cacheKeyStr, result); } catch { /* 저장 실패는 검색을 막지 않는다 */ }
+  }
   return result;
 }
 
@@ -245,37 +311,57 @@ async function naverSearchRaw<T = any>(
   const doFetch = options.fetchImpl || fetch;
   const ordered = orderCredentials(resolveAllNaverCredentials(options.payload), options.preferMode);
   if (!ordered.length) {
-    return { ok: false, items: [], total: 0, mode: 'none', error: '네이버 API 키가 없습니다. 환경설정에서 입력해주세요.' };
+    return { ok: false, items: [], total: 0, mode: 'none', error: '네이버 API 키가 없습니다. 환경설정에서 입력해주세요.', status: 'FAILED', attempts: 0 };
   }
 
   let lastError = '';
+  let lastStatusCode = 0;
+  let attempts = 0;
   let lastMode: NaverCredentials['mode'] = ordered[0]!.mode;
   for (const cred of ordered) {
     lastMode = cred.mode;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 10000);
-    try {
-      const res = await doFetch(buildNaverSearchUrl(type, params, cred), {
-        headers: naverAuthHeaders(cred),
-        signal: controller.signal,
-      } as any);
-      if (res.ok) {
-        modeMemo = cred.mode;   // 살아 있는 쪽을 기억한다
-        const data: any = await res.json();
-        return { ok: true, items: Array.isArray(data.items) ? data.items : [], total: Number(data.total || 0), mode: cred.mode };
+    // 748 — 429 는 같은 키로 딱 한 번 더. 다른 키로 가도 한도는 같으니 토스하지 않는다(v3.8.555)
+    let rateLimitRetries = 0;
+    for (;;) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 10000);
+      attempts += 1;
+      try {
+        const res = await doFetch(buildNaverSearchUrl(type, params, cred), {
+          headers: naverAuthHeaders(cred),
+          signal: controller.signal,
+        } as any);
+        if (res.ok) {
+          modeMemo = cred.mode;   // 살아 있는 쪽을 기억한다
+          const data: any = await res.json();
+          const items = Array.isArray(data.items) ? data.items : [];
+          const status: NaverChannelStatus = rateLimitRetries > 0 ? 'RECOVERED_AFTER_RETRY' : (items.length ? 'SUCCESS' : 'EMPTY_VALID');
+          return { ok: true, items, total: Number(data.total || 0), mode: cred.mode, status, statusCode: res.status, attempts };
+        }
+        lastError = describeNaverFailure(res.status, cred.mode);
+        lastStatusCode = res.status;
+        if (res.status === 429 && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
+          rateLimitRetries += 1;
+          clearTimeout(timer);
+          await sleep(retryDelayFrom(res, options.retryDelayMs ?? RATE_LIMIT_DEFAULT_DELAY_MS));
+          continue;
+        }
+        if (res.status === 429) {
+          return { ok: false, items: [], total: 0, mode: cred.mode, error: lastError, status: 'RATE_LIMITED', statusCode: 429, attempts };
+        }
+        if (!isAuthBlocked(res.status)) break;      // 서버 오류 등은 키를 바꿔도 소용없다
+        if (modeMemo === cred.mode) modeMemo = null; // 죽은 키 기억은 지운다
+        break;                                       // 인증이 막혔으면 다음 키로 넘어간다 (자연스러운 토스)
+      } catch (error: any) {
+        // 네트워크·타임아웃은 키 문제가 아니다 — 다른 키를 태우지 않는다
+        return { ok: false, items: [], total: 0, mode: cred.mode, error: String(error?.message || error).slice(0, 200), status: 'FAILED', attempts };
+      } finally {
+        clearTimeout(timer);
       }
-      lastError = describeNaverFailure(res.status, cred.mode);
-      if (!isAuthBlocked(res.status)) break;      // 한도 초과 등은 키를 바꿔도 소용없다
-      if (modeMemo === cred.mode) modeMemo = null; // 죽은 키 기억은 지운다
-      // 인증이 막혔으면 다음 키로 넘어간다 (자연스러운 토스)
-    } catch (error: any) {
-      // 네트워크·타임아웃은 키 문제가 아니다 — 다른 키를 태우지 않는다
-      return { ok: false, items: [], total: 0, mode: cred.mode, error: String(error?.message || error).slice(0, 200) };
-    } finally {
-      clearTimeout(timer);
     }
+    if (lastStatusCode && !isAuthBlocked(lastStatusCode)) break;
   }
-  return { ok: false, items: [], total: 0, mode: lastMode, error: lastError || '네이버 API 호출 실패' };
+  return { ok: false, items: [], total: 0, mode: lastMode, error: lastError || '네이버 API 호출 실패', status: 'FAILED', ...(lastStatusCode ? { statusCode: lastStatusCode } : {}), attempts };
 }
 
 /** 데이터랩(Search Trend) 한 번 */

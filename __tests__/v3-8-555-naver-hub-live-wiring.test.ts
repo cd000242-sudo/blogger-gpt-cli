@@ -126,9 +126,12 @@ describe('② 자동 토스 — 가짜 fetch 로 실제 실행해서 본다', ()
   it('⭐ 429(한도 초과)는 토스하지 않는다 — 다른 키로 가도 같다', async () => {
     const f = fakeFetch([{ status: 429 }]);
     const res = await naverSearch('blog', { query: 'k' },
-      { payload: { ...HUB, ...LEGACY }, fetchImpl: f.impl });
+      { payload: { ...HUB, ...LEGACY }, fetchImpl: f.impl, retryDelayMs: 0 });
     expect(res.ok).toBe(false);
-    expect(f.calls).toHaveLength(1);
+    // 748 — 429 는 같은 키로 딱 한 번 더 시도한다(재시도). 다른 키로는 가지 않는다(토스 아님)
+    expect(f.calls).toHaveLength(2);
+    expect(f.calls[0]).toBe(f.calls[1]);
+    expect(res.status).toBe('RATE_LIMITED');
     expect(res.error).toMatch(/429|한도|서비스/);
   });
 
