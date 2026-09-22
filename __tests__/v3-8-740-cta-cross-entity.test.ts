@@ -38,6 +38,17 @@ describe('① 후보 판정 — 같은 집 · 허용된 집 · 다른 집', () =
     expect(ctaCandidateVerdict('https://www.biff.kr/', 'https://www.biky.or.kr/', empty).ok).toBe(true);
     expect(ctaCandidateVerdict('https://www.biff.kr/', 'https://www.biky.or.kr/', undefined).ok).toBe(true);   // 옛 호출 경로(회귀 방지)
   });
+  it('⭐⭐ Case D (live 743 재현): 라우터가 "금융상품한눈에"(finlife.fss.or.kr)를 지목했는데 후보가 hf.go.kr — 근거에 있어도 REJECT (라벨과 주소가 어긋난다)', () => {
+    const allowedFin = allowedHostsFrom(['https://www.hf.go.kr/ko/sub01/sub01_04.do', 'https://finlife.fss.or.kr/finlife/ldng/houseMrtg/list.do', 'https://www.kbstar.com/']);
+    const v = ctaCandidateVerdict('https://www.kbstar.com', 'http://www.hf.go.kr/ko/sub01/sub01_04.do', allowedFin, 'finlife.fss.or.kr');
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/^CTA_CROSS_ENTITY/);
+    expect(v.reason).toContain('fss.or.kr');
+    // 같은 기관의 집이면 ALLOW (fine.fss.or.kr 도 finlife.fss.or.kr 도 fss.or.kr)
+    expect(ctaCandidateVerdict('https://www.kbstar.com', 'https://finlife.fss.or.kr/finlife/ldng/houseMrtg/list.do?menuNo=700007', allowedFin, 'finlife.fss.or.kr').ok).toBe(true);
+    // entityHost 를 모르면(사전에 없음) 예전 규칙만
+    expect(ctaCandidateVerdict('https://www.kbstar.com', 'http://www.hf.go.kr/ko/sub01/sub01_04.do', allowedFin, '').ok).toBe(true);
+  });
   it('호스트를 읽을 수 없는 후보는 REJECT', () => {
     expect(ctaCandidateVerdict('https://www.biff.kr/', 'not a url', allowed).ok).toBe(false);
   });

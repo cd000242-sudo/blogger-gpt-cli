@@ -3410,9 +3410,15 @@ async function findActionPageOnSite(homeUrl: string, siteName: string, doing: st
  * 어느 쪽도 아니면 CTA_CROSS_ENTITY 로 버리고 — 검증된 원래 주소를 지키거나, 원래 주소도 못 믿으면 버튼을 뺀다. 다른 기관 사이트로 자동 대체하지 않는다.
  * 표(ACTION_DESTINATIONS)에서 나온 후보는 사람이 확인한 키워드→기관 대응이라 이 검사를 받지 않는다.
  */
-export function ctaCandidateVerdict(originalUrl: string, candidateUrl: string, allowedHosts: ReadonlySet<string> | undefined): { ok: boolean; reason: string } {
+export function ctaCandidateVerdict(originalUrl: string, candidateUrl: string, allowedHosts: ReadonlySet<string> | undefined, entityHost?: string): { ok: boolean; reason: string } {
   const cand = apexHost(candidateUrl);
   if (!cand) return { ok: false, reason: 'CTA_CROSS_ENTITY: 후보 주소의 호스트를 읽을 수 없다' };
+  /**
+   * v3.8.744 entityMatch — 라우터가 기관 **이름**을 지목했고 그 이름의 집을 알면, 후보는 그 집이어야 한다.
+   * live 743(주담대): "금융상품한눈에"(finlife.fss.or.kr) 라 이름 붙이고 주소는 hf.go.kr(주택금융공사)로 나갔다 — 근거에 hf.go.kr 이 있어 sourceSupport 는 통과했지만 라벨이 거짓말이었다.
+   */
+  const entity = entityHost ? apexHost(entityHost) : '';
+  if (entity && !sameSite(entity, cand)) return { ok: false, reason: `CTA_CROSS_ENTITY: 지목한 기관의 집(${entity})과 후보(${cand})가 다르다 — 라벨과 주소가 어긋난다` };
   const orig = apexHost(originalUrl);
   if (orig && sameSite(orig, cand)) return { ok: true, reason: `같은 집(${cand})` };
   if (allowedHosts && allowedHosts.size > 0) {
@@ -3456,6 +3462,12 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
 
   const out: FinalCTAData[] = [];
   const publicTopic = looksPublicTopic(keyword, ctaArticleAgencies);
+  /**
+   * v3.8.744 — 라우터가 지목한 기관 이름의 집(entityHost). 사전에 있으면 네트워크 0. 검색으로 찾은 후보는 이 집이어야 라벨이 참말이 된다.
+   * 허용 목록을 안 주는 옛 경로에서는 해석하지 않는다(예전 그대로).
+   */
+  const entityHost = allowedHosts && routerSite ? (await resolveCtaAgencyHost(routerSite))?.host || '' : '';
+  if (entityHost) console.log(`[CTA] 🏛️ 지목 기관의 집: ${routerSite} → ${entityHost} (검색 후보는 이 집이어야 한다)`);
 
   for (const cta of list) {
     if (!cta?.url) { out.push(cta); continue; }
@@ -3478,7 +3490,7 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
     if ((!better || better === cta.url) && wrongHost) {
       // 상업 오배송 — 그 호스트를 버리고 기관을 새로 찾는다
       const picked = await findInstitutionalActionPage(keyword, routerSite || ctaArticleAgencies[0] || '', doing);
-      const verdict = picked ? ctaCandidateVerdict(cta.url, picked.url, allowedHosts) : null;
+      const verdict = picked ? ctaCandidateVerdict(cta.url, picked.url, allowedHosts, entityHost) : null;
       if (picked && verdict && !verdict.ok) {
         console.warn(`[CTA] 🚫 후보를 버립니다 — ${verdict.reason}: ${picked.url}`);
       } else if (picked) {
@@ -3496,7 +3508,7 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
     if (!better || better === cta.url) {
       const siteName = routerSite || label || '';
       const found = await findActionPageOnSite(cta.url, siteName, doing);
-      const verdict = found ? ctaCandidateVerdict(cta.url, found, allowedHosts) : null;
+      const verdict = found ? ctaCandidateVerdict(cta.url, found, allowedHosts, entityHost) : null;
       if (found && verdict && !verdict.ok) {
         console.warn(`[CTA] 🚫 후보를 버립니다 — ${verdict.reason}: ${found}`);
       } else if (found) {
