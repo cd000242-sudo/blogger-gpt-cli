@@ -27,7 +27,14 @@ export interface ViewDecision {
   tier: ViewTier | null;
   reason: PacketValueReason | 'OK';
 }
-export interface WriterPacketView { text: string; decisions: ViewDecision[]; summary: string }
+export interface WriterPacketView {
+  text: string; decisions: ViewDecision[]; summary: string;
+  /**
+   * 748 — "지금" 을 받쳐 주는 글자만: CORE·SUPPORTING 값과 KEEP 문장. 배경(CONTEXT_ONLY)·DROP 은 없다.
+   * thread 2차 거름이 질문의 현재성을 볼 때 이걸 쓴다 — 지난해 "11월 2일부터 21일" 이 올해 "11월 2일 경주" 를 살리지 못하게.
+   */
+  currentSupportText: string;
+}
 
 /** 이유별 처분 — 근거가 낡은 것은 배경으로, 근거가 아닌 것은 뺀다 */
 const CONTEXT_ONLY_REASONS = new Set<PacketValueReason>(['STALE_YEAR', 'PAST_ROUND', 'PAST_DATE', 'WEEKDAY_MISMATCH']);
@@ -105,6 +112,8 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
   const official = keepClaims('official', packet.officialStatements || []);
   const conflicts = keepClaims('conflict', packet.conflictingInformation || []);
 
+  // 748 — LLM 정리가 빠뜨려 코드가 되살린 값은 표시만 한다(Writer 보기의 KEEP/DEMOTE/DROP 은 똑같이 받는다)
+  const recoveredValues = new Set((packet.numbers || []).concat(packet.dates || []).filter((v) => v.origin === 'DETERMINISTIC_RECOVERY').map((v) => v.value));
   const numberRows = (packet.numbers || []).map((n) => ({ row: n, d: decide('number', n.value, n.context, n.sourceIds) }));
   const dateRows = (packet.dates || []).map((n) => ({ row: n, d: decide('date', n.value, n.context, n.sourceIds) }));
   const byTier = (tier: ViewTier, rows: Array<{ row: SourcedValue; d: ViewDecision }>) => rows.filter((r) => r.d.tier === tier).map((r) => val(r.row));
@@ -135,6 +144,10 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
 
   const count = (verdict: ViewVerdict) => decisions.filter((d) => d.verdict === verdict).length;
   const core = decisions.filter((d) => d.tier === 'CORE').length;
-  const summary = `KEEP ${count('KEEP')} · DEMOTE ${count('DEMOTE')} · DROP ${count('DROP_FROM_WRITER_VIEW')} (핵심 수치 ${core}개)`;
-  return { text, decisions, summary };
+  const recovered = decisions.filter((d) => d.tier === 'CORE' && recoveredValues.has(d.value)).length;
+  const summary = `KEEP ${count('KEEP')} · DEMOTE ${count('DEMOTE')} · DROP ${count('DROP_FROM_WRITER_VIEW')} (핵심 수치 ${core}개${recovered ? ` · 그중 코드 복구 ${recovered}개` : ''})`;
+  const currentSupportText = decisions
+    .filter((d) => d.verdict !== 'DROP_FROM_WRITER_VIEW' && d.tier !== 'CONTEXT_ONLY')
+    .map((d) => `${d.value} ${d.context}`).join('\n');
+  return { text, decisions, summary, currentSupportText };
 }

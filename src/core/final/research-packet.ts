@@ -19,7 +19,12 @@ import type { EvidenceItem } from './evidence';
 import { kstToday } from './kst-date';
 
 export interface SourcedClaim { claim: string; sourceIds: string[] }
-export interface SourcedValue { value: string; context: string; sourceIds: string[] }
+export interface SourcedValue {
+  value: string; context: string; sourceIds: string[];
+  /** 748 — 어디서 왔나. LLM 문장에도 있으면 LLM_PACKET, 코드만 잡았고 진입 조건을 통과하면 DETERMINISTIC_RECOVERY, 아니면 CODE_ONLY */
+  origin?: ValueOrigin;
+}
+export interface PacketRecovery { added: number; values: string[]; codeOnly: number }
 
 export interface ResearchPacket {
   mainKeyword: string;
@@ -39,13 +44,25 @@ export interface ResearchPacket {
   /** OK = LLM 정리까지 됨 · CODE_ONLY = 코드 추출만 · EMPTY = 근거 없음 */
   status: 'OK' | 'CODE_ONLY' | 'EMPTY';
   notes: string[];
+  /** 748 — LLM 정리가 빠뜨린 값을 코드 추출이 얼마나 보존했나(출처·관련도 조건 통과분만) */
+  recovery?: PacketRecovery;
 }
 
+/**
+ * 748 Search Pipeline — 범위값과 "N여 개 객실" 을 잡는다.
+ * 실측(748b): 출처에 "약 12,800여 개 객실 · 행사 최소 3~6개월 전" 이 있었는데 코드 추출이 "6개월" 만 뽑았다(범위·'여 개' 미지원).
+ * 그 실행에서 LLM 정리가 그 문장을 안 옮기자 패킷에서 값이 통째로 사라졌다 — 수치·날짜는 코드 추출이 유일한 보루다.
+ * 범위 패턴을 앞에 두고, 이미 잡힌 범위 안의 부분값("6개월")은 다시 뽑지 않는다.
+ */
 const NUMBER_PATTERNS: RegExp[] = [
+  /\d[\d,]*(?:\.\d+)?\s*[~∼]\s*\d[\d,]*(?:\.\d+)?\s*(?:개월|년|주|일|시간|%|만원|원|명|배|회|개|박)/g,
   /\d[\d,]*(?:\.\d+)?\s*(?:억\s*)?(?:천만|백만|십만|만|천)?\s*원/g,
   /\d+(?:\.\d+)?\s*%/g,
+  /\d[\d,]*\s*여\s*(?:개|실|객실|석|곳|대|편|명|건|가구|세대|박)\s*(?:객실|호실|가구|세대)?/g,   // "12,800여 개 객실" — 긴 것이 먼저
   /\d[\d,]*\s*(?:명|건|가구|세대|배|회|좌|만좌|개월|년간|세)/g,
+  /\d[\d,]*\s*(?:여\s*)?(?:개|실|객실|석|곳|대|편|박)(?![가-힣])/g,
 ];
+export type ValueOrigin = 'LLM_PACKET' | 'DETERMINISTIC_RECOVERY' | 'CODE_ONLY';
 const DATE_PATTERNS: RegExp[] = [
   /(?:20\d{2}\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일(?:\s*[~∼\-부터]+\s*(?:\d{1,2}\s*월\s*)?\d{1,2}\s*일)?/g,
   /\d{1,2}\s*월\s*\d{1,2}\s*[~∼\-]\s*\d{1,2}\s*일/g,
@@ -64,29 +81,73 @@ function sentenceAround(text: string, index: number, length: number): string {
   return text.slice(start, end).replace(/\s+/g, ' ').trim().slice(0, 160);
 }
 
-function extractValues(items: EvidenceItem[], patterns: RegExp[], max: number): SourcedValue[] {
+/** 키워드 낱말(조사 뗀 2글자 이상) — 추출 상한에 걸릴 때 키워드와 겹치는 문맥의 값을 먼저 살린다 */
+function keywordTokens(keyword: string): string[] {
+  return String(keyword || '').toLowerCase().split(/[^0-9a-z가-힣]+/).map((w) => w.replace(/(의|와|과|을|를|은|는|이|가|에|로|으로|에서|까지|부터|도|만)$/, '')).filter((w) => w.length >= 2);
+}
+
+function extractValues(items: EvidenceItem[], patterns: RegExp[], max: number, keyword = ''): SourcedValue[] {
   const byValue = new Map<string, SourcedValue>();
+  const kw = keywordTokens(keyword);
+  const relevance = new Map<string, number>();
   for (const item of items) {
     const text = `${item.title}. ${item.cleanedText}`;
+    const taken: Array<[number, number]> = [];   // 이미 잡힌 범위값("3~6개월")의 자리 — 그 안의 "6개월" 은 다시 뽑지 않는다
     for (const base of patterns) {
       const re = new RegExp(base.source, 'g');
       let m: RegExpExecArray | null;
       while ((m = re.exec(text)) !== null) {
+        const start = m.index; const end = m.index + m[0].length;
+        if (taken.some(([s, e]) => start < e && end > s)) continue;   // 겹치면(안이든 밖이든) 먼저 잡힌 긴 패턴이 이긴다
         const value = m[0].replace(/\s+/g, ' ').trim();
         if (value.length < 2) continue;
+        taken.push([start, end]);
         const key = norm(value);
         const prev = byValue.get(key);
         if (prev) { if (!prev.sourceIds.includes(item.id)) prev.sourceIds.push(item.id); continue; }
-        byValue.set(key, { value, context: sentenceAround(text, m.index, m[0].length), sourceIds: [item.id] });
+        const context = sentenceAround(text, m.index, m[0].length);
+        byValue.set(key, { value, context, sourceIds: [item.id] });
+        const cf = context.toLowerCase();
+        relevance.set(key, kw.filter((t) => cf.includes(t)).length);
       }
     }
   }
-  // 여러 근거가 되풀이하는 값이 먼저, 그다음 공식 출처의 값 — 이게 글의 뼈대다
+  // 여러 근거가 되풀이하는 값이 먼저, 그다음 공식 출처의 값, 그다음 키워드 낱말과 겹치는 문맥 — 이게 글의 뼈대다
   const official = new Set(items.filter((i) => i.isOfficial).map((i) => i.id));
-  return [...byValue.values()]
-    .sort((a, b) => (b.sourceIds.length - a.sourceIds.length)
-      || (Number(b.sourceIds.some((id) => official.has(id))) - Number(a.sourceIds.some((id) => official.has(id)))))
+  return [...byValue.entries()]
+    .sort(([ka, a], [kb, b]) => (b.sourceIds.length - a.sourceIds.length)
+      || (Number(b.sourceIds.some((id) => official.has(id))) - Number(a.sourceIds.some((id) => official.has(id))))
+      || ((relevance.get(kb) || 0) - (relevance.get(ka) || 0)))
+    .map(([, v]) => v)
     .slice(0, max);
+}
+
+/** 사이트 껍데기·기사 시점 문맥 — 복구 값으로 세지 않는다(값 자체는 RAW 에 남는다) */
+const RECOVERY_NOISE = /검색\s*결과|조회수|댓글\s*\d|공감\s*\d|구독자|좋아요|팔로워|작성일|게시일|방송일|기사입력|·\s*\d+\s*(?:개월|일|년)\s*전\]/;
+
+/**
+ * 748 — 값의 출처를 표시한다. LLM 문장에도 같은 값이 있으면 LLM_PACKET, 코드만 잡았으면 진입 조건(출처 id·키워드 관련·잡음 아님)을
+ * 통과할 때 DETERMINISTIC_RECOVERY, 아니면 CODE_ONLY. **값을 빼거나 절에 배정하지 않는다** — Writer 보기가 최종 KEEP/DEMOTE/DROP 을 정한다.
+ */
+export function markValueOrigins(packet: ResearchPacket): ResearchPacket {
+  const claimText = norm(CLAIM_KEYS.flatMap((k) => ((packet as any)[k] || []) as SourcedClaim[]).map((c) => c.claim).join(' '));
+  const kw = keywordTokens(`${packet.mainKeyword} ${packet.topic}`);
+  const known = new Set(packet.sourceMap.map((s) => s.id));
+  const recovered: string[] = [];
+  let codeOnly = 0;
+  const tag = (v: SourcedValue): SourcedValue => {
+    const key = norm(v.value);
+    if (key.length >= 2 && claimText.includes(key)) return { ...v, origin: 'LLM_PACKET' };
+    const cf = String(v.context || '').toLowerCase();
+    const related = kw.some((t) => cf.includes(t));
+    const sourced = (v.sourceIds || []).some((id) => known.has(id));
+    if (related && sourced && !RECOVERY_NOISE.test(v.context || '')) { recovered.push(v.value); return { ...v, origin: 'DETERMINISTIC_RECOVERY' }; }
+    codeOnly += 1;
+    return { ...v, origin: 'CODE_ONLY' };
+  };
+  const numbers = packet.numbers.map(tag);
+  const dates = packet.dates.map(tag);
+  return { ...packet, numbers, dates, recovery: { added: recovered.length, values: recovered.slice(0, 12), codeOnly } };
 }
 
 export function buildCodePacket(input: {
@@ -100,8 +161,8 @@ export function buildCodePacket(input: {
     searchIntent: '',
     currentAsOf: kstToday(input.now),
     facts: [],
-    numbers: extractValues(items, NUMBER_PATTERNS, 24),
-    dates: extractValues(items, DATE_PATTERNS, 16),
+    numbers: extractValues(items, NUMBER_PATTERNS, 24, input.mainKeyword),
+    dates: extractValues(items, DATE_PATTERNS, 16, input.mainKeyword),
     eligibility: [], conditions: [], officialStatements: [], conflictingInformation: [],
     readerQuestions: [...new Set((input.readerQuestions || []).map((q) => String(q).trim()).filter(Boolean))].slice(0, 10),
     actualSearchSuggestions: [...new Set((input.searchSuggestions || []).map((q) => String(q).trim()).filter(Boolean))].slice(0, 12),
@@ -243,7 +304,8 @@ export async function buildResearchPacket(input: {
   packet.searchIntent = String(parsed.searchIntent || '').slice(0, 200);
   packet.status = 'OK';
   if (dropped > 0) packet.notes.push(`근거와 맞지 않아 버린 문장 ${dropped}개 (없는 출처 id 또는 근거에 없는 수치)`);
-  return packet;
+  // 748 — LLM 이 옮기지 않은 값도 코드 추출분으로 남는다. 어디서 왔는지 표시만 한다(빼지도, 절에 배정하지도 않는다)
+  return markValueOrigins(packet);
 }
 
 /** Writer 에게 줄 글자 — 패킷이 근거보다 먼저 온다 */

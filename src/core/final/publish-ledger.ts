@@ -106,7 +106,7 @@ export interface LedgerEntry {
   manualReviewReason?: string;
   /** v3.8.734 — 단계 상태 요약(SEARCH_OK · GROUNDING_WEAK …)과 근거 통계 */
   pipelineStatus?: string;
-  evidence?: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string };
+  evidence?: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string; searchDegraded?: boolean; rateLimited?: number; cacheHits?: number; apiCalls?: number; recovery?: number };
   /** 나중에 애드센스에서 채운다 */
   rpm?: number;
   pageviews?: number;

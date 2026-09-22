@@ -61,11 +61,14 @@ describe('748 (C) Judge 순서 — HTML 조립·자가 수정 뒤, 장부·발�
 describe('748 (A)(B) 배선 — 거른 질문은 어디에도 가지 않고, Writer 만 정제 패킷을 본다', () => {
   test('A-wire 지식iN 질문은 demandSignals 에 들어가기 전에 거른다(1차) · 제목 뒤 소제목 전에 다시 거른다(2차) · 실에도 문맥을 준다', () => {
     const pass1 = at("filterThreadQuestions(rawUserQuestions, { keyword, relatedQueries: bySource('google-suggest') })");
-    const pass2 = at("filterThreadQuestions(demandSignals.userQuestions, { keyword, title: String(h1 || ''), relatedQueries: demandSignals.searchQueries, packetText: researchPacketText })");
+    // 748 Search Pipeline — 2차 거름의 지지 근거는 패킷 전체가 아니라 "지금 값"(CORE·SUPPORTING·KEEP) 만. 비교 의도면 패킷 전체
+    const pass2 = at("filterThreadQuestions(demandSignals.userQuestions, { keyword, title: String(h1 || ''), relatedQueries: demandSignals.searchQueries, packetText: threadSupportText() })");
     expect(pass1).toBeLessThan(at("userQuestions: threadPass1.accepted"));
     expect(pass2).toBeGreaterThan(at("researchPacketText = packetMod.renderPacket(researchPacket);"));
     expect(pass2).toBeLessThan(at('// 3. H2 생성'));
-    expect(orch).toContain("relevance: { keyword, title: String(h1 || ''), relatedQueries: demandSignals?.searchQueries, packetText: researchPacketText }");
+    expect(orch).toContain("if (pastComparisonIntent) return researchPacketText;");
+    expect(orch).toContain(".currentSupportText; }");
+    expect(orch).toContain("relevance: { keyword, title: String(h1 || ''), relatedQueries: demandSignals?.searchQueries, packetText: pastComparisonIntent ? researchPacketText : (writerPacketView?.currentSupportText ?? threadSupportText()) }");
     // 검색은 키워드만 쓴다 — 질문이 검색어가 되는 경로가 없다
     expect(orch).not.toMatch(/fetchGrounding\([^)]*userQuestions/);
   });

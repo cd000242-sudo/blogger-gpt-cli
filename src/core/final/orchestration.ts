@@ -707,7 +707,7 @@ export async function generateUltimateMaxModeArticleFinal(
   // 단계 상태(SEARCH_OK · GROUNDING_WEAK …) — 조용히 넘어가는 단계를 없앤다. 화면 로그·결과·장부에 남는다
   const { PipelineStatus } = require('./evidence-gate');
   const pipelineStatus: { stages: Array<{ stage: string; status: string; detail: string }>; mark: (s: string, st: string, d?: string) => void; weak: boolean; summary: () => string } = new PipelineStatus(onLog);
-  let evidenceLedgerStats: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string } | null = null;
+  let evidenceLedgerStats: { total: number; official: number; withDate: number; withUrl: number; rejected: number; packet: string; searchDegraded?: boolean; rateLimited?: number; cacheHits?: number; apiCalls?: number; recovery?: number } | null = null;
 
   // 🎯 사용자 선택 AI 엔진을 런타임에 반영
   // 🔥 우선순위 수정: provider(드롭다운, 최신 UI)가 primaryGeminiTextModel(라디오, 모달)보다 우선
@@ -1640,7 +1640,8 @@ export async function generateUltimateMaxModeArticleFinal(
     /** 2단계에서 근거가 늘면 수치·날짜·출처표만 다시 뽑는다 — 문장(LLM 정리)은 그대로, 호출 0회 */
     const refreshPacketValues = (): void => {
       const code = packetMod.buildCodePacket({ mainKeyword: keyword, title: String(researchPacket.topic || keyword), items: evidenceRender.used, readerQuestions: demandSignals.userQuestions, searchSuggestions: demandSignals.searchQueries });
-      researchPacket = { ...researchPacket, numbers: code.numbers, dates: code.dates, sourceMap: code.sourceMap, status: researchPacket.status === 'EMPTY' && code.status !== 'EMPTY' ? code.status : researchPacket.status };
+      // 748 — 값을 다시 뽑았으니 출처 표시(LLM_PACKET/DETERMINISTIC_RECOVERY/CODE_ONLY)도 다시 단다
+      researchPacket = packetMod.markValueOrigins({ ...researchPacket, numbers: code.numbers, dates: code.dates, sourceMap: code.sourceMap, status: researchPacket.status === 'EMPTY' && code.status !== 'EMPTY' ? code.status : researchPacket.status });
       researchPacketText = packetMod.renderPacket(researchPacket);
     };
     pipelineStatus.mark('RESEARCH', researchPacket.status === 'OK' ? 'RESEARCH_OK' : researchPacket.status === 'EMPTY' ? 'RESEARCH_EMPTY' : 'RESEARCH_WEAK',
@@ -1809,9 +1810,21 @@ export async function generateUltimateMaxModeArticleFinal(
       }
     };
 
+    /**
+     * 748 — 질문의 "현재성" 을 받쳐 주는 글자는 패킷 전체가 아니라 **지금 값**(CORE·SUPPORTING·KEEP 문장)만이다.
+     * 748b 패킷의 지난해 "11월 2일부터 21일" 이 올해 "11월 2일 경주" 를 살렸다. 배경(CONTEXT_ONLY)은 지지 근거가 아니다.
+     * 단 검색 의도가 지난해·이전 회차와의 비교면 배경도 답이므로 패킷 전체를 쓴다.
+     */
+    const pastComparisonIntent = /지난해|작년|전년|이전\s*회차|역대|비교/.test(`${keyword} ${String(h1 || '')}`);
+    const threadSupportText = (): string => {
+      if (pastComparisonIntent) return researchPacketText;
+      try { return require('./writer-packet-view').buildWriterPacketView(researchPacket, { keyword, title: String(h1 || ''), h2Titles: [] }).currentSupportText; }
+      catch { return researchPacketText; }
+    };
+
     // 748 (A) 2차 거름 — 제목·패킷이 생겼으니 지역만 겹치는 질문("11월 2일 경주")·시기 어긋난 질문을 소제목 전에 뺀다
     if (demandSignals.userQuestions.length > 0) {
-      const pass2 = filterThreadQuestions(demandSignals.userQuestions, { keyword, title: String(h1 || ''), relatedQueries: demandSignals.searchQueries, packetText: researchPacketText });
+      const pass2 = filterThreadQuestions(demandSignals.userQuestions, { keyword, title: String(h1 || ''), relatedQueries: demandSignals.searchQueries, packetText: threadSupportText() });
       threadQuestionAudit.pass2 = pass2;
       for (const line of pass2.log.filter((l) => l.startsWith('THREAD_QUESTION_DROPPED'))) onLog?.(`[PROGRESS] 31% - 🧵 ${line}`);
       if (pass2.dropped.length > 0) demandSignals = { ...demandSignals, userQuestions: pass2.accepted };
@@ -2949,7 +2962,21 @@ ${quoted}
       total: gate.stats.total, official: gate.stats.official, withDate: gate.stats.withDate, withUrl: gate.stats.withUrl,
       rejected: evidenceRejected.length, packet: researchPacket.status,
     };
-    (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate, titleAudit: titleGateResult };
+    /**
+     * 748 Search Pipeline — 검색 채널 진단. 429 는 0건이 아니라 "못 받음" 이다(748c: 최신순 블로그 보강이 429 로 비어 핵심 출처가 사라졌다).
+     * 다른 채널 결과가 있으면 생성은 계속하되 searchDegraded 를 장부·로그에 남긴다.
+     */
+    try {
+      const ch = require('../naver-search-client').summarizeNaverChannels();
+      evidenceLedgerStats = { ...evidenceLedgerStats, searchDegraded: ch.searchDegraded, rateLimited: ch.rateLimited, cacheHits: ch.cacheHits, apiCalls: ch.apiCalls, recovery: Number((researchPacket as any).recovery?.added) || 0 };
+      if (ch.searchDegraded) {
+        pipelineStatus.mark('SEARCH', 'SEARCH_DEGRADED', `한도 초과 ${ch.rateLimited}회 · 실패 ${ch.failed}회 — 비어도 0건이 아니라 못 받은 것`);
+        onLog?.(`[PROGRESS] 46% - ⚠️ SEARCH_DEGRADED — 검색 채널 한도 초과 ${ch.rateLimited}회 · 실패 ${ch.failed}회 (재시도로 살린 것 ${ch.recovered}회). 이 글의 근거는 평소보다 얇을 수 있습니다`);
+      } else if (ch.cacheHits > 0) {
+        onLog?.(`[PROGRESS] 46% - 🗃️ 검색 캐시 ${ch.cacheHits}건 재사용 · 실제 호출 ${ch.apiCalls}회`);
+      }
+    } catch { /* 진단 실패는 생성을 막지 않는다 */ }
+    (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), channels: require('../naver-search-client').summarizeNaverChannels(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate, titleAudit: titleGateResult };
     pipelineStatus.mark('WRITER', gate.status === 'GROUNDING_OK' && researchPacket.status !== 'EMPTY' ? 'WRITER_READY' : 'WRITER_READY_WEAK',
       gate.status === 'GROUNDING_OK' ? '' : '근거가 모자랍니다 — 근거 밖의 수치·일정은 쓰지 않도록 지시합니다');
 
@@ -3110,7 +3137,7 @@ ${quoted}
      * Title Fact Gate·Critic·Verification·Judge·장부가 본다(여기서 뺀 값도 근거로는 유효하다).
      * 748a 실측: 값 배정 블록이 부산 숙소 조건·지난 일정·기사 날짜를 밀어 넣어 Critic 이 도로 빼냈다 → 강제하지 말고 입력에서 내린다.
      */
-    let writerPacketView: { text: string; decisions: any[]; summary: string } | null = null;
+    let writerPacketView: { text: string; decisions: any[]; summary: string; currentSupportText: string } | null = null;
     try {
       const wpv = require('./writer-packet-view');
       writerPacketView = wpv.buildWriterPacketView(researchPacket, { keyword, title: String(h1 || ''), h2Titles, questions: demandSignals?.userQuestions || [] });
@@ -3279,7 +3306,7 @@ ${quoted}
         userQuestions: demandSignals?.userQuestions,
         h2Titles,
         // 748 (A): 여기 오는 목록은 이미 걸러졌지만, 실은 "독자의 문제" 한 줄이 되므로 한 번 더 댄다
-        relevance: { keyword, title: String(h1 || ''), relatedQueries: demandSignals?.searchQueries, packetText: researchPacketText },
+        relevance: { keyword, title: String(h1 || ''), relatedQueries: demandSignals?.searchQueries, packetText: pastComparisonIntent ? researchPacketText : (writerPacketView?.currentSupportText ?? threadSupportText()) },
       });
       if (articleThread) {
         scopedSectionBlock = `${scopedSectionBlock}\n${buildThreadBlock(articleThread, { title: String(h1 || ''), h2Titles })}`;
@@ -7130,7 +7157,7 @@ ${conclusionHTML}
     onLog?.(qualityConverged
       ? (qualityLoopOn ? `[PROGRESS] 97% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 97% - ✅ 품질 관문 통과 (품질 루프 OFF · 비평·수정 없음)`)
       : (qualityLoopOn ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason}`));
-    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, coreValues, threadQuestions: threadQuestionAudit, writerPacketView: writerPacketView ? { summary: writerPacketView.summary, decisions: writerPacketView.decisions, text: writerPacketView.text } : null, thread: articleThread ? { question: articleThread.question, source: articleThread.source } : null, visibleArticle: visibleArticle ? { title: visibleArticle.title, sections: visibleArticle.sections.length, faq: visibleArticle.faqItems.length, notes: visibleArticle.notes } : null, preflight: (globalThis as any).__lastPreflight || null, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: judgeArticle, title: judgeTitle, packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, coreValues, threadQuestions: threadQuestionAudit, writerPacketView: writerPacketView ? { summary: writerPacketView.summary, decisions: writerPacketView.decisions, text: writerPacketView.text } : null, thread: articleThread ? { question: articleThread.question, source: articleThread.source } : null, packetRecovery: (researchPacket as any)?.recovery || null, visibleArticle: visibleArticle ? { title: visibleArticle.title, sections: visibleArticle.sections.length, faq: visibleArticle.faqItems.length, notes: visibleArticle.notes } : null, preflight: (globalThis as any).__lastPreflight || null, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: judgeArticle, title: judgeTitle, packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     /**
      * 📒 v3.8.632 — 이번 발행의 측정값을 장부에 남긴다.

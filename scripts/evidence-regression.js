@@ -211,6 +211,10 @@ function draftVsFinal(cq, logs, result) {
     dropped: cq.writerPacketView.decisions.filter((d) => d.verdict === 'DROP_FROM_WRITER_VIEW').map((d) => `${d.reason}: ${String(d.value).slice(0, 40)}`),
   } : null;
   out.judgeInput = cq.judge ? cq.judge.input || 'draft-object' : null;
+  // 748 Search Pipeline — 단계별 보존 지표(고정 CORE 목록 기준). 검색 채널·패킷 복구 요약
+  out.searchChannels = (globalThis.__lastEvidenceDebug || {}).channels || null;
+  out.packetRecovery = cq.packetRecovery || null;
+  out.stageRetention = cq.stageRetention || null;
   out.visibleArticle = cq.visibleArticle || null;
   out.preflight = cq.preflight || null;
   out.ctas = cq.ctas || [];   // v3.8.745 — 주소·문구·actionStatus
@@ -316,6 +320,19 @@ async function runOne(entry, env) {
   const cq = globalThis.__lastCritiqueDebug || {};
   const crit = cq.critique || null;
   save('A-search.json', { queries, raw: (debug.queries || []).map((q) => ({ type: q.type, query: q.query, raw: q.raw || [] })) });
+  // 748 Search Pipeline — Query Snapshot: 어떤 검색어가 어떤 채널 상태로 나갔고 무엇을 가져왔나(실행 간 대조용)
+  const callRecords = debug.queries || [];
+  const primaryQuery = String(entry.keyword || '');
+  save('A2-query-snapshot.json', {
+    PRIMARY_QUERY: primaryQuery,
+    SECONDARY_QUERIES: [...new Set(callRecords.map((q) => q.query).filter((q) => q && q !== primaryQuery))],
+    CHANNELS: callRecords.map((q) => ({ type: q.type, query: q.query, sort: q.sort || 'sim', status: q.status || (q.ok ? 'SUCCESS' : 'FAILED'), statusCode: q.statusCode || null, attempts: q.attempts ?? 1, count: q.count })),
+    CACHE_HITS: callRecords.filter((q) => q.status === 'CACHE_HIT').length,
+    RATE_LIMITED: callRecords.filter((q) => q.status === 'RATE_LIMITED').length,
+    RECOVERED_AFTER_RETRY: callRecords.filter((q) => q.status === 'RECOVERED_AFTER_RETRY').length,
+    SEARCH_DEGRADED: !!(debug.channels && debug.channels.searchDegraded),
+    SOURCE_IDS: items.map((i) => `${i.id} ${String(i.url || '').replace(/^https?:\/\/(www\.|m\.)?/, '').slice(0, 50)}`),
+  });
   save('B-clean-evidence.json', { items, rejected });
   save('C-research-packet.json', debug.packet || {});
   save('D-title.json', { title: cq.title || (result && result.title) || '', history: (cq.titleAudit || debug.titleAudit || {}).history || [], attempts: (cq.titleAudit || {}).attempts, stripped: (cq.titleAudit || {}).stripped });
