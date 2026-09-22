@@ -1632,7 +1632,7 @@ export async function generateUltimateMaxModeArticleFinal(
       searchSuggestions: demandSignals.searchQueries,
       onLog,
       ...(contentMode !== 'shopping' ? {
-        callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+        callModel: (p: string, o?: { json?: boolean; cacheSegments?: Array<{ text: string; cache?: boolean }> }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}), ...(o?.cacheSegments ? { cacheSegments: o.cacheSegments } : {}) }),
       } : {}),
     });
     const packetModel = require('./model-use').modelsSince(packetModelSnap);
@@ -3961,7 +3961,7 @@ ${quoted}
           title: String(h1 || ''), mainKeyword: keyword,
           intentQuestions: [String(articleThread?.question || '')].filter(Boolean),
           packetText: researchPacketText, evidenceText: evidenceRender.text, ledger: claimLedger(),
-          callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+          callModel: (p: string, o?: { json?: boolean; cacheSegments?: Array<{ text: string; cache?: boolean }> }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}), ...(o?.cacheSegments ? { cacheSegments: o.cacheSegments } : {}) }),
           onLog: (m: string) => onLog?.(`[PROGRESS] 75% - ${m}`),
         });
         allSectionsObj = es.article;
@@ -7149,7 +7149,7 @@ ${conclusionHTML}
             `Editorial: ${critiqueReport?.editorial ? critiqueReport.editorial.status : 'N/A'}`,
             `입력: ${visibleArticle && visibleArticle.sections.length > 0 ? '발행 직전 HTML(보이는 글)' : '초안 객체'}`,
           ].join('\n'),
-          callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+          callModel: (p: string, o?: { json?: boolean; cacheSegments?: Array<{ text: string; cache?: boolean }> }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}), ...(o?.cacheSegments ? { cacheSegments: o.cacheSegments } : {}) }),
           onLog,
         });
         finalJudge.model = modelUse.modelsSince(judgeSnap);

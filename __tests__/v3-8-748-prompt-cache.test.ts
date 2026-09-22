@@ -102,4 +102,29 @@ describe('배선 — 네 단계가 모두 공통 접두를 쓴다', () => {
     expect(src).not.toContain('input.packetText.slice(0, 4000)');
     expect(src).toMatch(/Judge 가 보는 자료는 \*\*줄지 않고 늘었다\*\*/);
   });
+
+  /**
+   * ⚠️ 조용한 미배선 — 실제로 한 번 당했다. critique-loop 이 cacheSegments 를 넘겨도
+   * orchestration 의 callModel 람다가 json 만 전달해 라이브에서 [CACHE] 로그가 0건이었다.
+   * 중간 경로가 끊기면 에러 없이 "캐시가 안 먹을" 뿐이라 테스트로 고정한다.
+   */
+  it('⭐ orchestration 의 callModel 이 cacheSegments 를 버리지 않는다 (라이브 0건 사고)', () => {
+    const orch = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
+    const lambdas = orch.split(/\r?\n/).filter((l: string) => l.includes('callModel: (p: string'));
+    expect(lambdas.length).toBeGreaterThanOrEqual(3);
+    for (const l of lambdas) expect(l).toContain('cacheSegments: o.cacheSegments');
+  });
+
+  it('⭐ 엔진 디스패처가 Claude 로 옵션을 넘긴다', () => {
+    const eng = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'final', 'gemini-engine.ts'), 'utf8');
+    expect(eng).toContain('await callClaudeAPI(prompt, llmOptions)');
+    expect(eng).toMatch(/cacheSegments\?: Array<\{ text: string; cache\?: boolean \}>/);
+  });
+
+  it('⭐ callLLM 이 Claude 일 때만 블록으로 바꾼다', () => {
+    const llm = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'core', 'llm', 'llm-caller.ts'), 'utf8');
+    expect(llm).toContain("if (provider === 'claude' && options.cacheSegments)");
+    expect(llm).toContain('cache_creation_input_tokens');
+    expect(llm).toContain('cache_read_input_tokens');
+  });
 });
