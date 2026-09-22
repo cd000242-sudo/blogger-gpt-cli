@@ -5,6 +5,8 @@ import { WordPressAPI, WordPressConfig, WordPressPost, WordPressTag } from './wo
 import { stripNonProse } from '../core/publish-verifier';
 // v3.8.729 — 밖에서 가져온 HTML 의 스킨을 지킨다 (사장님: "외부에서 가져온 스킨을 그대로 쓰게 냅둬")
 import { shouldPreserveOriginalStyles, flattenDocumentForPost } from '../core/final/style-preservation';
+// v3.8.749 — 스킨을 실은 글은 다시 칠하지 않는다 (CSS 한 줄 배선)
+import { carriesOrbitSkin } from '../core/final/skin-marker';
 import { sanitizeTagNames, matchExistingTag } from '../core/tag-hygiene';
 import { Provider } from '../core/index';
 import { callGeminiWithRetry } from '../core/final/gemini-engine';
@@ -511,6 +513,21 @@ export function applyWordPressInlineStyles(html: string, preserveOriginalStyles?
       .replace(/&#128640;/g, '🚀')
       .replace(/&#128161;/g, '💡');
 
+    /**
+     * 🖋️ v3.8.749 — 스킨을 실은 글은 **본문 정리까지만** 하고 여기서 돌려준다 (CSS 한 줄 배선).
+     *
+     * 사장님: "앱에서 입히는 CSS가 1개의 배선으로 되어 있어야 되는데 몇 개 더 있고 새는 것 같아"
+     *
+     * 아래는 h2·p·th… 의 style 을 이 퍼블리셔 디자인으로 다시 쓰고, 그걸 접은 클래스(점수 0,4,0)로 얹는다.
+     * 인라인·접은 클래스는 스킨보다 강해서 승인한 「먹과 놋쇠」가 사라졌다.
+     * 실측(발행글 5814): 스킨 h2 = 30px·먹색·위쪽 놋쇠 선 → 실제 26px·짙은 초록·왼쪽 6px 세로줄.
+     *
+     * 스킨(generateCSSFinal)은 글 안(.bgpt-content)만 꾸미도록 가둬져 있으니 덧칠이 필요 없다.
+     * 에이전트 글이 이미 이 방식(bgpt-wp-ready 가드)으로 나가고 있었다 — 이제 API 글도 같은 길이다.
+     * 스킨이 없는 글(가져온 문서·옛 글)만 아래 예전 경로를 탄다.
+     */
+    if (carriesOrbitSkin(html)) return html;
+
     let styledHtml = markWordPressInfoBoxChildren(inlineWordPressInfoBoxStyles(html));
     const usesFinalPreviewSkin = /\b(?:bgpt-content|gradient-frame|white-paper)\b/i.test(styledHtml);
     const previewPrimary = readCssCustomProperty(styledHtml, '--rv-primary', '#059669');
@@ -561,30 +578,11 @@ export function applyWordPressInlineStyles(html: string, preserveOriginalStyles?
     // v3.8.83: 전체 +2px 가독성 강화 (사용자 요청)
     // H2 - 틸 악센트, 26px (was 24px)
     /**
-     * 🖋️ v3.8.613 — 스킨 `<style>` 은 **지우되 되살린다.**
-     *
-     * 사장님: "에이전트로 글발행한스킨과 API로 글발행한 스킨이 다르네요"
-     *
-     * 실측(발행글 5451, API 경로): 「먹과 놋쇠」의 핵심이 통째로 없었다.
-     *   Gowun Batang 0 · @import 0 · .bgpt-content h2 0 · tabular-nums 0
-     *   (색 #0C453F 만 8개 — 인라인으로 박힌 것이 접혀 살아남았을 뿐이다)
-     *
-     * 이 줄이 범인이다. 여기서 본문의 <style> 을 **전부 지우고** 아래에서 퍼블리셔 CSS 로
-     * 갈아끼운다. 에이전트 경로는 이 함수를 건너뛰므로(bgpt-wp-ready 가드) 스킨이 살아남았고,
-     * API 경로만 옷을 벗은 채 나갔다 — 두 경로가 달라 보인 이유가 이것이다.
-     *
-     * 그렇다고 지우지 않을 수는 없다: 옛 글의 낡은 스킨이 섞이면 퍼블리셔 CSS 와 충돌한다.
-     * 그래서 **우리 스킨만 골라 보관했다가** 퍼블리셔 CSS 뒤에 다시 붙인다(나중 규칙이 이긴다).
+     * 스킨이 없는 글의 낡은 <style> 은 걷어낸다 — 남으면 아래 퍼블리셔 CSS 와 충돌한다.
+     * (v3.8.613 의 "우리 스킨만 보관했다가 되살리기"는 v3.8.749 부터 필요 없다:
+     *  스킨을 실은 글은 위에서 이미 그대로 돌려보낸다.)
      */
-    const keptSkinBlocks: string[] = [];
-    styledHtml = styledHtml.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (block, inner: string) => {
-      // 우리 스킨의 표식 — generateCSSFinal 이 항상 넣는 선택자
-      if (/\.bgpt-content\b/.test(inner)) keptSkinBlocks.push(block);
-      return '';
-    });
-    if (keptSkinBlocks.length > 0) {
-      console.log(`[WP-PUBLISH] 🖋️ 본문 스킨 <style> ${keptSkinBlocks.length}개 보관 — 퍼블리셔 CSS 뒤에 다시 싣습니다`);
-    }
+    styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
 
     styledHtml = styledHtml.replace(/<(div|section|aside|figure|figcaption|span)\b([^>]*)>/gi, (match, tag, attrs = '') => {
       const className = getClassNameFromAttrs(attrs);
@@ -1718,12 +1716,7 @@ export function applyWordPressInlineStyles(html: string, preserveOriginalStyles?
       console.warn(`[WP-PUBLISH] ⚠️ 인라인 style 접기 실패 (원본 유지): ${String(error?.message || error).slice(0, 80)}`);
     }
 
-    /**
-     * v3.8.613: 보관해 둔 스킨을 **퍼블리셔 CSS 뒤에** 싣는다.
-     * 같은 특정도면 나중 규칙이 이기므로, 스킨이 퍼블리셔 기본값을 덮는다.
-     */
-    const skinCSS = keptSkinBlocks.join('\n');
-    const wrappedContent = `${themeFriendlyCSS}${foldedCSS}${skinCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
+    const wrappedContent = `${themeFriendlyCSS}${foldedCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
 
     // Gutenberg HTML 블록
     styledHtml = `<!-- wp:html -->
@@ -1899,128 +1892,11 @@ export class WordPressPublisher {
       }
       console.log('[WP-PUBLISH] ✅ 연결 성공');
 
-      // 1. CSS가 있는 경우 WordPress 핵 옵션 적용
-      if (cssLength > 0 && !preserveOriginalStyles) {
-        console.log(`[WP-PUBLISH] ✅ CSS 발견됨 (${cssLength.toLocaleString()}자) - WordPress 핵 옵션 적용`);
-
-        // WordPress 핵 옵션: 모든 WordPress 테마/플러그인 CSS 오버라이드
-        const wordpressNuclearCSS = `
-          /* ========================================
-             WORDPRESS 핵 옵션 - 테마/플러그인 CSS 극복
-             ======================================== */
-
-          /* 핵 옵션 1: WordPress 컨테이너 완전 오버라이드 */
-          .wp-block-post-content .max-mode-article,
-          .entry-content .max-mode-article,
-          .post-content .max-mode-article,
-          .content-area .max-mode-article,
-          article .max-mode-article,
-          .wp-site-blocks .max-mode-article,
-          .wp-block-group .max-mode-article,
-          /* Gutenberg 블록 오버라이드 */
-          .wp-block-columns .max-mode-article,
-          .wp-block-media-text .max-mode-article,
-          /* 테마별 컨테이너 오버라이드 */
-          .site-content .max-mode-article,
-          .main-content .max-mode-article,
-          .primary .max-mode-article {
-            max-width: 100% !important;
-            width: 100% !important;
-            margin: 0 auto !important;
-            padding: 0 0px 72px 0px !important;
-            box-sizing: border-box !important;
-            display: block !important;
-            text-align: left !important;
-            overflow: visible !important;
-            /* WordPress 테마 극복 */
-            position: relative !important;
-            float: none !important;
-            clear: both !important;
-          }
-
-          /* 핵 옵션 2: WordPress 텍스트 요소 강제 적용 */
-          .wp-block-post-content .max-mode-article h1,
-          .wp-block-post-content .max-mode-article h2,
-          .wp-block-post-content .max-mode-article h3,
-          .wp-block-post-content .max-mode-article h4,
-          .wp-block-post-content .max-mode-article h5,
-          .wp-block-post-content .max-mode-article h6,
-          .wp-block-post-content .max-mode-article p,
-          .wp-block-post-content .max-mode-article span,
-          .wp-block-post-content .max-mode-article div,
-          .wp-block-post-content .max-mode-article li,
-          .entry-content .max-mode-article h1,
-          .entry-content .max-mode-article h2,
-          .entry-content .max-mode-article h3,
-          .entry-content .max-mode-article h4,
-          .entry-content .max-mode-article h5,
-          .entry-content .max-mode-article h6,
-          .entry-content .max-mode-article p,
-          .entry-content .max-mode-article span,
-          .entry-content .max-mode-article div,
-          .entry-content .max-mode-article li,
-          .post-content .max-mode-article h1,
-          .post-content .max-mode-article h2,
-          .post-content .max-mode-article h3,
-          .post-content .max-mode-article h4,
-          .post-content .max-mode-article h5,
-          .post-content .max-mode-article h6,
-          .post-content .max-mode-article p,
-          .post-content .max-mode-article span,
-          .post-content .max-mode-article div,
-          .post-content .max-mode-article li {
-            /* WordPress 텍스트 핵 */
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            color: inherit !important;
-            font-family: inherit !important;
-            line-height: 1.6 !important;
-            margin: inherit !important;
-            padding: inherit !important;
-            font-size: inherit !important;
-            font-weight: inherit !important;
-            text-align: inherit !important;
-            /* WordPress 테마 극복 */
-            -webkit-text-size-adjust: 100% !important;
-            -ms-text-size-adjust: 100% !important;
-            text-size-adjust: 100% !important;
-          }
-
-          /* 핵 옵션 3: Gutenberg 블록 CSS 오버라이드 */
-          .wp-block-group.has-background .max-mode-article,
-          .wp-block-cover .max-mode-article,
-          .wp-block-media-text .max-mode-article {
-            background: transparent !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-
-          /* 핵 옵션 4: WordPress 플러그인 CSS 극복 */
-          .max-mode-article[class*="wp-block"],
-          .max-mode-article[class*="elementor"],
-          .max-mode-article[class*="vc_"],
-          .max-mode-article[class*="av_"] {
-            all: revert !important;
-            margin: 0 auto !important;
-            padding: 0 0px 72px 0px !important;
-            max-width: 100% !important;
-          }
-        `;
-
-        // 기존 CSS에 WordPress 핵 옵션 추가
-        optimizedContent = optimizedContent.replace(
-          /(<style[^>]*>[\s\S]*?<\/style>)/i,
-          (match) => {
-            const nuclearCSS = wordpressNuclearCSS.replace(/^\s+|\s+$/gm, '');
-            return match.replace('</style>', '\n' + nuclearCSS + '\n</style>');
-          }
-        );
-
-        console.log(`[WP-PUBLISH] 🛡️ WordPress 핵 옵션 적용 완료`);
-      } else {
-        console.log(`[WP-PUBLISH] ⚠️ CSS가 없음 - 기본 텍스트 서식만 적용될 수 있음`);
-      }
+      /**
+       * v3.8.749 — "WordPress 핵 옵션" CSS 를 더 이상 싣지 않는다.
+       * 옛 .max-mode-article 전용 규칙이라 지금 글에는 아무 효과가 없으면서, 모든 글의 첫 <style> 에
+       * 2KB 씩 붙었다. 스킨을 실은 글은 스킨 한 블록으로 끝나야 한다 (CSS 한 줄 배선).
+       */
 
       // 🔥 이미 applyWordPressInlineStyles에서 <!-- wp:html --> 블록으로 감싸졌으므로
       // 여기서는 추가 래핑 없이 그대로 사용

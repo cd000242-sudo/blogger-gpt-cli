@@ -22,19 +22,31 @@ const publisher = read('src/wordpress/wordpress-publisher.ts');
 const badges = read('electron/ui/modules/header-badges.js');
 const html = read('electron/ui/index.html');
 
-describe('① 스킨을 지웠다가 되살린다', () => {
-  test('우리 스킨만 골라 보관한다', () => {
-    expect(publisher).toContain('const keptSkinBlocks');
-    expect(publisher).toMatch(/\/\\\.bgpt-content\\b\/\.test\(inner\)|\.bgpt-content\\b\/\.test/);
+/**
+ * v3.8.749 — 요구("API 글도 에이전트 글과 같은 스킨")는 그대로, 방법이 바뀌었다.
+ * 예전: 스킨을 지웠다가 퍼블리셔 CSS 뒤에 되살렸다. 그런데 퍼블리셔가 h2·p·th… 에 박은 인라인 style 과
+ * 접은 클래스(점수 0,4,0)가 여전히 스킨을 이겨, 실측(5814)에서 제목이 퍼블리셔 디자인으로 그려졌다.
+ * 이제: 스킨을 실은 글은 퍼블리셔가 본문 정리만 하고 모양은 손대지 않는다 — 에이전트 글과 같은 길이다.
+ */
+describe('① API 글도 스킨이 벗겨지지 않는다', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { generateCSSFinal } = require('../src/core/final/html');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { applyWordPressInlineStyles } = require('../src/wordpress/wordpress-publisher');
+  const skin: string = generateCSSFinal('wordpress', 'external');
+  const out: string = applyWordPressInlineStyles(`${skin}<div class="bgpt-content"><h2>제목</h2><p>본문</p></div>`);
+
+  test('스킨 <style> 이 한 글자도 안 바뀌고 그대로 실린다', () => {
+    const blocks = out.match(/<style\b[^>]*>[\s\S]*?<\/style>/gi) || [];
+    expect(blocks).toEqual([skin.trim()]);
   });
 
-  test('퍼블리셔 CSS 뒤에 다시 싣는다 — 나중 규칙이 이겨야 스킨이 산다', () => {
-    expect(publisher).toContain('const skinCSS = keptSkinBlocks.join');
-    const wrap = publisher.slice(publisher.indexOf('const wrappedContent'));
-    expect(wrap).toMatch(/\$\{themeFriendlyCSS\}\$\{foldedCSS\}\$\{skinCSS\}/);
+  test('스킨을 이기는 덧칠(인라인 style·접은 클래스)을 하지 않는다', () => {
+    expect(out).not.toMatch(/<(h2|p)\b[^>]*\sstyle=/i);
+    expect(out).not.toMatch(/\bbgpt-s\d+\b/);
   });
 
-  test('여전히 낡은 style 은 걷어낸다 — 안 지우면 퍼블리셔 CSS 와 충돌한다', () => {
+  test('스킨 없는 글의 낡은 style 은 여전히 걷어낸다 — 안 지우면 퍼블리셔 CSS 와 충돌한다', () => {
     expect(publisher).toMatch(/styledHtml = styledHtml\.replace\(\/<style/);
   });
 });

@@ -2,6 +2,14 @@ const { GoogleAuth } = require('google-auth-library');
 // v3.8.729 — 밖에서 가져온 HTML 의 스킨을 지킨다 (style-preservation.ts)
 const { shouldPreserveOriginalStyles, flattenDocumentForPost } = require('./final/style-preservation');
 
+/**
+ * v3.8.749 — 스킨을 실은 글은 지우지도 다시 칠하지도 않는다 (CSS 한 줄 배선).
+ * 다른 final/* 도구처럼 쓰는 자리에서 불러온다 — 모듈 맨 위 의존성을 늘리지 않는다.
+ */
+function carriesOrbitSkin(html) {
+  return require('./final/skin-marker').carriesOrbitSkin(html);
+}
+
 // Blogger 에러 타입 정의
 const BLOGGER_ERROR_TYPES = {
   TOKEN_EXPIRED: 'token_expired',
@@ -716,7 +724,25 @@ function applyInlineStyles(html) {
     }
 
     // ── ** 볼드 마크다운 마커 → <strong> 변환 ──
-    styledHtml = styledHtml.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // v3.8.749: <style>·<script> 안은 건너뛴다 — 스킨 CSS 주석의 **강조** 표기까지 <strong> 으로 바뀌었다
+    styledHtml = styledHtml.replace(
+      /(<(style|script)\b[^>]*>[\s\S]*?<\/\2>)|\*\*([^*]+)\*\*/gi,
+      (match, block, _tag, bold) => (block ? block : `<strong>${bold}</strong>`)
+    );
+
+    /**
+     * 🖋️ v3.8.749 — 스킨을 실은 글은 **본문 정리까지만** 하고 여기서 돌려준다 (CSS 한 줄 배선).
+     *
+     * 바로 아래 줄이 스킨 <style> 을 지우고, 그 뒤가 청록 디자인을 인라인으로 박은 다음
+     * 사이드바를 숨기는 CSS(#sidebar-wrapper{display:none})와 테마 틀 규칙을 붙였다.
+     * 그래서 블로거 글에는 승인한 「먹과 놋쇠」가 한 번도 나가지 않았다.
+     * 스킨은 글 안(.bgpt-content)만 꾸미도록 가둬져 있으니 덧칠이 필요 없다.
+     */
+    if (carriesOrbitSkin(styledHtml)) {
+      console.log('[BODY-TRACE] applyInlineStyles — 앱 스킨을 실은 글: 본문 정리만 하고 스킨 그대로 둠');
+      return styledHtml;
+    }
+
     styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
     {
       const m = styledHtml.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [];
@@ -820,20 +846,14 @@ function applyInlineStyles(html) {
     styledHtml = wrapBloggerTables(styledHtml);
 
     // 수익 최적화 모바일 반응형 CSS + 전체 너비 레이아웃
+    /*
+     * v3.8.749 — 이 CSS 는 **글 안(.blogger-gpt-content)만** 꾸민다.
+     * 예전엔 맨 앞에서 테마 사이드바를 숨기고(#sidebar-wrapper{display:none}) #outer-wrapper·#main-wrapper·
+     * #Blog1·.post-body·.container·.row·.col 의 폭·여백을 !important 로 바꿨다. 블로거 홈처럼 여러 글이
+     * 한 화면에 나오면 글 한 편의 CSS 가 다른 글과 테마 전체에 걸린다 — 그 규칙들을 뺐다.
+     */
     const mobileOptimizedCSS = `
       <style>
-        /* ===== 사이드바 숨기고 전체 너비 확장 ===== */
-        #sidebar-wrapper { display: none !important; }
-        #content-wrapper, .container.row-x1, #outer-wrapper {
-          max-width: 100% !important; width: 100% !important; padding: 0 !important;
-        }
-        #main-wrapper, .theiaStickySidebar, #main, #Blog1,
-        .blog-posts.hfeed.item-post-wrap, .blog-post.hentry.item-post,
-        .item-post-inner, .entry-content-wrap {
-          max-width: 100% !important; width: 100% !important; flex: 1 1 100% !important;
-        }
-        .post-body { max-width: 100% !important; width: 100% !important; padding: 0 !important; }
-
         /* 완전 풀와이드 레이아웃 — 빈 공간 제로 */
         .blogger-gpt-content.max-mode-article {
           width: 100% !important;
@@ -843,30 +863,12 @@ function applyInlineStyles(html) {
           box-sizing: border-box !important;
           background: #ffffff !important;
         }
-        
-        /* 부모 컨테이너 확장 */
-        .post-body, .entry-content, .post-content,
-        .Blog .post-body, .hentry .post-body,
-        .post-outer .post-body, .blog-posts .post-body,
-        article .post-body, .post .post-body {
-          width: 100% !important;
-          max-width: 100% !important;
-          padding: 0 !important;
-          margin: 0 !important;
-          box-sizing: border-box !important;
-        }
 
         /* 이미지 꽉차게 */
-        .post-body img, .blogger-gpt-content img {
+        .blogger-gpt-content img {
           max-width: 100% !important; width: 100% !important;
           height: auto !important; border-radius: 12px !important;
           margin: 24px 0 !important; display: block !important;
-        }
-        .separator, .tr-caption-container {
-          max-width: 100% !important; width: 100% !important; text-align: center !important;
-        }
-        .separator img, .tr-caption-container img {
-          max-width: 100% !important; width: 100% !important; height: auto !important;
         }
 
         .blogger-gpt-content .bgpt-table-scroll {
@@ -920,28 +922,6 @@ function applyInlineStyles(html) {
         
         /* 모바일 (≤768px) */
         @media screen and (max-width: 768px) {
-          html, body {
-            overflow-x: hidden !important;
-            -webkit-text-size-adjust: 100% !important;
-            text-size-adjust: 100% !important;
-          }
-          #content-wrapper, #main-wrapper, #outer-wrapper,
-          .content-wrapper, .main-wrapper, .outer-wrapper,
-          .container, .container.row-x1, .row, .col, .column,
-          .post-outer, .blog-post, .item-post-inner,
-          .post-body, .entry-content, .post-content {
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
-            box-sizing: border-box !important;
-          }
-          .post-body { padding: 0 !important; margin: 0 !important; }
-          .item-post-inner { padding: 0 !important; }
-          .entry-content-wrap { padding: 0 !important; margin: 0 !important; }
           .blogger-gpt-content.max-mode-article {
             width: 100vw !important;
             max-width: 100vw !important;
@@ -1458,27 +1438,9 @@ function generateBloggerLayoutCSS() {
       border-radius: 6px !important;
     }
 
-    /* 반응형 */
+    /* 반응형 — v3.8.749: 글 안(.blogger-gpt-content)만. html·body·테마 틀(.container·.row·.col·
+       #outer-wrapper·.post-body …)의 폭·여백을 바꾸던 규칙은 뺐다 (다른 글·테마 전체에 걸렸다) */
     @media (max-width: 768px) {
-      html, body {
-        overflow-x: hidden !important;
-        -webkit-text-size-adjust: 100% !important;
-        text-size-adjust: 100% !important;
-      }
-      #content-wrapper, #main-wrapper, #outer-wrapper,
-      .content-wrapper, .main-wrapper, .outer-wrapper,
-      .container, .container.row-x1, .row, .col, .column,
-      .post-outer, .blog-post, .item-post-inner,
-      .post-body, .entry-content, .post-content {
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-        box-sizing: border-box !important;
-      }
       .blogger-gpt-content {
         width: 100vw !important;
         max-width: 100vw !important;
@@ -4542,7 +4504,8 @@ html body .content-inner {
       //   기존: hasMaxModeArticle=false일 때 두 분기에서 동일 함수 호출 → 콘텐츠 크기 폭증, 중복 인라인 스타일 주입
       //   변경: 1번만 호출되도록 가드 변수 사용. 4616 라인의 최종 호출 1회 + 여기 1회 = 총 2회 (이전 3회 → 2회)
       let inlineStylesApplied = false;
-      if (!hasMaxModeArticle) {
+      // v3.8.749: 앱 스킨을 실은 글은 "클래스 누락"이 아니다 — 스킨이 모양을 맡는다 (인라인 전환·경고 없음)
+      if (!hasMaxModeArticle && !carriesOrbitSkin(finalHtmlContent)) {
         console.warn(`[PUBLISH] ⚠️ [CSS 검증] max-mode-article 클래스가 발견되지 않았습니다. 인라인 스타일로 전환합니다.`);
         onLog?.(`[PUBLISH] ⚠️ 콘텐츠 클래스 누락으로 인라인 스타일 적용 (CSS 실패 대비)`);
         finalHtmlContent = applyInlineStyles(finalHtmlContent);
@@ -4723,7 +4686,8 @@ html body .content-inner {
     // 모든 텍스트 요소에 인라인 스타일을 추가하여 무조건 보이도록 함
     // ⚠️ responsiveLayoutCSS 제거됨 — Blogger가 <div> 내부의 <style> 태그를 strip하여
     //    CSS 텍스트가 본문에 노출되는 버그 수정 (applyInlineStyles()의 CSS가 이미 충분)
-    if (!preserveOriginalStyles) {
+    // v3.8.749: 앱 스킨을 실은 글은 건너뛴다 — 인라인 !important 는 스킨보다 강해 「먹과 놋쇠」를 덮는다
+    if (!preserveOriginalStyles && !carriesOrbitSkin(finalHtmlContent)) {
     console.log('[PUBLISH] 🔥 인라인 스타일 강제 주입 시작...');
 
     // v3.8.24: 이미 inline style을 가진 요소는 LLM/저자 의도 보존 — publisher가 덮어쓰지 않음.

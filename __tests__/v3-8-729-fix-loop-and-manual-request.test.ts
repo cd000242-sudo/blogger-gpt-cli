@@ -345,7 +345,8 @@ describe('④ 밖에서 가져온 HTML 은 그 스킨 그대로 발행한다', (
     const wp = read('src/wordpress/wordpress-publisher.ts');
     expect(wp).toContain("from '../core/final/style-preservation'");
     expect((wp.match(/flattenDocumentForPost\(/g) || []).length).toBe(2);   // publish() · publishToWordPress()
-    expect(wp).toContain('if (cssLength > 0 && !preserveOriginalStyles)');
+    // v3.8.749: "핵 옵션" CSS 자체를 뺐다 — 가져온 HTML 에 앱 CSS 가 붙을 자리가 아예 없다
+    expect(wp).not.toMatch(/wordpressNuclearCSS/);
     expect(read('src/core/index.ts')).toContain('preserveOriginalStyles: payload?.preserveOriginalStyles');
   });
 
