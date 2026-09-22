@@ -69,18 +69,18 @@ describe('v3.8.645 본문을 되풀이하는 FAQ', () => {
     const orch = read('src/core/final/orchestration.ts');
 
     test('FAQ 를 만든 뒤에 거른다', () => {
-      const block = blockBetween(orch, 'let faqs = await generateFAQFinal', 'const faqText =');
+      const block = blockBetween(orch, 'let faqs = await generateFAQFinal', "require('./faq-fact-guard')");
       expect(block).toContain('findEchoedFaqs');
     });
 
     /** 다 버리면 그 자리가 더 허전하다 */
     test('두 개 아래로 줄어들면 그대로 둔다', () => {
-      const block = blockBetween(orch, 'let faqs = await generateFAQFinal', 'const faqText =');
+      const block = blockBetween(orch, 'let faqs = await generateFAQFinal', "require('./faq-fact-guard')");
       expect(block).toContain('kept.length >= 2');
     });
 
     test('무엇을 뺐는지 로그로 알린다 — 조용히 지우지 않는다', () => {
-      const block = blockBetween(orch, 'let faqs = await generateFAQFinal', 'const faqText =');
+      const block = blockBetween(orch, 'let faqs = await generateFAQFinal', "require('./faq-fact-guard')");
       expect(block).toContain('겹치는 FAQ');
     });
 

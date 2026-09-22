@@ -4053,43 +4053,21 @@ ${quoted}
       console.warn('[FAQ] 중복 검사 스킵:', (echoErr as Error)?.message);
     }
 
-    const faqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
-    if (inspectFactIntegrity(faqText, factEvidence).status === 'blocked') {
-      onLog?.('[PROGRESS] 68% - [FACT] FAQ의 근거 없는 정확한 정보를 정리합니다.');
-      // v3.8.368: FAQ 질문/답변 짝이 밀리던 버그 fix
-      //   과거: question에도 문장 단위 삭제형(sanitizeFactUnsafeHtml)을 적용.
-      //         "육아휴직 급여는 언제부터 신청하나요?" 처럼 민감어(신청)+숫자가 있는 질문은
-      //         문장 전체가 삭제되어 빈 질문이 되고, 접기 UI에서 Q/A 짝이 한 칸씩 밀렸다.
-      //   현재: question은 라벨이므로 sanitizeFactUnsafeHeading(토큰만 도려내기)을 쓰고,
-      //         그래도 비면 해당 FAQ 항목을 통째로 버려 짝이 절대 밀리지 않게 한다.
-      const beforeCount = faqs.length;
-      faqs = faqs
-        .map((item) => {
-          const q = sanitizeFactUnsafeHeading(String(item.question || ''), factEvidence, '');
-          const a = sanitizeFactUnsafeHtml(String(item.answer || ''), factEvidence);
-          return { ...item, question: q, answer: a };
-        })
-        .filter((item) => {
-          const hasQ = String(item.question || '').trim().length > 0;
-          const hasA = String(item.answer || '').replace(/<[^>]*>/g, '').trim().length > 0;
-          if (!hasQ || !hasA) {
-            console.warn('[FACT] FAQ 항목 제거 (질문 또는 답변이 비어 짝 밀림 방지):', {
-              question: String(item.question || '').slice(0, 60),
-              answerLen: String(item.answer || '').length,
-            });
-            return false;
-          }
-          return true;
-        });
-      if (faqs.length !== beforeCount) {
-        onLog?.(`[PROGRESS] 68% - [FACT] FAQ ${beforeCount - faqs.length}개 항목 제거 (내용 유실로 짝 밀림 방지) — 남은 ${faqs.length}개`);
+    /**
+     * v3.8.741 — FAQ 값 관문(faq-fact-guard.ts). 옛 필터(v3.8.368)는 질문에서 토큰만 도려내 "대출 신청금액이 이면" 같은 깨진 문장을 남겼고,
+     * 질문 속 가정값("동행이 3명인데")을 사실 주장으로 봐 항목을 버렸다. 이제 질문의 값은 시나리오(근거 불요), 답변의 값만 대조하며,
+     * 근거 없는 답변 값은 토큰이 아니라 문장 단위로 빼거나 항목을 뺀다. 장부는 본문과 같은 fact-claims 장부.
+     */
+    try {
+      const { guardFaqs, describeFaqGuard } = require('./faq-fact-guard');
+      const guarded = guardFaqs(faqs, claimLedger());
+      if (guarded.changed > 0) {
+        faqs = guarded.faqs;
+        onLog?.(`[PROGRESS] 68% - ❓ ${describeFaqGuard(guarded)}`);
+        for (const n of guarded.notes.filter((x: any) => x.action !== 'kept')) console.warn(`[FAQ-GUARD] ${n.action}: "${n.question}" — ${n.unsupported.join(', ')} ${n.detail || ''}`);
       }
-      const sanitizedFaqText = faqs.map((item) => `${item.question} ${item.answer}`).join('\n');
-      if (inspectFactIntegrity(sanitizedFaqText, factEvidence).status === 'blocked') {
-        // v3.8.323: 발행 차단 대신 경고만 남기고 진행.
-        onLog?.('⚠️ [FACT] FAQ 근거 부족 감지 (경고만 남기고 발행 진행)');
-        console.warn('[FACT] FAQ 근거 부족 — 경고 강등');
-      }
+    } catch (faqGuardErr: any) {
+      console.warn('[FAQ-GUARD] 스킵:', String(faqGuardErr?.message || faqGuardErr).slice(0, 100));
     }
 
     // 5. CTA 생성 (manualCtas 우선, 없으면 자동 생성)
@@ -4242,13 +4220,13 @@ ${quoted}
       try {
         const { checkClaims } = require('./fact-claims');
         const ledgerNow = claimLedger();
-        const beforeFaq = faqs.length;
-        faqs = faqs.filter((f: any) => {
-          const c = checkClaims(`${f.question} ${f.answer}`, ledgerNow);
-          if (c.unsupported.length) { finalQaNotes.push(`FAQ 제외: "${String(f.question).slice(0, 30)}" — 근거 없는 값 ${c.unsupported.join(', ')}`); return false; }
-          return true;
-        });
-        if (beforeFaq !== faqs.length) onLog?.(`[PROGRESS] 75% - 🧹 근거 없는 값이 든 FAQ ${beforeFaq - faqs.length}개 제외`);
+        // v3.8.741 — 68% 관문과 같은 규칙(질문 값은 시나리오, 답변 값만 대조, 문장 단위). 루프 뒤 장부가 늘었을 수 있어 한 번 더
+        const guardedNow = require('./faq-fact-guard').guardFaqs(faqs, ledgerNow);
+        if (guardedNow.changed > 0) {
+          faqs = guardedNow.faqs;
+          for (const n of guardedNow.notes.filter((x: any) => x.action !== 'kept')) finalQaNotes.push(`FAQ ${n.action === 'dropped' ? '제외' : '문장 제거'}: "${n.question.slice(0, 30)}" — 근거 없는 값 ${n.unsupported.join(', ')}`);
+          onLog?.(`[PROGRESS] 75% - 🧹 ${require('./faq-fact-guard').describeFaqGuard(guardedNow)}`);
+        }
         /**
          * v3.8.736 — 요약표는 **행을 지우지 않는다.** 실측: 행을 빼니 표가 비어 심사가 막았다.
          * 근거 없는 값이 든 칸만 그 값을 걷어내고, 칸이 비면 "공식 자료 확인 필요" 로 채운다. 새 값을 만들지 않는다.
