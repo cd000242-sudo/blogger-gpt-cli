@@ -3205,10 +3205,19 @@ ${quoted}
     try {
       const cv = require('./core-values');
       coreValues = cv.selectCoreValues(researchPacket, { keyword, title: String(h1 || ''), h2Titles, questions: demandSignals?.userQuestions || [] });
-      const coreBlock = cv.renderCoreBlock(coreValues, h2Titles);
+      /**
+       * live 748a/748b(경주 APEC): 값 배정 블록이 "해운대 모던 스테이 APEC 요금"(패킷의 condition, 부산 숙소)을 밀어 넣어 Writer 가 썼고
+       * Critic 이 MIXED_ENTITY 로 빼냈다. 코드 패킷의 잡음을 결정적 규칙으로 다 거르지 못한다 — 값 블록은 **기본 OFF**(CORE_VALUES_BLOCK=1 실험용).
+       * 기본은 값 없는 규칙 한 토막만 붙인다. 누락된 CORE 는 Critic 의 MISSING_INFORMATION(소제목 anchor)이 채운다 — 이건 live 에서 동작이 확인됐다.
+       */
+      const coreBlock = process.env['CORE_VALUES_BLOCK'] === '1' ? cv.renderCoreBlock(coreValues, h2Titles) : cv.renderRulesOnly();
       if (coreBlock) {
         scopedSectionBlock = `${scopedSectionBlock}\n${coreBlock}\n`;
-        onLog?.(`[PROGRESS] 45% - 🎯 핵심 값 ${coreValues.length}개를 절에 배정했습니다 (${coreValues.slice(0, 4).map((c: any) => c.value).join(' · ')}${coreValues.length > 4 ? ' …' : ''})`);
+        onLog?.(process.env['CORE_VALUES_BLOCK'] === '1'
+          ? `[PROGRESS] 45% - 🎯 핵심 값 ${coreValues.length}개를 절에 배정했습니다 (${coreValues.slice(0, 4).map((c: any) => c.value).join(' · ')}${coreValues.length > 4 ? ' …' : ''})`
+          : `[PROGRESS] 45% - 🎯 구체성 규칙(값 없음) 적용 · 핵심 값 후보 ${coreValues.length}개는 측정용`);
+      } else {
+        onLog?.(`[PROGRESS] 45% - 🎯 핵심 값 0개 (패킷 수치 ${(researchPacket?.numbers || []).length} · 날짜 ${(researchPacket?.dates || []).length} · 조건 ${(researchPacket?.conditions || []).length} · 사실 ${(researchPacket?.facts || []).length} · 소제목 ${h2Titles.length})`);
       }
     } catch (cvErr: any) { console.warn('[CORE-VALUES] 스킵:', String(cvErr?.message || cvErr).slice(0, 80)); }
     /**

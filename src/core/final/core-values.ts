@@ -144,6 +144,19 @@ export function renderCoreBlock(core: CoreValue[], h2Titles: string[]): string {
   ].join('\n');
 }
 
+/**
+ * 값 없는 규칙 한 토막 — 기본 경로. 값 배정 블록은 live 에서 다른 지역 숙소를 밀어 넣어(748b) 기본 OFF 로 두었다.
+ * 짧게(≈420자): 조언엔 기준값, 정보형 절은 답 먼저, 같은 값은 한 절에서만.
+ */
+export function renderRulesOnly(): string {
+  return [
+    '',
+    '🎯 [구체성] ① 조언·판단("~하는 편이 좋습니다", "~를 따져야 합니다")을 쓸 때 Research Packet 에 그 판단을 뒷받침하는 금액·기간·수량·조건이 있으면 **값 → 뜻 → 독자가 할 일** 순으로 붙입니다. 값 없는 일반론으로 문장을 끝내지 않습니다.',
+    '② 정보형 절의 첫 1~2문장에 그 절이 답할 핵심(값·조건·행동)을 둡니다. "중요합니다 / 확인해야 합니다 / 상황에 따라 다릅니다" 로 절을 시작하지 않습니다.',
+    '③ 같은 핵심 값은 그것을 맡은 절에서 한 번 충분히 설명하고, 다른 절에서는 새 뜻이 없는 한 되풀이하지 않습니다(요약표·결론은 예외). 패킷에 없는 값이나 다른 지역·다른 대상의 값은 넣지 않습니다.',
+  ].join('\n');
+}
+
 /** 하네스·테스트용 — 본문이 CORE 값을 얼마나 썼는지 */
 export function coreCoverage(core: CoreValue[], bodyText: string): { used: CoreValue[]; missing: CoreValue[] } {
   const f = norm(String(bodyText || '')).replace(/퍼센트/g, '%');

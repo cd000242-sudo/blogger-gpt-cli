@@ -108,6 +108,15 @@ describe('② MISSING_INFORMATION(ADD) 만 소제목을 insertionAnchor 로', ()
     expect(r.issues[0]).toMatchObject({ severity: 'MAJOR', type: 'MISSING_INFORMATION', anchor: 'heading', allowedOperations: ['ADD'] });
     expect(r.status).toBe('REVISION_REQUIRED');
   });
+  it('⭐⭐ live 748a 재현: 같은 소제목에 누락 지적이 둘이면 지문이 달라 둘 다 산다', async () => {
+    const r = await runCritic1({ title: 't', mainKeyword: 'k', article: article(), packetText, evidenceText, items, callModel: async () => JSON.stringify({ status: 'REVISION_REQUIRED', issues: [
+      { severity: 'MAJOR', sectionId: 'S01', exactSpan: '## 경주 숙소 예약 전 확인 항목', type: 'MISSING_INFORMATION', problem: '권장 예약 시기 3~6개월 전이 빠졌다', evidenceIds: ['E07'], requiredChange: '붙인다' },
+      { severity: 'MAJOR', sectionId: 'S01', exactSpan: '## 경주 숙소 예약 전 확인 항목', type: 'MISSING_INFORMATION', problem: '경주시 확보 객실 12,800여 개가 빠졌다', evidenceIds: ['E07'], requiredChange: '붙인다' },
+    ] }) }, sectionize(article()));
+    expect(r.issues).toHaveLength(2);
+    expect(new Set(r.issues.map((i) => i.issueKey)).size).toBe(2);
+    expect(r.issues.every((i) => i.anchor === 'heading' && i.severity === 'MAJOR')).toBe(true);
+  });
   it('⭐ H2 제목 · "## " 접두 · 번호 접두도 anchor 로 읽는다', async () => {
     for (const span of ['## 경주 숙소 예약 전 확인 항목', '1. 경주 숙소 예약 전 확인 항목', '경주 숙소 예약 전 확인 항목']) {
       const r = await runCritic1({ title: 't', mainKeyword: 'k', article: article(), packetText, evidenceText, items, callModel: async () => JSON.stringify({ status: 'REVISION_REQUIRED', issues: [{ severity: 'MAJOR', sectionId: 'S01', exactSpan: span, type: 'MISSING_INFORMATION', problem: '권장 예약 시기가 본문에 없다 — 패킷에는 있다', evidenceIds: ['E07'], requiredChange: '붙인다' }] }) }, sectionize(article()));
@@ -167,12 +176,18 @@ describe('③ 빈 도입부도 수리한다 (live 744 금융: introduction "")',
 describe('④ 배선 — Writer 프롬프트에 핵심 값 블록 · Critic 규칙 문구 · 디버그 노출', () => {
   const orch = read('src/core/final/orchestration.ts');
   const loop = read('src/core/final/critique-loop.ts');
-  it('core-values 가 H2 뒤·본문 생성 전에 절 블록에 붙는다 · 값 없으면 안 붙는다', () => {
+  it('core-values 가 H2 뒤·본문 생성 전에 절 블록에 붙는다 · 값 배정 블록은 CORE_VALUES_BLOCK=1 일 때만, 기본은 값 없는 규칙만', () => {
     const at = orch.indexOf("require('./core-values')");
     expect(at).toBeGreaterThan(orch.indexOf('h2Titles = await generateH2TitlesFinal('));
     expect(at).toBeLessThan(orch.indexOf('let allSectionsObj = await generateAllSectionsFinal('));
-    expect(orch).toMatch(/if \(coreBlock\) \{/);
+    expect(orch).toMatch(/process\.env\['CORE_VALUES_BLOCK'\] === '1' \? cv\.renderCoreBlock\(coreValues, h2Titles\) : cv\.renderRulesOnly\(\)/);
     expect(orch).toContain('coreValues, ctas: ctas.map(');
+    const { renderRulesOnly } = require('../src/core/final/core-values');
+    const rules = renderRulesOnly();
+    expect(rules.length).toBeLessThan(600);
+    expect(rules).toMatch(/값 → 뜻 → 독자가 할 일/);
+    expect(rules).toMatch(/다른 지역·다른 대상의 값은 넣지 않습니다/);
+    expect(rules).not.toMatch(/→ \d\. /);   // 값 배정 줄이 없다
   });
   it('Critic 1 규칙이 MISSING_INFORMATION 의 exactSpan 은 소제목이라고 말한다 · 편집기에 "보탤 위치" 가 전달된다', () => {
     expect(loop).toMatch(/MISSING_INFORMATION\(빠진 정보를 보태라\)은 틀린 구절이 없으므로 exactSpan 에 \*\*그 정보를 보탤 소제목/);

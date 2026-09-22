@@ -196,6 +196,7 @@ function draftVsFinal(cq, logs, result) {
   out.emptySections = cq.emptySections ? { found: (cq.emptySections.findings || []).length, repaired: (cq.emptySections.repaired || []).length, removed: (cq.emptySections.removed || []).length, unresolved: cq.emptySections.unresolved || [], calls: cq.emptySections.calls } : null;
   out.titleRevision = crit.titleRevision || null;
   out.researchRecovery = crit.researchRecovery || null;   // v3.8.746 — 편집보다 검색이 먼저였는가
+  out.coreValues = (cq.coreValues || []).map((c) => ({ value: c.value, section: c.sectionIndex, kind: c.kind }));   // 748-quality-prep
   out.ctas = cq.ctas || [];   // v3.8.745 — 주소·문구·actionStatus
   out.verificationSawCurrentTitle = (crit.verificationContexts || []).every((c) => c.currentTitle === (crit.titleRevision && crit.titleRevision.pass ? crit.titleRevision.to : c.originalTitle));
   out.criticCycles = crit.criticCycles; out.revisionCycles = crit.revisionCycles; out.researchRounds = crit.researchRounds; out.loopCallsReported = crit.qualityLoopCalls;

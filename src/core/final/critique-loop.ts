@@ -295,7 +295,8 @@ function acceptIssue(x: any, units: Unit[], itemIds: Set<string>, ledger: Ledger
   }
   return {
     issue: {
-      issueKey: issueKeyOf(sectionId, type, exactSpan || problem), severity, sectionId, exactSpan: exactSpan.slice(0, 200), type,
+      // 소제목 anchor 지적은 구절이 같은 소제목이라 문제 문장으로 지문을 만든다 — 같은 절에 누락이 둘이면 둘 다 살아야 한다(live 748a: 크루즈·숙박비 지적이 하나로 합쳐져 사라졌다)
+      issueKey: issueKeyOf(sectionId, type, anchor ? problem : (exactSpan || problem)), severity, sectionId, exactSpan: exactSpan.slice(0, 200), type,
       problem: problem.slice(0, 300), evidenceIds, requiredChange: String(x?.requiredChange || '').trim().slice(0, 300),
       allowedOperations: opsFor(type), origin, status: 'OPEN', ...(x?.causedByRevision === true ? { causedByRevision: true } : {}),
       ...(anchor ? { anchor } : {}),
