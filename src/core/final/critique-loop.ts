@@ -468,6 +468,8 @@ BLOCK 사유는 각각 sectionId · 본문 원문 구절(exactSpan) · type(CONT
 export async function runFinalJudge(input: {
   title: string; mainKeyword: string; article: ArticleSections; packetText: string; evidenceText: string; items: LoopInput['items'];
   faqText?: string; summaryText?: string; ctaText?: string; gateSummary?: string; callModel: CallModel; modelOf?: () => string; onLog?: (m: string) => void;
+  /** v3.8.742 — 질문/답변을 따로 주면 FAQ 값 검사는 faq-fact-guard 와 같은 규칙(질문 값은 가정, 답변 값만 대조)을 쓴다 */
+  faqItems?: Array<{ question: string; answer: string }>;
 }): Promise<JudgeResult> {
   const ledger = ledgerOf(input.items, input.packetText);
   const units = sectionize(input.article);
@@ -475,7 +477,14 @@ export async function runFinalJudge(input: {
   const t = checkClaims(input.title, ledger);
   for (const c of t.unsupported) blockers.push({ sectionId: 'TITLE', exactSpan: c, type: 'UNSUPPORTED_VALUE', reason: '제목의 값이 근거에 없다' });
   for (const u of units) for (const c of checkClaims(u.text, ledger).unsupported) blockers.push({ sectionId: u.id, exactSpan: c, type: 'UNSUPPORTED_VALUE', reason: '본문의 값이 근거에 없다' });
-  if (input.faqText) for (const c of checkClaims(input.faqText, ledger).unsupported) blockers.push({ sectionId: 'FAQ', exactSpan: c, type: 'UNSUPPORTED_VALUE', reason: 'FAQ 의 값이 근거에 없다' });
+  /**
+   * live 741(주담대): FAQ 질문 "주택담보대출 7억원에 금리 7%면 월 상환액은…?" 의 7억원(가정값)을 이 코드 검사가 근거 없다고 막았다 —
+   * 68% 관문은 같은 값을 시나리오로 살렸는데 여기서 다른 잣대를 댔다. 항목이 오면 답변 값만 대조한다(faq-fact-guard 와 같은 규칙).
+   */
+  if (Array.isArray(input.faqItems)) {
+    const { unsupportedAnswerValues } = require('./faq-fact-guard');
+    for (const f of input.faqItems) for (const c of unsupportedAnswerValues(String(f.question || ''), String(f.answer || ''), ledger)) blockers.push({ sectionId: 'FAQ', exactSpan: c, type: 'UNSUPPORTED_VALUE', reason: 'FAQ 답변의 값이 근거에 없다' });
+  } else if (input.faqText) for (const c of checkClaims(input.faqText, ledger).unsupported) blockers.push({ sectionId: 'FAQ', exactSpan: c, type: 'UNSUPPORTED_VALUE', reason: 'FAQ 의 값이 근거에 없다' });
   if (input.summaryText) for (const c of checkClaims(input.summaryText, ledger).unsupported) blockers.push({ sectionId: 'SUMMARY', exactSpan: c, type: 'UNSUPPORTED_VALUE', reason: '요약표의 값이 근거에 없다' });
   const repeats = findCrossSectionRepeats(units);
   if (repeats.length >= 3) blockers.push({ sectionId: repeats[0]!.sectionIds.join('+'), exactSpan: repeats[0]!.sentence, type: 'REDUNDANCY', reason: `절 사이 되풀이 문장 ${repeats.length}개` });

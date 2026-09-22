@@ -68,6 +68,29 @@ describe('② 답변의 값은 사실 주장 — 근거 없으면 문장 단위�
   });
 });
 
+describe('②-b Final Judge 의 FAQ 코드 검사도 같은 잣대 (v3.8.742 — live 741 재현)', () => {
+  const { runFinalJudge } = require('../src/core/final/critique-loop');
+  const items = [{ id: 'E01', title: '주담대', cleanedText: '5대 은행 고정형 상단은 연 7.17%다. 보금자리론 대출한도는 3억6천만원이다.' }];
+  const article = { introduction: '<p>주담대 금리 상단은 연 7.17%입니다.</p>', sections: [], conclusion: '<p>조건을 확인합니다.</p>' };
+  const PASS = JSON.stringify({ decision: 'PASS', blockingIssues: [], advisory: [] });
+  it('⭐⭐ 질문의 "7억원"(가정값)은 BLOCK 사유가 아니다', async () => {
+    const r = await runFinalJudge({ title: 't', mainKeyword: '주택담보대출 금리 7% 돌파', article, packetText: '', evidenceText: '', items, callModel: async () => PASS,
+      faqItems: [{ question: '주택담보대출 7억원에 금리 7%면 월 상환액은 바로 계산할 수 있나요?', answer: '<p>적용금리와 상환기간을 넣어 계산기로 확인해야 합니다. 고정형 상단은 연 7.17%입니다.</p>' }] });
+    expect(r.decision).toBe('PASS');
+    expect(r.blockingIssues).toEqual([]);
+  });
+  it('⭐ 답변의 근거 없는 값("5억원")은 여전히 BLOCK', async () => {
+    const r = await runFinalJudge({ title: 't', mainKeyword: 'k', article, packetText: '', evidenceText: '', items, callModel: async () => PASS,
+      faqItems: [{ question: '보금자리론 한도는?', answer: '<p>대출한도는 5억원입니다.</p>' }] });
+    expect(r.decision).toBe('BLOCK');
+    expect(r.blockingIssues[0]).toMatchObject({ sectionId: 'FAQ', exactSpan: '5억원', type: 'UNSUPPORTED_VALUE' });
+  });
+  it('faqItems 없이 faqText 만 주는 옛 호출은 예전 규칙 그대로(회귀 방지)', async () => {
+    const r = await runFinalJudge({ title: 't', mainKeyword: 'k', article, packetText: '', evidenceText: '', items, callModel: async () => PASS, faqText: 'Q. 한도는?\nA. 대출한도는 5억원입니다.' });
+    expect(r.decision).toBe('BLOCK');
+  });
+});
+
 describe('③ 배선 — 옛 토큰 도려내기 필터가 FAQ 에서 사라지고, 68% 와 Final QA 가 같은 관문을 쓴다', () => {
   const orch = read('src/core/final/orchestration.ts');
   it('FAQ 경로에 sanitizeFactUnsafeHeading(토큰 도려내기)이 없다 · guardFaqs 가 두 번(68%·Final QA) 배선', () => {
@@ -78,5 +101,6 @@ describe('③ 배선 — 옛 토큰 도려내기 필터가 FAQ 에서 사라지�
     const heading = orch.match(/sanitizeFactUnsafeHeading\(String\(item\.question/g) || [];
     expect(heading).toHaveLength(0);
     expect(orch).not.toContain('FAQ 항목 제거 (질문 또는 답변이 비어 짝 밀림 방지)');
+    expect(orch).toMatch(/faqItems: faqs\.map\(/);   // Judge 에도 질문/답변을 따로 준다
   });
 });

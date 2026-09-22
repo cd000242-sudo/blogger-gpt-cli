@@ -4255,6 +4255,7 @@ ${quoted}
           packetText: researchPacketText, evidenceText: evidenceRender.text,
           items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
           faqText: faqs.map((f: any) => `Q. ${f.question}\nA. ${f.answer}`).join('\n'),
+          faqItems: faqs.map((f: any) => ({ question: String(f.question || ''), answer: String(f.answer || '') })),   // v3.8.742 — 질문 값은 가정값
           summaryText: [String(summaryTable.answer || ''), ...(summaryTable.headers || []), ...(summaryTable.rows || []).map((r: string[]) => r.join(' | '))].join('\n'),
           ctaText: ctas.map((c) => `${c.hookingMessage || c.hook || ''} [${c.buttonText || c.text || ''}] ${c.url || ''}`).join('\n'),
           // 심사는 이미 나온 관문 결과를 종합한다 — 처음부터 다시 판단하지 않는다
