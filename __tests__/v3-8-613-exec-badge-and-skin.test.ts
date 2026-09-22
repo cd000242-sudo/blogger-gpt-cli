@@ -60,22 +60,32 @@ describe('② 실행 모드 배지', () => {
   });
 });
 
+/**
+ * v3.8.749 — 요구는 그대로, 검사는 **동작**을 본다.
+ *
+ * 예전 검사는 "확인(if (!ready))이 모드 변경보다 소스에서 앞에 있는가" 만 봤다. 그런데 그 확인은 모드가 아직 api 일 때
+ * 불려 늘 skipped(통과)를 돌려줬다 — **한 번도 막은 적이 없는데 검사는 통과**했다(검사기가 고장 난 경우).
+ * 그 순서가 배지를 느리게 만든 원인이기도 했다(사장님: "에이전트 선택하면 바로 바뀌어야 되는데 너무 느린데").
+ * 이제: 바로 바꿔 그리고 → 모드를 바꾼 뒤의 진짜 확인 결과로 → 로그인이 안 됐으면 api 로 되돌리고 안내한다.
+ */
 describe('에이전트를 고르면 연결부터 확인한다', () => {
-  test('연결 확인을 먼저 부른다', () => {
-    expect(badges).toContain('window.verifyAgentExecutionReadiness');
+  const workshop = fs.readFileSync(path.join(__dirname, '..', 'electron', 'ui', 'modules', 'codex-workshop.js'), 'utf8');
+  const loginFail = badges.slice(badges.indexOf("c.id === 'agent'"), badges.indexOf('function buildModelPop'));
+
+  test('연결 확인 결과로 판단한다 — 모드를 바꾼 뒤의 진짜 확인(로그인 항목 id "agent")', () => {
+    expect(workshop).toContain('return verifyAgentExecutionReadiness({ showStatus: false });');
+    expect(badges).toContain('readiness = await pending');
+    expect(badges).toContain("readiness.checks.find((c) => c && c.id === 'agent')");
   });
 
   test('연결이 안 됐으면 환경설정을 연다', () => {
-    const block = badges.slice(badges.indexOf('if (!ready)'));
-    expect(block).toContain('window.openSettingsModal');
-    expect(block).toContain('Agent 계정에서 로그인한 뒤');
+    expect(loginFail).toContain('window.openSettingsModal');
+    expect(loginFail).toContain('Agent 계정에서 로그인한 뒤');
   });
 
-  test('연결 안 된 채로 모드를 바꾸지 않는다 — 발행할 때야 실패하면 늦다', () => {
-    const guard = badges.indexOf('if (!ready)');
-    const setMode = badges.indexOf("window.setAgentExecutionMode('agent')");
-    expect(guard).toBeGreaterThan(-1);
-    expect(setMode).toBeGreaterThan(guard);   // 확인 뒤에만 모드가 바뀐다
+  test('연결 안 된 채로 에이전트 모드에 남지 않는다 — 발행할 때야 실패하면 늦다', () => {
+    // 로그인 실패 분기 안에서 api 로 되돌린다
+    expect(loginFail).toMatch(/loginCheck\.ready === false[\s\S]*window\.setAgentExecutionMode\('api'\)/);
   });
 });
 

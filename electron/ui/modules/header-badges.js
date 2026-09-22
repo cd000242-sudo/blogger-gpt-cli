@@ -351,30 +351,46 @@ function buildExecutionModePop(pop) {
         return;
       }
 
-      // 🔌 연결 확인이 먼저다
-      addLog('🔌 에이전트 연결 상태를 확인하는 중...', 'info');
-      let ready = false;
-      try {
-        const result = await window.verifyAgentExecutionReadiness?.({ showStatus: false });
-        ready = !!(result?.ok ?? result?.ready);
-      } catch (err) {
-        console.warn('[HEADER-BADGE] 에이전트 연결 확인 실패:', err);
+      /**
+       * ⚡ v3.8.749 — 먼저 바꾸고 바로 그린다. (사장님: "에이전트 선택하면 바로 바뀌어야 되는데 너무 느린데")
+       *
+       * 예전엔 여기서 연결 확인(verifyAgentExecutionReadiness)을 먼저 기다렸다. 그런데 그 시점엔 모드가 아직 api 라
+       * 그 함수는 즉시 skipped 를 돌려주는 **빈 호출**이었다 — 실제로 느린 건 그 뒤 setExecutionMode 의 CLI 감지였고,
+       * 상태 저장이 감지 뒤에 있어 배지가 그동안 옛 값을 보여 줬다. setExecutionMode 가 이제 상태를 먼저 저장하므로
+       * 곧바로 그리면 'agent' 가 보인다. 실제 연결 확인은 예전과 같이 setExecutionMode 가 모드를 바꾼 뒤 뒤에서 돌린다.
+       */
+      const pending = window.setAgentExecutionMode('agent');
+      renderExecutionModeBadge();
+      try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
+      addLog(`🤖 글 생성을 에이전트 모드(${AGENT_LABELS[currentAgentProvider()]})로 바꿨습니다`, 'success');
+      // 라이선스 게이트·연결 확인은 뒤에서 — 결과가 오면 배지를 다시 맞춘다
+      let readiness = null;
+      try { readiness = await pending; } catch (err) { console.warn('[HEADER-BADGE] 모드 전환 실패:', err); }
+      renderExecutionModeBadge();
+      if (currentExecutionMode() !== 'agent') {
+        // 라이선스 게이트가 api 로 되돌렸다(알림은 게이트가 이미 띄웠다)
+        try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
+        addLog('↩️ 에이전트를 쓸 수 없어 API 키 모드로 되돌렸습니다', 'warning');
+        return;
       }
-
-      if (!ready) {
+      /**
+       * v3.8.613 요구 — "연결 안 된 채로 모드를 바꾸지 않는다 — 발행할 때야 실패하면 늦다".
+       * 예전 구현은 모드가 아직 api 일 때 확인을 불러 늘 skipped(통과)였다 — 한 번도 막은 적이 없었다.
+       * 이제 모드를 바꾼 뒤의 **진짜** 확인 결과로 판단한다. 기준은 에이전트 로그인(id 'agent') 하나다 —
+       * 이미지·플랫폼 설정 미비는 글 생성을 막지 않으므로 되돌리지 않는다(설정 화면에 그대로 표시된다).
+       */
+      const loginCheck = Array.isArray(readiness?.checks) ? readiness.checks.find((c) => c && c.id === 'agent') : null;
+      if (loginCheck && loginCheck.ready === false) {
+        window.setAgentExecutionMode('api');
+        renderExecutionModeBadge();
+        try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
         addLog('⚠️ 에이전트가 연결되지 않았습니다 — 환경설정을 엽니다', 'warning');
         try { window.openSettingsModal?.(); } catch { /* 못 열면 아래 안내로 */ }
         try { await window.refreshAgentModeSettings?.(); } catch { /* 설정 갱신 실패는 무시 */ }
         // 여러 줄 안내는 백틱으로 — 작은따옴표는 줄바꿈을 품지 못한다(앱 전체가 안 뜬다)
         notifyUser(`에이전트가 아직 연결되지 않았습니다.
 환경설정 → Agent 계정에서 로그인한 뒤 다시 선택해주세요.`, 'warning');
-        return;
       }
-
-      window.setAgentExecutionMode('agent');
-      renderExecutionModeBadge();
-      try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
-      addLog(`🤖 글 생성을 에이전트 모드(${AGENT_LABELS[currentAgentProvider()]})로 바꿨습니다`, 'success');
     });
   });
 }

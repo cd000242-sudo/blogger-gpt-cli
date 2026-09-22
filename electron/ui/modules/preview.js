@@ -100,8 +100,39 @@ export async function generatePreview() {
 
     console.log('[NEW-PREVIEW] Payload keys:', payload && typeof payload === 'object' ? Object.keys(payload).length : payload);
     
-    // API 호출
-    const result = await window.blogger.runPost(payload);
+    /**
+     * 🤖 v3.8.749 — 에이전트 모드면 에이전트가 글을 쓴다.
+     *
+     * 사장님 실사용 보고: "에이전트로 선택하고 반자동 발행을 했는데" → OpenAI 429(크레딧 0)로 죽었다.
+     * 정상 발행(posting.js runPosting)은 이 값을 보고 에이전트로 보내는데, 이 함수는 **아예 안 보고**
+     * 무조건 API(runPost)를 불렀다. 같은 규칙(posting.js 와 같은 읽기)으로 가른다.
+     * 에이전트 결과는 applyCodexResult 가 generatedContent 를 채우므로, 아래 뒤처리가 같은 모양으로 읽게 맞춘다.
+     */
+    const executionMode = (() => {
+      try { return JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"'); }
+      catch { return localStorage.getItem('leadernamExecutionMode') || 'api'; }
+    })();
+    let result;
+    if (executionMode === 'agent') {
+      if (typeof window.runAgentJobFromPosting !== 'function') {
+        throw new Error('Agent 실행 모듈을 아직 준비하지 못했습니다. 앱을 다시 실행한 뒤 시도해주세요.');
+      }
+      addLog('🤖 에이전트 모드: 에이전트가 글을 씁니다 (API 크레딧을 쓰지 않습니다)', 'info');
+      const agentResult = await window.runAgentJobFromPosting(payload);
+      const gen = getAppState().generatedContent || {};
+      const agentHtml = String(gen.content || '');
+      result = {
+        ok: agentHtml.trim().length > 0,
+        html: agentHtml,
+        title: gen.title || agentResult?.title || '',
+        thumbnailUrl: gen.thumbnailUrl || '',
+        agentMode: true,
+        error: agentHtml.trim() ? '' : (agentResult?.error || '에이전트가 본문을 돌려주지 않았습니다'),
+      };
+    } else {
+      // API 호출
+      result = await window.blogger.runPost(payload);
+    }
     console.log('[NEW-PREVIEW] Result:', result);
     
     if (result?.ok) {
@@ -138,7 +169,9 @@ export async function generatePreview() {
       appState.generatedContent.title = result.title || keyword;
       appState.generatedContent.content = htmlContent;
       appState.generatedContent.thumbnailUrl = result.thumbnailUrl || '';
-      appState.generatedContent.payload = payload;
+      // v3.8.749 — 에이전트 글은 applyCodexResult 가 남긴 payload 표시(codexWorkshop·previewOnly)를 지킨다.
+      //   덮어쓰면 편집기에서 발행할 때 에이전트 글인 줄 모른다
+      appState.generatedContent.payload = result.agentMode ? (appState.generatedContent.payload || payload) : payload;
       
       const savedTextLength = getTextLength(appState.generatedContent.content);
       console.log('[NEW-PREVIEW] 저장된 콘텐츠:', {

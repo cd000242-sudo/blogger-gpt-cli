@@ -1876,6 +1876,19 @@ function agentBlockedMessage(status) {
 
 async function setExecutionMode(mode) {
   const nextMode = mode === 'agent' ? 'agent' : 'api';
+  /**
+   * ⚡ v3.8.749 — 배지·엔진은 **바로** 바뀐다. 느린 CLI 감지를 기다리지 않는다.
+   *
+   * 사장님: "배지랑 엔진은 에이전트 선택하면 바로 바뀌어야 되는데 바뀌는 속도가 너무 느린데"
+   * 예전엔 상태 저장(saveExecutionPrefs)이 CLI 감지(loadAgentModeStatus(true)) **뒤**에 있었다.
+   * 배지는 저장된 값을 읽으므로 감지가 끝날 때까지 옛 값(api)을 보여 줬다.
+   * 먼저 저장·반영하고, 라이선스 게이트는 그 뒤에 본다 — 막히면 아래에서 api 로 되돌리고 알린다.
+   */
+  state.executionMode = nextMode;
+  saveExecutionPrefs();
+  applyExecutionModeToApp();
+  renderAgentSettingsSection();
+  refreshGlobalAiModelBadge();
   if (nextMode === 'agent') {
     // v3.8.714: 상태를 안 받아 온 채로 막지 않는다 — 무제한(영구) 사용자가 "3개월 이상" 안내를 받았다
     let status = state.agentStatus;
@@ -1889,18 +1902,13 @@ async function setExecutionMode(mode) {
       refreshGlobalAiModelBadge();
       return;
     }
-    state.executionMode = nextMode;
-  } else {
-    state.executionMode = nextMode;
   }
-  saveExecutionPrefs();
-  applyExecutionModeToApp();
-  renderAgentSettingsSection();
-  refreshGlobalAiModelBadge();
   addLog(`실행 모드를 ${state.executionMode === 'agent' ? 'Agent 모드' : 'API 키 모드'}로 변경했습니다.`, 'info');
   if (state.executionMode === 'agent') {
-    verifyAgentExecutionReadiness({ showStatus: false });
+    // v3.8.749 — 확인 결과를 돌려준다. 배지가 이걸 받아 "로그인 안 됨 → 되돌림" 을 판단한다(확인을 두 번 돌리지 않으려고)
+    return verifyAgentExecutionReadiness({ showStatus: false });
   }
+  return null;
 }
 
 function setAgentProvider(provider) {
