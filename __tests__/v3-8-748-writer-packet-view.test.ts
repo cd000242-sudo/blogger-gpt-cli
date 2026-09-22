@@ -95,6 +95,40 @@ describe('748 (B) buildWriterPacketView — 잡음은 내리고, RAW 는 그대�
     expect(view.text).toContain('73%');
   });
 
+  test('B-8 (live 748a) 문맥에 도시가 없어도 출처 제목이 "해운대 모던 스테이" 면 CORE 가 아니다 — 경주도 함께 있으면 SUPPORTING, 없으면 DROP', () => {
+    const packet = {
+      ...base,
+      sourceMap: [
+        { id: 'E14', title: '경주 APEC 기간, 해운대 모던 스테이로의 초대', domain: 'blog.naver.com', url: 'x', pubDate: null, sourceType: 'blog', isOfficial: false },
+        { id: 'E30', title: '해운대 모던 스테이 가을 프로모션', domain: 'blog.naver.com', url: 'y', pubDate: null, sourceType: 'blog', isOfficial: false },
+      ],
+      dates: [
+        { value: '10월 25일 ~ 11월 10일', context: '🎁 APEC 기간 한정 프로모션 📅 10월 25일 ~ 11월 10일 숙박 시 경주 예약 혜택', sourceIds: ['E14'] },
+        { value: '10월 26일 ~ 11월 11일', context: '🎁 APEC 기간 한정 프로모션 📅 10월 26일 ~ 11월 11일 숙박 시 경주 예약 혜택', sourceIds: ['E30'] },
+      ],
+    };
+    const view = buildWriterPacketView(packet as any, CTX);
+    expect(view.decisions.find((d) => d.value === '10월 25일 ~ 11월 10일')).toMatchObject({ verdict: 'DEMOTE', tier: 'SUPPORTING' });
+    expect(view.decisions.find((d) => d.value === '10월 26일 ~ 11월 11일')).toMatchObject({ verdict: 'DROP_FROM_WRITER_VIEW', reason: 'OTHER_CITY' });
+  });
+
+  test('B-9 (live 748b) 연도 없는 날짜인데 출처가 전부 지난해 기사면 배경(STALE_SOURCE) — 올해 출처가 하나라도 있으면 그대로', () => {
+    const packet = {
+      ...base,
+      sourceMap: [
+        { id: 'E3', title: '황남빵 APEC 계기 매출', domain: 'news.com', url: 'x', pubDate: '2025-12-04', sourceType: 'news', isOfficial: false },
+        { id: 'E4', title: '경주 APEC 숙소 예약 안내', domain: 'gyeongju.go.kr', url: 'y', pubDate: '2026-09-01', sourceType: 'official', isOfficial: true },
+      ],
+      dates: [
+        { value: '10월27일~11월1일', context: '경주 APEC(10월27일~11월1일) 기간 숙소 예약이 몰렸다', sourceIds: ['E3'] },
+        { value: '10월 31일', context: '경주 APEC 기념 행사 10월 31일 숙소 예약 시작', sourceIds: ['E3', 'E4'] },
+      ],
+    };
+    const view = buildWriterPacketView(packet as any, CTX);
+    expect(view.decisions.find((d) => d.value === '10월27일~11월1일')).toMatchObject({ verdict: 'DEMOTE', tier: 'CONTEXT_ONLY', reason: 'STALE_SOURCE' });
+    expect(view.decisions.find((d) => d.value === '10월 31일')).toMatchObject({ verdict: 'KEEP', tier: 'CORE' });
+  });
+
   test('B-7 요약 줄이 KEEP/DEMOTE/DROP 수를 말한다 · EMPTY 패킷 경고는 그대로 · 머리줄은 RESEARCH PACKET 그대로(프롬프트 규칙이 그 이름을 가리킨다)', () => {
     const view = buildWriterPacketView({ ...base, status: 'EMPTY' } as any, CTX);
     expect(view.text).toMatch(/^\[RESEARCH PACKET — 2026-09-22/);

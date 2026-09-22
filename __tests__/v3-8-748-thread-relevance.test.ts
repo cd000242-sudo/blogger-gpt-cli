@@ -40,6 +40,12 @@ describe('748 (A) filterThreadQuestions — 무관 질문을 결정적으로 거
     expect(r.accepted).toEqual(['11월 1일 경주']);
   });
 
+  test('A-3c 패킷이 "검색자가 실제로 물은 것" 에 그 질문을 되실어도 자기 자신은 받쳐 주지 못한다 (오프라인 재생에서 잡힌 구멍)', () => {
+    const r = filterThreadQuestions(['11월 2일 경주'], { ...CTX, packetText: `${CTX.packetText}\n▸ 검색자가 실제로 물은 것\n- 11월 2일 경주` });
+    expect(r.accepted).toEqual([]);
+    expect(r.dropped[0]!.reason).toBe('NO_PACKET_SUPPORT');
+  });
+
   test('A-4 일반어만 남는 질문은 GENERIC_ONLY: "추천 좀 알려주세요"', () => {
     const r = filterThreadQuestions(['추천 좀 알려주세요'], CTX);
     expect(r.dropped[0]!.reason).toBe('GENERIC_ONLY');

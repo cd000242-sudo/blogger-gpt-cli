@@ -31,7 +31,7 @@ const MAX_PER_SECTION = 3;
 /** 시점 표시("[2025-10-30 작성 · 11개월 전]")나 문맥이 없는 값은 판단 기준이 아니다 */
 const NOISE_CONTEXT = /^\s*\[?\d{4}-\d{2}-\d{2}\s*작성|·\s*\d+\s*(?:개월|일|년)\s*전\]|방송일|작성일|게시일|입력\s*\d{4}|기사입력|수정\s*\d{4}|^\s*$/;
 /** 다른 회차·다른 해·다른 대상의 값 — 현재 판단 기준이 아니다 */
-const STALE_CONTEXT = /(지난해|작년|전년|2019|2020|2021|2022|2023|2024)\s*(?:\d{1,2}\s*월)?|제\d{1,2}회 .{0,10}(?:2019|2020|2021|2022|2023)/;
+const STALE_CONTEXT = /(지난해|작년|전년|2019|2020|2021|2022|2023|2024)\s*(?:\d{1,2}\s*월)?|제\d{1,2}회 .{0,10}(?:2019|2020|2021|2022|2023)/;   // "지난 7월 15일" 은 올해 7월이다(금융 fixture) — 지난 N월 은 낡음 신호가 아니다. 출처 게시일은 writer-packet-view 가 본다
 
 /**
  * 의도 낱말 — evidence.ts 의 distinctiveTokens 는 개체 판별용이라 "예약·예매·기간·일정·가격" 같은 행동어를 버린다.
@@ -59,7 +59,9 @@ export function citiesIn(text: string): string[] {
 
 /** 값 하나에 대한 판정 — 748-fix-2 에서 selectCoreValues 와 Writer 패킷 보기가 같은 규칙을 쓴다 */
 export type PacketValueReason =
-  | 'ARTICLE_DATE' | 'STALE_YEAR' | 'PAST_ROUND' | 'PAST_DATE' | 'OTHER_CITY' | 'SPLIT_NUMBER' | 'DEFINITION' | 'WEEKDAY_MISMATCH' | 'SITE_CHROME' | 'LOW_INTENT' | 'NO_VALUE_IN_CONTEXT';
+  | 'ARTICLE_DATE' | 'STALE_YEAR' | 'PAST_ROUND' | 'PAST_DATE' | 'OTHER_CITY' | 'SPLIT_NUMBER' | 'DEFINITION' | 'WEEKDAY_MISMATCH' | 'SITE_CHROME' | 'LOW_INTENT' | 'NO_VALUE_IN_CONTEXT'
+  /** writer-packet-view 만 쓴다 — 연도 없는 날짜인데 출처가 전부 지난해 이전 글이면 그 해의 일정이다 */
+  | 'STALE_SOURCE';
 /** 사이트 껍데기 수치 — "350개 호텔, 숙소 검색 결과"·조회수·댓글 수는 주제의 값이 아니다 (748-fix-2 fixture E) */
 const SITE_CHROME = /검색\s*결과|조회수|댓글\s*\d|공감\s*\d|구독자|좋아요|팔로워/;
 export interface PacketValueVerdict {

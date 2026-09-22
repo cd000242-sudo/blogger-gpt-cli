@@ -37,12 +37,35 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
   const judge = buildJudgeContext(packet, ctx);
   const decisions: ViewDecision[] = [];
 
-  const decide = (kind: ViewDecision['kind'], value: string, context: string): ViewDecision => {
+  /**
+   * 출처(sourceMap)로 한 번 더 본다 — 문맥 문장에 도시·연도가 없어도 출처 제목·게시일이 말해 준다.
+   * live 748a: "10월 25일~11월 10일 프로모션" 은 문맥에 도시가 없어 CORE 가 됐는데 출처 제목이 "해운대 모던 스테이" (부산) 였다.
+   * live 748b: "APEC(10월27일~11월1일)" 은 연도가 없는데 출처가 2025-12 기사였다 — 지난해 일정이다.
+   */
+  const sourceMap = new Map<string, { title: string; pubDate: string | null }>((packet.sourceMap || []).map((s) => [String(s.id), { title: String(s.title || ''), pubDate: s.pubDate ? String(s.pubDate) : null }]));
+  const sourceHint = (ids: string[], value: string): { crossCity: boolean; otherCityOnly: boolean; staleSource: boolean } => {
+    const srcs = (ids || []).map((id) => sourceMap.get(String(id))).filter(Boolean) as Array<{ title: string; pubDate: string | null }>;
+    if (!srcs.length) return { crossCity: false, otherCityOnly: false, staleSource: false };
+    const cities = srcs.flatMap((s) => citiesIn(s.title));
+    const other = judge.intentCities.length > 0 && cities.some((c) => !judge.intentCities.includes(c));
+    const same = judge.intentCities.some((c) => cities.includes(c));
+    const years = srcs.map((s) => (s.pubDate || '').match(/^(\d{4})/)).map((m) => (m ? Number(m[1]) : null));
+    const allDated = years.length > 0 && years.every((y) => y !== null);
+    const staleSource = allDated && years.every((y) => (y as number) < judge.nowYear) && !/20\d{2}/.test(value);
+    return { crossCity: other && same, otherCityOnly: other && !same, staleSource };
+  };
+
+  const decide = (kind: ViewDecision['kind'], value: string, context: string, sourceIds: string[] = []): ViewDecision => {
     const v = judgePacketValue(kind === 'number' || kind === 'date' ? kind : 'fact', value, context, judge);
+    const hint = sourceHint(sourceIds, value);
     let d: ViewDecision;
-    if (v.ok) {
+    if (v.ok && hint.otherCityOnly && !v.crossCity) {
+      d = { kind, value, context, verdict: 'DROP_FROM_WRITER_VIEW', tier: null, reason: 'OTHER_CITY' };
+    } else if (v.ok && hint.staleSource && (kind === 'date' || /\d{1,2}\s*월/.test(value))) {
+      d = { kind, value, context, verdict: 'DEMOTE', tier: 'CONTEXT_ONLY', reason: 'STALE_SOURCE' };
+    } else if (v.ok) {
       // 다른 도시와의 관계 값(대구→경주 셔틀)은 뜻은 통하지만 이 글의 판단 기준은 아니다
-      d = v.crossCity ? { kind, value, context, verdict: 'DEMOTE', tier: 'SUPPORTING', reason: 'OK' } : { kind, value, context, verdict: 'KEEP', tier: 'CORE', reason: 'OK' };
+      d = v.crossCity || hint.crossCity ? { kind, value, context, verdict: 'DEMOTE', tier: 'SUPPORTING', reason: 'OK' } : { kind, value, context, verdict: 'KEEP', tier: 'CORE', reason: 'OK' };
     } else if (CONTEXT_ONLY_REASONS.has(v.reason!)) {
       d = { kind, value, context, verdict: 'DEMOTE', tier: 'CONTEXT_ONLY', reason: v.reason! };
     } else if (SUPPORTING_REASONS.has(v.reason!)) {
@@ -82,8 +105,8 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
   const official = keepClaims('official', packet.officialStatements || []);
   const conflicts = keepClaims('conflict', packet.conflictingInformation || []);
 
-  const numberRows = (packet.numbers || []).map((n) => ({ row: n, d: decide('number', n.value, n.context) }));
-  const dateRows = (packet.dates || []).map((n) => ({ row: n, d: decide('date', n.value, n.context) }));
+  const numberRows = (packet.numbers || []).map((n) => ({ row: n, d: decide('number', n.value, n.context, n.sourceIds) }));
+  const dateRows = (packet.dates || []).map((n) => ({ row: n, d: decide('date', n.value, n.context, n.sourceIds) }));
   const byTier = (tier: ViewTier, rows: Array<{ row: SourcedValue; d: ViewDecision }>) => rows.filter((r) => r.d.tier === tier).map((r) => val(r.row));
 
   const background = [

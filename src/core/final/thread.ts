@@ -112,8 +112,9 @@ export function filterThreadQuestions(questions: unknown, ctx: ThreadRelevanceCo
   const entity = new Set<string>([...kwTokens, ...qTokens(norm(ctx.title)), ...(ctx.relatedQueries || []).flatMap((q) => qTokens(String(q || '')))]);
   const kwRegions = regionsIn(keyword);
   const kwActions = ACTION_WORDS.filter((a) => keyword.includes(a));
-  const ctxMonths = new Set<number>([...monthsIn(norm(ctx.title)), ...monthsIn(String(ctx.packetText || ''))]);
-  const packet = String(ctx.packetText || '');
+  // 패킷은 "검색자가 실제로 물은 것" 에 이 질문들을 그대로 싣는다 — 질문이 자기 자신을 받쳐 주면 안 되므로 먼저 지운다
+  const packet = qs.reduce((p, q) => p.split(q).join(' '), String(ctx.packetText || ''));
+  const ctxMonths = new Set<number>([...monthsIn(norm(ctx.title)), ...monthsIn(packet)]);
 
   const accepted: string[] = [];
   const dropped: ThreadQuestionVerdict[] = [];
