@@ -73,6 +73,12 @@ export interface TierModel {
   /** 기본 선택 여부 */
   default?: boolean;
   /**
+   * 748 — 화면 엔진 고르개에 **안 보이는** 티어. 라우팅용으로만 존재한다.
+   * (env·하네스·에이전트 경로에서 `PRIMARY_TEXT_MODEL` 로 고를 수 있어야 하지만, 화면 가격표에는 아직 안 넣는 모델)
+   * 화면에 보이는 티어는 `electron/ui` 의 정적 라벨·data-cost 와 값이 같아야 한다(v3.8.686 테스트가 지킨다).
+   */
+  hiddenFromUi?: boolean;
+  /**
    * 100만 토큰당 USD 단가. **확인된 모델만 채운다.**
    * 없으면 costKrw 를 선언값 그대로 쓴다 — 모르는 단가를 지어내지 않기 위해서다.
    */
@@ -239,6 +245,26 @@ export const TIER_MODELS: readonly TierModel[] = [
     provider: 'claude',
     modelId: 'claude-fable-5-1',
     fallback: ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+  },
+  /**
+   * 748 — **Opus 5 를 고를 수 있게 한다.** 지금까지 텍스트 티어에 Opus 5 가 아예 없었다.
+   * 그래서 `PRIMARY_TEXT_MODEL=claude-opus-5` 를 줘도 findTier 가 못 찾고 조용히 Sonnet 5 로 떨어졌다
+   * (에이전트 모드 목록에는 이미 있는 모델이다 — agent-models.ts "균형 · 페이블 한도 찼을 때").
+   * 사장님 상황: Fable 5.1 한도 소진 → Opus 5 로 돌려야 한다.
+   * 기존 티어의 뜻은 하나도 바꾸지 않는다 — `claude-opus`(UI 👑) 는 그대로 Fable 5.1 이다. 이건 **추가**다.
+   * 단가는 확인 전이라 usdPer1M 없이 선언값으로 둔다(Sonnet 5 와 Fable 5.1 사이).
+   */
+  {
+    value: 'claude-opus-5',
+    title: 'Claude Opus 5',
+    tier: '프리미엄',
+    description: 'Claude Opus 5 · 상급 추론 · 페이블 한도 찼을 때',
+    costKrw: 315,
+    provider: 'claude',
+    modelId: 'claude-opus-5',
+    fallback: ['claude-opus-5', 'claude-sonnet-5'],
+    // 화면 가격표에는 아직 안 넣는다 — UI 작업은 748 제품 통합에서 한다. 지금은 라우팅(env·하네스)만
+    hiddenFromUi: true,
   },
 
   // ─── Perplexity ───────────────────────────

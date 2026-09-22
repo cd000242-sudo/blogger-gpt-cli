@@ -386,6 +386,17 @@ export interface CallLLMOptions {
  */
 export function assertLiveLlmAllowed(where: string): void {
   if (process.env['NO_LIVE_LLM'] === '1') throw new Error(`NO_LIVE_LLM=1 — 유료 LLM 호출이 막혀 있습니다 (${where})`);
+  /**
+   * 748 Claude live — 허용 provider 밖의 호출은 네트워크에 닿기 전에 던진다.
+   * 하네스가 `LLM_PROVIDER_ALLOWLIST=claude` 로 켠다. 비어 있으면(제품 기본) 아무것도 막지 않는다.
+   * "OpenAI 호출 0" 을 로그로 세는 대신 코드로 보증하려는 것이다 — 폴백·우회 경로가 하나라도 있으면 여기서 터진다.
+   */
+  const allow = String(process.env['LLM_PROVIDER_ALLOWLIST'] || '').trim();
+  if (allow) {
+    const provider = where.split('/')[1] || '';
+    const allowed = allow.split(',').map((s) => s.trim()).filter(Boolean);
+    if (provider && !allowed.includes(provider)) throw new Error(`LLM_PROVIDER_ALLOWLIST=${allow} — ${provider} 호출이 막혀 있습니다 (${where})`);
+  }
 }
 
 export async function callLLM(

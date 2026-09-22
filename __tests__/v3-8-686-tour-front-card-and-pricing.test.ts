@@ -219,7 +219,12 @@ describe('⑤ 가격표 — GPT-6 Astra · 루나 인하 · 화면 라벨 일치
       expect(Number(m[3].replace(/,/g, ''))).toBe(tier!.costKrw);
       seen.push(m[2]);
     }
-    expect(seen).toEqual(expect.arrayContaining(table.map((t) => t.value)));
+    // 748 — 화면에 **보이는** 티어는 전부 여기 있어야 한다. hiddenFromUi 티어(라우팅 전용)는 제외한다
+    const uiTierValues = TIER_MODELS.filter((t) => !t.hiddenFromUi).map((t) => t.value);
+    expect(seen).toEqual(expect.arrayContaining(uiTierValues));
+    // 숨긴 티어가 화면에 새어 나오지 않았는지도 함께 본다
+    for (const hidden of TIER_MODELS.filter((t) => t.hiddenFromUi)) expect(seen).not.toContain(hidden.value);
+    void table;
   });
 
   it('라벨 맵·비전 라우터도 Astra 를 안다', () => {

@@ -31,7 +31,19 @@ const LIVE = flag('--live');
 /** v3.8.736 — 비평 루프는 기본 OFF. `--loop` 를 줘야 QUALITY_LOOP=1 로 켜진다(이 프로세스에서만) */
 const LOOP = flag('--loop');
 if (LOOP) process.env.QUALITY_LOOP = '1';
-const OUT = path.join(ROOT, 'quality-run-output', `evidence-regression-${LIVE ? 'live' : 'capture'}${LOOP ? '-loop' : ''}`);
+/**
+ * 748 Claude live — 하네스 전용 provider 선택. 기본은 예전 그대로 openai.
+ *   --provider claude [--model claude-sonnet|claude-opus|claude-haiku]
+ * 고른 provider 밖의 유료 호출은 LLM_PROVIDER_ALLOWLIST 로 막는다(OpenAI 폴백·우회 호출 0 을 코드로 보증).
+ * 제품 라우팅(orchestration 의 payload.provider → PRIMARY_TEXT_MODEL)은 그대로 쓴다.
+ */
+const PROVIDER = String(opt('--provider') || 'openai');
+// claude 기본은 Opus 5 — Fable 5.1 은 한도 소진(2026-09-22). 다른 모델은 --model 로 준다
+const TIER = String(opt('--model') || ({ openai: 'openai-gpt41', claude: 'claude-opus-5', gemini: 'gemini-flash', perplexity: 'perplexity-sonar' })[PROVIDER] || 'openai-gpt41');
+process.env.LLM_PROVIDER_ALLOWLIST = PROVIDER;
+process.env.CORE_VALUES_BLOCK = '0';
+const OUT_SUFFIX = PROVIDER === 'openai' ? '' : `-${PROVIDER}`;
+const OUT = path.join(ROOT, 'quality-run-output', `evidence-regression-${LIVE ? 'live' : 'capture'}${LOOP ? '-loop' : ''}${OUT_SUFFIX}`);
 
 const DEFAULT_KEYWORDS = [
   { type: '정책·지원금', keyword: '청년미래적금 2차 신청' },
@@ -243,7 +255,7 @@ async function runOne(entry, env) {
   fs.mkdirSync(dir, { recursive: true });
   const save = (name, data) => fs.writeFileSync(path.join(dir, name), typeof data === 'string' ? data : JSON.stringify(data, null, 2), 'utf8');
 
-  process.env.PRIMARY_TEXT_MODEL = 'openai-gpt41';
+  process.env.PRIMARY_TEXT_MODEL = TIER;
   process.env.EVIDENCE_DEBUG_RAW = '1';
   // 실행마다 비운다 — 안 비우면 실패한 실행이 앞 글의 기록을 자기 것처럼 저장한다(2026-09-22 실측: 429 로 죽은 두 글이 앞 글 지표를 복사)
   for (const k of ['__lastEvidenceDebug', '__lastCritiqueDebug', '__lastDraftArticle']) globalThis[k] = null;
@@ -301,7 +313,7 @@ async function runOne(entry, env) {
   const started = Date.now();
   try {
     result = await generateUltimateMaxModeArticleFinal({
-      topic: entry.keyword, keywords: [entry.keyword], provider: 'openai', platform: 'wordpress',
+      topic: entry.keyword, keywords: [entry.keyword], provider: PROVIDER, primaryGeminiTextModel: TIER, platform: 'wordpress',
       contentMode: 'external', toneStyle: 'professional', factCheckMode: 'auto',
       skipImages: true, thumbnailMode: 'none', h2ImageSource: 'none', previewOnly: true,
     }, env, (m) => logs.push(String(m)));
