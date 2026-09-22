@@ -474,6 +474,9 @@ export async function callLLM(
             const slot = g.__llmUsage.byModel[key] || { calls: 0, input: 0, output: 0 };
             slot.calls += 1; slot.input += inTok; slot.output += outTok;
             g.__llmUsage.byModel[key] = slot;
+            // v3.8.736 live 검증 — 호출 하나하나를 남긴다(단계별 비용 분해용). 프롬프트 머리만 남겨 단계를 알아본다
+            if (!Array.isArray(g.__llmCallLog)) g.__llmCallLog = [];
+            g.__llmCallLog.push({ at: Date.now(), provider: config.provider, model, input: inTok, output: outTok, promptHead: String(prompt || '').slice(0, 80), promptChars: String(prompt || '').length });
           }
         } catch { /* 기록 실패가 생성을 막지 않는다 */ }
 

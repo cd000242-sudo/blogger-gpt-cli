@@ -19,7 +19,8 @@ export interface SupportedClaim { claim: string; sourceIds: string[] }
 export interface ClaimCheck { supported: SupportedClaim[]; unsupported: string[] }
 export interface LedgerItem { id: string; text: string }
 
-export const norm = (s: string): string => String(s || '').replace(/[,\s]/g, '').replace(/[∼～]/g, '~');
+/** 정규화 — 쉼표·공백 제거, 물결·퍼센트 표기 통일. live 736-1: 근거 "200%" 와 답변 상자 "200퍼센트" 를 다른 값으로 봐 발행을 막았다 */
+export const norm = (s: string): string => String(s || '').replace(/[,\s]/g, '').replace(/[∼～]/g, '~').replace(/퍼센트|％/g, '%');
 
 const PATTERNS: Array<{ kind: ClaimKind; re: RegExp }> = [
   { kind: 'range', re: /(?:20\d{2}\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일?\s*(?:부터|~|∼|～|-|–)\s*(?:\d{1,2}\s*월\s*)?\d{1,2}\s*일(?:\s*까지)?/g },

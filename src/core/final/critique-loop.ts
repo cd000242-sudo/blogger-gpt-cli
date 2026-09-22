@@ -409,7 +409,11 @@ export async function reviseSections(input: LoopInput, units: Unit[], open: Issu
     if (!rev) { outcome.rejected.push({ sectionId, reason: '편집기가 이 절을 돌려주지 않음' }); continue; }
     let afterText = ''; let apply: () => void = () => {};
     if (u.kind === 'section') {
-      const rows = (Array.isArray(rev.h3Sections) ? rev.h3Sections : []).map((r: any) => ({ index: Number(r?.index), content: String(r?.content || '') })).filter((r: any) => Number.isInteger(r.index) && r.index >= 0 && r.index < u.h3Sections.length && r.content.trim());
+      /**
+       * live 736-2: 프롬프트가 "[index 0] <h3>제목</h3>\n본문" 으로 보여 주니 편집기가 <h3> 까지 content 에 되돌려줬고,
+       * 렌더가 소제목을 다시 붙여 두 번 → 다음 회차엔 세 번 찍혔다. h3 는 구조가 따로 들고 있으므로 content 의 <h3> 는 전부 걷어낸다.
+       */
+      const rows = (Array.isArray(rev.h3Sections) ? rev.h3Sections : []).map((r: any) => ({ index: Number(r?.index), content: String(r?.content || '').replace(/<h3\b[^>]*>[\s\S]*?<\/h3>\s*/gi, '').trim() })).filter((r: any) => Number.isInteger(r.index) && r.index >= 0 && r.index < u.h3Sections.length && r.content.trim());
       if (!rows.length) { outcome.rejected.push({ sectionId, reason: '고친 본문이 없음' }); continue; }
       const merged = u.h3Sections.map((h, i) => ({ ...h, content: rows.find((r: any) => r.index === i)?.content ?? h.content }));
       afterText = merged.map((h) => `<h3>${h.h3}</h3>${h.content}`).join('\n');
@@ -531,7 +535,11 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
     if (outcome.revised.length === 0) { report.manualReviewReason = '편집기의 수정이 하나도 채택되지 않음'; break; }
     article = next; units = sectionize(article);
     settleCodeIssues(units);
-    const stillOpenModel = openIssues().filter((i) => i.origin !== 'code');
+    /**
+     * 검증은 **이번에 실제로 바뀐 절의 지적**만 묻는다. live 736-1: S05 수정이 관문에서 되돌려졌는데 검증 비평이 S00 만 보고도
+     * S05 지적을 "풀렸다"고 답해 루프가 수렴이라 했다(가짜 수렴). 바뀌지 않은 절의 지적은 풀릴 수 없다 — OPEN 으로 남겨 다음 회차가 다시 고친다.
+     */
+    const stillOpenModel = openIssues().filter((i) => i.origin !== 'code' && outcome.revised.includes(i.sectionId));
     if (stillOpenModel.length) {
       const v = await runVerification(ctx(), units, stillOpenModel, revisedIds);
       report.qualityLoopCalls += 1; report.criticCycles += 1; report.verifications.push(v.result); if (v.result.model) report.models.verify.push(v.result.model);

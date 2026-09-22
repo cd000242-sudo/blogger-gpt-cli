@@ -64,6 +64,14 @@ describe('① 값 주장 추출·대조 (fact-claims)', () => {
   it('값 걷어내기', () => {
     expect(stripClaims('경주 APEC 기간 숙소 예약 대릉원 인근 11월 2일 가능 여부', ['11월 2일'])).toBe('경주 APEC 기간 숙소 예약 대릉원 인근 가능 여부');
   });
+  it('⭐ live 736-1 재현: 근거는 "200%", 답변 상자는 "200퍼센트" — 같은 값이다 (표기만 다른 비율을 근거 없다고 막았다)', () => {
+    const led = ledgerFromItems([{ id: 'E01', text: '가구 중위소득 200% 이하 요건' }]);
+    expect(checkClaims('가구 중위소득 200퍼센트 이하', led).unsupported).toEqual([]);
+    expect(checkClaims('가구 중위소득 200％ 이하', led).unsupported).toEqual([]);
+    expect(checkClaims('가구 중위소득 250퍼센트 이하', led).unsupported).toEqual(['250퍼센트']);
+    // 반대 방향(근거가 퍼센트 표기)도 같은 값
+    expect(checkClaims('중위소득 200% 이하', ledgerFromItems([{ id: 'E02', text: '중위소득 200퍼센트 이하' }])).unsupported).toEqual([]);
+  });
 });
 
 describe('② Title Fact Gate', () => {
@@ -197,6 +205,59 @@ describe('④ 루프 — 문제 없는 글은 고치지 않고, 문제 절만 �
     expect(r.report.converged).toBe(true);
     expect(cycle).toBe(1);                                              // Critic 1 은 한 번만 — 재비평은 검증 비평이 맡는다
     expect(editorInputs[0]).toContain('허용: REMOVE/REPLACE');
+  });
+
+  it('⭐⭐ live 736-1 재현: 되돌려진 절의 지적은 검증 비평이 "풀렸다"고 해도 OPEN 이다 — 바뀌지 않은 절은 풀릴 수 없다', async () => {
+    /**
+     * 실측 2026-09-22: S05(CRITICAL) 수정이 과수정 관문에서 되돌려졌는데(50만원·6%·12% 손실), 검증 비평은 고친 절(S00)만 보고도
+     * S05 지적까지 resolved 로 답했다 → 루프가 "수렴"이라 했고 Final Judge 가 그 모순을 잡아 MANUAL_REVIEW. 가짜 수렴이었다.
+     */
+    const a: ArticleSections = { ...article(), sections: article().sections.slice(0, 2) };   // S03(근거 없는 11월 2일) 제외 — 이 시험은 모델 지적만 본다
+    const keyS02 = issueKeyOf('S02', 'MIXED_ENTITY', '3년 만기 자유적립식입니다');
+    const keyS00 = issueKeyOf('S00', 'TITLE_PROMISE_UNMET', '가구원 동의부터 확인해야 합니다');
+    let editorCalls = 0; const verifyLists: string[] = [];
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return JSON.stringify({ status: 'REVISION_REQUIRED', issues: [
+        { severity: 'CRITICAL', sectionId: 'S02', exactSpan: '3년 만기 자유적립식입니다', type: 'MIXED_ENTITY', problem: '1차 안내의 상품 구조를 2차 절차처럼 서술했다', evidenceIds: ['E01'], requiredChange: '2차 기준임을 구분한다' },
+        { severity: 'MAJOR', sectionId: 'S00', exactSpan: '가구원 동의부터 확인해야 합니다', type: 'TITLE_PROMISE_UNMET', problem: '제목이 약속한 답(동의가 필요한지)을 도입이 주지 않는다', evidenceIds: [], requiredChange: '필요 여부를 적는다' },
+      ], missingIntentAnswers: [], titleIssues: [], researchQueries: [] });
+      if (isEditor(p)) {
+        editorCalls += 1;
+        // 편집기가 S02 를 통째로 다시 써서 값이 전부 사라진다(과수정 → 되돌려짐) · S00 은 정상 수정
+        return JSON.stringify({ revisions: [
+          { sectionId: 'S02', h3Sections: [{ index: 0, content: '<p>2차 모집의 납입 조건은 공식 안내에서 확인해야 합니다.</p>' }], resolvedIssueKeys: [keyS02] },
+          { sectionId: 'S00', content: '<p>청년미래적금 2차 신청에서 가구원 동의가 필요한지는 공식 안내에서 확인해야 합니다.</p>', resolvedIssueKeys: [keyS00] },
+        ] });
+      }
+      if (isVerify(p)) { verifyLists.push(p); return JSON.stringify({ resolved: [keyS02, keyS00], stillOpen: [], issues: [] }); }   // 모델이 못 본 절까지 풀렸다고 한다
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: '2026년 청년미래적금 2차 신청 가구원 동의 필요한지', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1 });
+    expect(r.report.revisions[0]!.rejected.map((x) => x.sectionId)).toEqual(['S02']);
+    expect(r.report.issueLedger.find((i) => i.issueKey === keyS00)!.status).toBe('RESOLVED');
+    expect(r.report.issueLedger.find((i) => i.issueKey === keyS02)!.status).toBe('OPEN');     // 바뀌지 않은 절은 풀릴 수 없다
+    expect(verifyLists[0]).not.toContain(keyS02);                                              // 검증 비평에게 묻지도 않는다
+    expect(r.report.converged).toBe(false);
+    expect(r.report.open.critical).toBe(1);
+    expect(editorCalls).toBe(1);
+  });
+
+  it('⭐⭐ live 736-2 재현: 편집기가 content 에 <h3> 를 되돌려줘도 소제목이 겹치지 않는다 (두 회차 뒤 소제목이 세 번 찍혔다)', async () => {
+    const a: ArticleSections = { ...article(), sections: article().sections.slice(0, 2) };
+    const key = issueKeyOf('S02', 'MIXED_ENTITY', '3년 만기 자유적립식입니다');
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return JSON.stringify({ status: 'REVISION_REQUIRED', issues: [{ severity: 'CRITICAL', sectionId: 'S02', exactSpan: '3년 만기 자유적립식입니다', type: 'MIXED_ENTITY', problem: '1차 안내의 상품 구조를 2차 절차처럼 서술했다', evidenceIds: ['E01'], requiredChange: '이 문장을 지운다' }], missingIntentAnswers: [], titleIssues: [], researchQueries: [] });
+      // 편집기 프롬프트가 "[index 0] <h3>한도</h3>\n본문" 으로 보여 주니 모델이 <h3> 까지 그대로 돌려준다
+      if (isEditor(p)) return JSON.stringify({ revisions: [{ sectionId: 'S02', h3Sections: [{ index: 0, content: '<h3>한도</h3>\n<h3>한도</h3>\n<p>월 납입 한도는 50만원이고 정부 기여금은 6% 또는 12%입니다.</p>' }], resolvedIssueKeys: [key] }] });
+      if (isVerify(p)) return JSON.stringify({ resolved: [key], stillOpen: [], issues: [] });
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: 't', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel });
+    expect(r.report.revisions[0]!.revised).toEqual(['S02']);
+    const content = r.article.sections[1]!.h3Sections[0]!.content;
+    expect(content).not.toMatch(/<h3/i);
+    expect(content).toContain('50만원');
+    expect(r.article.sections[1]!.h3Sections[0]!.h3).toBe('한도');
   });
 
   it('⭐ 일반 설명("여력이 빠듯하면 고정형")을 근거 없다고 올려도 CRITICAL/MAJOR 가 되지 못한다 · 코드가 뒷받침한 값을 근거 없다고 하면 버린다', async () => {
