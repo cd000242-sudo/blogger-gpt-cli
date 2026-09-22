@@ -38,11 +38,18 @@ describe('① 빈 절 판정 — 결정적', () => {
     expect(isEmptyContent('', [{ headers: ['a'], rows: [['1']] }])).toBe(false);
     expect(isEmptyContent('<p>고정형 상단은 연 7.17%입니다. 상품마다 적용금리가 다릅니다.</p>')).toBe(false);
   });
-  it('핵심 절: 검색 질문에 답하는 절(answersTo) · 제목 낱말과 겹치는 소제목 · 실 질문과 겹치는 소제목. 아니면 선택 절', () => {
+  it('핵심 절이 기본: answersTo · 제목 낱말 · 실 질문 · 그 밖의 개요 절 전부 핵심. 선택 절은 다른 절과 같은 주제일 때뿐', () => {
     expect(isCoreSection({ h2: '주담대 상환부담 계산', answersTo: '7억 이자 부담' }, '주택담보대출 금리 7% 돌파', []).core).toBe(true);
     expect(isCoreSection({ h2: '주담대 금리 확인 기준' }, '주택담보대출 금리 7% 돌파 기준금리도 7%인가요', []).core).toBe(true);
     expect(isCoreSection({ h2: '상환부담 계산' }, '주택담보대출 금리 7% 돌파', ['7억 상환부담은 어떻게 계산하나']).core).toBe(true);
-    expect(isCoreSection({ h2: '함께 보면 좋은 여행지' }, '주택담보대출 금리 7% 돌파', []).core).toBe(false);
+    // live 742 재현: answersTo 도 제목 낱말도 없는 개요 절 "대출 월 상환액 계산" — 선택 절로 지워져 답이 사라졌다 → 이제 핵심
+    const c = isCoreSection({ h2: '대출 월 상환액 계산' }, '주택담보대출 금리 7% 돌파, 기준금리와 다른 이유', [], ['주담대 연 확인 기준', '금리인하요구권 신청 전 점검']);
+    expect(c.core).toBe(true);
+    expect(c.reason).toContain('개요의 절');
+    // 선택 절 = 다른 절과 같은 주제(낱말 절반 이상 겹침)
+    const d = isCoreSection({ h2: '숙소 예약 취소 규정 점검' }, '경주 숙소 예약', [], ['숙소 예약 취소 규정 확인법', '대릉원 숙소 위치']);
+    expect(d.core).toBe(false);
+    expect(d.reason).toContain('같은 주제');
   });
   it('⭐⭐ live 재현: "주담대 상환부담 계산" content "" → EMPTY_SECTION detected · 핵심 절 · repair 대상', () => {
     const f = findEmptySections(article(), '주택담보대출 금리 7% 돌파 기준금리도 7%인가요');
@@ -90,9 +97,9 @@ describe('② 수리 — 그 절만, 근거에 있는 값만, 코드가 다시 �
     expect((await repairEmptySections(article(), { title: 't', mainKeyword: 'k', packetText, evidenceText, ledger, callModel: offTopic })).result.unresolved[0]!.reason).toContain('답하는 낱말이 없다');
     expect(verifyRepair('<p>주택담보대출 이자 부담은 원금과 적용금리로 계산합니다. 상환기간과 방식도 함께 봐야 합니다. 계산기를 쓰면 됩니다. 원금 균등과 원리금 균등은 초기 부담이 다르므로 같은 조건으로 비교합니다.</p>', ledger, '이자 부담 계산', 'x')).toBeNull();
   });
-  it('선택 절(핵심 아님)이 비면 지운다 · 호출 0 · 미해결 0', async () => {
+  it('선택 절(다른 절과 같은 주제)이 비면 지운다 · 호출 0 · 미해결 0', async () => {
     const a = article();
-    a.sections[1] = { h2: '함께 보면 좋은 여행지', h3Sections: [{ h3: '추천', content: '', tables: [] }] } as any;
+    a.sections[1] = { h2: '주담대 연 확인 기준 정리', h3Sections: [{ h3: '정리', content: '', tables: [] }] } as any;   // S01 "주담대 연 확인 기준" 과 같은 주제
     let calls = 0;
     const { article: out, result } = await repairEmptySections(a, { title: '주택담보대출 금리 7% 돌파', mainKeyword: 'k', packetText, evidenceText, ledger, callModel: async () => { calls += 1; return '{}'; } });
     expect(result.removed).toHaveLength(1);

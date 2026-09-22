@@ -64,27 +64,45 @@ const overlaps = (a: string, b: string): boolean => {
   return tokens(a).some((t) => tb.has(t));
 };
 
+/** 두 소제목이 같은 주제인가 — 낱말의 절반 이상이 겹치면 같은 주제 */
+function duplicateHeading(h2: string, otherH2s: string[]): string {
+  const mine = tokens(h2);
+  if (mine.length === 0) return '';
+  for (const o of otherH2s) {
+    const theirs = new Set(tokens(o));
+    const hit = mine.filter((t) => theirs.has(t)).length;
+    if (hit / mine.length >= 0.5) return o;
+  }
+  return '';
+}
+
 /**
- * 핵심 절 판정 — 셋 중 하나면 핵심. 어디에도 안 걸리면 선택 절.
- *   ① 검색 질문에 답하는 절(answersTo) ② 제목의 낱말과 겹치는 소제목 ③ 실 질문(intentQuestions)과 겹치는 소제목
+ * 핵심 절 판정 — **개요에 있던 절은 기본이 핵심**이다(작성하기로 한 내용이니 지우면 약속이 사라진다).
+ *   핵심 근거(기록용): ① 검색 질문에 답하는 절(answersTo) ② 제목 낱말과 겹침 ③ 실 질문과 겹침 ④ 그 밖의 개요 절
+ *   선택 절은 하나뿐: 다른 절과 같은 주제의 소제목(중복) — 지워도 잃는 정보가 없다.
+ * live 742(주담대): "대출 월 상환액 계산" 이 answersTo 도 제목 낱말도 없어 선택 절로 지워졌다 — 검색 의도의 답이 또 사라졌다. 그래서 기본을 뒤집었다.
  */
-export function isCoreSection(section: any, title: string, intentQuestions: string[]): { core: boolean; reason: string } {
+export function isCoreSection(section: any, title: string, intentQuestions: string[], otherH2s: string[] = []): { core: boolean; reason: string } {
+  const h2 = String(section?.h2 || '');
+  const dup = duplicateHeading(h2, otherH2s);
+  if (dup) return { core: false, reason: `다른 절과 같은 주제: "${dup.slice(0, 40)}"` };
   const answersTo = String(section?.answersTo || '').trim();
   if (answersTo) return { core: true, reason: `검색 질문에 답하는 절: "${answersTo.slice(0, 40)}"` };
-  const h2 = String(section?.h2 || '');
   if (overlaps(h2, title)) return { core: true, reason: '제목 약속과 겹치는 소제목' };
   const q = intentQuestions.find((x) => x && overlaps(h2, x));
   if (q) return { core: true, reason: `검색 의도와 겹치는 소제목: "${q.slice(0, 40)}"` };
-  return { core: false, reason: '' };
+  return { core: true, reason: '개요의 절(작성하기로 한 내용)' };
 }
 
 export function findEmptySections(article: any, title: string, intentQuestions: string[] = []): EmptyFinding[] {
   const out: EmptyFinding[] = [];
-  (article?.sections || []).forEach((section: any, sectionIndex: number) => {
+  const all: any[] = article?.sections || [];
+  all.forEach((section: any, sectionIndex: number) => {
     const h3s: any[] = Array.isArray(section?.h3Sections) ? section.h3Sections : [];
     const emptyH3Indexes = h3s.map((h, i) => (isEmptyContent(h?.content, h?.tables) ? i : -1)).filter((i) => i >= 0);
     if (h3s.length === 0 || emptyH3Indexes.length === 0) return;
-    const { core, reason } = isCoreSection(section, title, intentQuestions);
+    const otherH2s = all.filter((_, i) => i !== sectionIndex).map((s) => String(s?.h2 || ''));
+    const { core, reason } = isCoreSection(section, title, intentQuestions, otherH2s);
     out.push({ sectionIndex, h2: String(section?.h2 || ''), emptyH3Indexes, h3Titles: h3s.map((h) => String(h?.h3 || '')), core, coreReason: reason, answersTo: String(section?.answersTo || '').trim() });
   });
   return out;
