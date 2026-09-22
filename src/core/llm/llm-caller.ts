@@ -105,6 +105,26 @@ export function claudeAcceptsTemperature(model: string): boolean {
   return /haiku|claude-(?:2|3)[.-]/i.test(String(model || ''));
 }
 
+/**
+ * 🧠 v3.8.748 — **추론 모델은 thinking 토큰이 출력 예산을 같이 쓴다.**
+ *
+ * 실측(2026-09-22, 경주 APEC 본문 1편 · claude-opus-5):
+ *   thinking 7,577 + 본문 8,564 = 출력 16,141 토큰. 기본 상한 16,384 에 **아슬아슬**하다.
+ *   그래서 생각을 조금만 더 하면 JSON 이 문장 중간에서 잘린다 —
+ *   live Run 1 이 딱 그렇게 죽었다("Unterminated string in JSON at position 9158", 응답 9,158자).
+ *   같은 프롬프트를 32,768 로 주면 stop_reason=end_turn · 절 7개가 온전히 파싱된다.
+ *
+ * 그래서 추론 모델만 넉넉히 준다. 상한은 "여기까지 기다린다"가 아니라 "여기까지 쓸 수 있다"이고,
+ * 실제 과금은 **쓴 만큼**이라 올려도 평소 비용은 그대로다 — 잘려서 글 한 편을 통째로 버리는 쪽이 비싸다.
+ * 사람이 `LLM_MAX_OUTPUT_TOKENS` 를 직접 정했으면 그 값을 그대로 쓴다.
+ */
+const CLAUDE_REASONING_MAX_TOKENS = 32768;
+export function resolveClaudeMaxTokens(model: string): number {
+  const raw = Number(process.env['LLM_MAX_OUTPUT_TOKENS'] || '');
+  if (Number.isFinite(raw) && raw >= 1024) return Math.floor(raw);
+  return claudeAcceptsTemperature(model) ? resolveLlmMaxTokens() : CLAUDE_REASONING_MAX_TOKENS;
+}
+
 function buildOpenAIChatBody(model: string, prompt: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
@@ -184,7 +204,8 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     }),
     buildBody: (model, prompt) => ({
       model,
-      max_tokens: resolveLlmMaxTokens(),
+      // v3.8.748 — 추론 모델은 thinking 이 같은 예산을 쓴다(위 resolveClaudeMaxTokens 주석: 본문 1편 실측 16,141 토큰)
+      max_tokens: resolveClaudeMaxTokens(model),
       messages: [{ role: 'user', content: prompt }],
       system: factualSystemPrompt(),
       // v3.8.748 — Claude 5 계열은 temperature 를 받지 않는다(아래 claudeAcceptsTemperature 주석 참고)

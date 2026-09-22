@@ -7,7 +7,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { claudeAcceptsTemperature } from '../src/core/llm/llm-caller';
+import { claudeAcceptsTemperature, resolveClaudeMaxTokens, resolveLlmMaxTokens } from '../src/core/llm/llm-caller';
 
 describe('claudeAcceptsTemperature', () => {
   it('Claude 5 계열은 false — 실측으로 400 이 확인된 모델들', () => {
@@ -27,11 +27,45 @@ describe('claudeAcceptsTemperature', () => {
   });
 });
 
+/**
+ * 748 — 추론 모델은 thinking 토큰이 출력 예산을 함께 쓴다.
+ * live Run 1 실패: "Unterminated string in JSON at position 9158" (응답 9,158자에서 잘림).
+ * 같은 프롬프트 실측: thinking 7,577 + 본문 8,564 = 16,141 토큰 — 기본 상한 16,384 에 아슬아슬했다.
+ */
+describe('resolveClaudeMaxTokens', () => {
+  const saved = process.env['LLM_MAX_OUTPUT_TOKENS'];
+  afterEach(() => { if (saved === undefined) delete process.env['LLM_MAX_OUTPUT_TOKENS']; else process.env['LLM_MAX_OUTPUT_TOKENS'] = saved; });
+
+  it('추론 모델(Claude 5 계열)은 기본 상한보다 넉넉히 받는다', () => {
+    delete process.env['LLM_MAX_OUTPUT_TOKENS'];
+    for (const m of ['claude-opus-5', 'claude-fable-5-1', 'claude-sonnet-5']) {
+      expect(resolveClaudeMaxTokens(m)).toBeGreaterThan(resolveLlmMaxTokens());
+      // 실측 16,141 토큰을 넉넉히 넘겨야 한다 — 생각을 조금 더 해도 안 잘리게
+      expect(resolveClaudeMaxTokens(m)).toBeGreaterThanOrEqual(24000);
+    }
+  });
+
+  it('Haiku 등 비추론 모델은 예전 상한 그대로', () => {
+    delete process.env['LLM_MAX_OUTPUT_TOKENS'];
+    expect(resolveClaudeMaxTokens('claude-haiku-4-5-20251001')).toBe(resolveLlmMaxTokens());
+  });
+
+  it('사람이 LLM_MAX_OUTPUT_TOKENS 를 정했으면 그 값을 그대로 쓴다', () => {
+    process.env['LLM_MAX_OUTPUT_TOKENS'] = '8000';
+    expect(resolveClaudeMaxTokens('claude-opus-5')).toBe(8000);
+    expect(resolveClaudeMaxTokens('claude-haiku-4-5-20251001')).toBe(8000);
+  });
+});
+
 describe('요청 본문 배선', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'llm', 'llm-caller.ts'), 'utf8');
 
   it('claude buildBody 는 허용 모델에만 temperature 를 싣는다', () => {
     expect(src).toContain('...(claudeAcceptsTemperature(model) ? { temperature: getGenerationTemperature(prompt) } : {})');
+  });
+
+  it('claude buildBody 의 출력 상한은 모델별로 정해진다 (thinking 예산)', () => {
+    expect(src).toContain('max_tokens: resolveClaudeMaxTokens(model)');
   });
 
   it('400 "deprecated" 를 만나면 그 파라미터만 빼고 재시도한다 (재시도 횟수를 쓰지 않는다)', () => {
