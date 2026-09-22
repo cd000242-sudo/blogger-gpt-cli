@@ -193,6 +193,7 @@ function draftVsFinal(cq, logs, result) {
     openBlocking: ledgerIssues.filter((i) => (i.status === 'OPEN' || i.status === 'REGRESSED') && i.severity !== 'MINOR').map((i) => `${i.issueKey} [${i.severity}]`),
     resolved: ledgerIssues.filter((i) => i.status === 'RESOLVED').map((i) => `${i.issueKey} [${i.severity}]`),
   };
+  out.emptySections = cq.emptySections ? { found: (cq.emptySections.findings || []).length, repaired: (cq.emptySections.repaired || []).length, removed: (cq.emptySections.removed || []).length, unresolved: cq.emptySections.unresolved || [], calls: cq.emptySections.calls } : null;
   out.titleRevision = crit.titleRevision || null;
   out.verificationSawCurrentTitle = (crit.verificationContexts || []).every((c) => c.currentTitle === (crit.titleRevision && crit.titleRevision.pass ? crit.titleRevision.to : c.originalTitle));
   out.criticCycles = crit.criticCycles; out.revisionCycles = crit.revisionCycles; out.researchRounds = crit.researchRounds; out.loopCallsReported = crit.qualityLoopCalls;

@@ -3856,6 +3856,32 @@ ${quoted}
      *   수정은 최대 3회. 남으면 MANUAL_REVIEW(자동 발행 안 함). 자세한 것은 critique-loop.ts 머리말.
      * 쇼핑·페러프레이징 글은 근거가 상품 데이터·원문이라 이 루프를 돌리지 않는다(예전 그대로).
      */
+    /**
+     * 🕳️ v3.8.739 — 빈 절 관문. Critic 보다 먼저, 코드가 잡는다(empty-section-gate.ts 머리말).
+     * live(주담대): 소제목만 있고 본문이 "" 인 절을 Critic 이 잡고도(구절이 없어 MINOR) 조립 단계가 지워 답이 빠진 채 AUTO_PUBLISH 됐다.
+     * 핵심 절은 그 절만 다시 채우고 코드가 다시 잰다(길이·값 대조·질문 답). 못 채우면 EMPTY_SECTION_PASS = false → MANUAL_REVIEW.
+     * 빈 절이 없으면 호출 0 — 보통 글의 비용은 그대로다. 쇼핑·페러프레이징은 예전 그대로.
+     */
+    let emptySectionResult: any = { findings: [], repaired: [], removed: [], unresolved: [], calls: 0 };
+    if (contentMode !== 'shopping' && contentMode !== 'paraphrasing') {
+      try {
+        const { repairEmptySections } = require('./empty-section-gate');
+        const es = await repairEmptySections(allSectionsObj, {
+          title: String(h1 || ''), mainKeyword: keyword,
+          intentQuestions: [String(articleThread?.question || '')].filter(Boolean),
+          packetText: researchPacketText, evidenceText: evidenceRender.text, ledger: claimLedger(),
+          callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+          onLog: (m: string) => onLog?.(`[PROGRESS] 75% - ${m}`),
+        });
+        allSectionsObj = es.article;
+        emptySectionResult = es.result;
+        if (es.result.findings.length) onLog?.(`[PROGRESS] 75% - 🕳️ 빈 절 관문: 발견 ${es.result.findings.length} · 수리 ${es.result.repaired.length} · 제거(선택 절) ${es.result.removed.length} · 미해결 ${es.result.unresolved.length} · 호출 ${es.result.calls}`);
+      } catch (esErr: any) {
+        if ((esErr as any)?.canceled === true) throw esErr;
+        console.warn('[EMPTY-SECTION] 관문 스킵:', String(esErr?.message || esErr).slice(0, 120));
+      }
+    }
+
     let critiqueReport: any = null;
     let qualityLoopCalls = 0;   // v3.8.736 — 품질 루프(비평·편집·검증·심사)가 쓴 호출 수. 생성 호출과 따로 센다
     let titleRevisedByCritic = false;
@@ -4286,6 +4312,8 @@ ${quoted}
       RESEARCH_PACKET_PASS: researchPacket ? researchPacket.status !== 'EMPTY' : false,
       // v3.8.736 — 값 대조는 코드만. OPEN critical/major 0 · 편집 blocking 0. "한 번 더 고치면 나아진다" 조건은 뺐다(늘 true 라 수렴을 막았다)
       BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0,
+      // v3.8.739 — 핵심 절이 비어 있고 수리도 못 했으면 자동 발행하지 않는다(절을 지워 "성공" 으로 만들지 않는다)
+      EMPTY_SECTION_PASS: (emptySectionResult?.unresolved || []).length === 0,
       SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0 && (critiqueReport.open.pending || 0) === 0),
       NO_MAJOR_REDUNDANCY: !finalJudge || !finalJudge.blockingIssues.some((b: any) => b.type === 'REDUNDANCY'),
       FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
@@ -4304,7 +4332,7 @@ ${quoted}
     onLog?.(qualityConverged
       ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.`
       : `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}`);
-    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     // 8. HTML 조립
     onLog?.('[PROGRESS] 75% - 🎨 백서(White Paper) 구조 조립 중...');
