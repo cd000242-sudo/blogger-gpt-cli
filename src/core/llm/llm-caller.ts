@@ -89,6 +89,22 @@ export function resolveLlmMaxTokens(): number {
   return 16384;
 }
 
+/**
+ * 🌡️ v3.8.748 — **Claude 5 계열은 `temperature` 를 받지 않는다.**
+ *
+ * 사장님 신고: "클로드 오푸스5랑 페이블 API는 발행이 안 되는 버그가 있네요."
+ * 실측(2026-09-22, 모델별 1회씩):
+ *   claude-opus-5 · claude-fable-5-1 · claude-fable-5 · claude-sonnet-5 → HTTP 400 "`temperature` is deprecated for this model."
+ *   claude-haiku-4-5-20251001 → 통과
+ * 즉 키가 멀쩡해도 **Claude 5 계열은 한 번도 호출되지 못했다.** 화면에서 👑 Fable 5.1 을 골랐을 때 실패하던 이유다.
+ *
+ * 허용 목록으로 판단한다(막는 목록이 아니라). 모르는 새 모델은 **안 보내는 쪽**이 안전하다 —
+ * 안 보내면 provider 기본값으로 동작하지만, 보내면 이렇게 호출 자체가 막힌다.
+ */
+export function claudeAcceptsTemperature(model: string): boolean {
+  return /haiku|claude-(?:2|3)[.-]/i.test(String(model || ''));
+}
+
 function buildOpenAIChatBody(model: string, prompt: string): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
@@ -171,7 +187,8 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
       max_tokens: resolveLlmMaxTokens(),
       messages: [{ role: 'user', content: prompt }],
       system: factualSystemPrompt(),
-      temperature: getGenerationTemperature(prompt),
+      // v3.8.748 — Claude 5 계열은 temperature 를 받지 않는다(아래 claudeAcceptsTemperature 주석 참고)
+      ...(claudeAcceptsTemperature(model) ? { temperature: getGenerationTemperature(prompt) } : {}),
     }),
     extractText: (data) => {
       const content = (data as ClaudeResponse)?.content;
@@ -438,6 +455,8 @@ export async function callLLM(
   let downgraded = false;
   /** v3.8.734 — JSON 모드. OpenAI chat/completions 의 response_format 만 쓴다(다른 provider 는 프롬프트 지시 + 검증으로 간다) */
   let useJsonMode = options.json === true && provider === 'openai';
+  /** v3.8.748 — provider 가 "이 파라미터는 안 받는다" 고 400 을 내면 그 이름을 여기 담고 다음 시도에서 뺀다 */
+  const droppedParams = new Set<string>();
 
   while (queue.length > 0) {
     const model = queue.shift()!;
@@ -452,6 +471,7 @@ export async function callLLM(
         console.log(`[LLM] ${config.name} ${model} attempt ${attempt + 1}/${maxRetries} (제한 ${Math.round(callTimeout / 1000)}초)`);
         const requestBody = config.buildBody(model, prompt);
         if (useJsonMode) requestBody['response_format'] = { type: 'json_object' };
+        for (const p of droppedParams) delete requestBody[p];
         const response = await axios.post(
           config.endpoint,
           requestBody,
@@ -523,6 +543,19 @@ export async function callLLM(
           console.warn(`[LLM] ${model} 은(는) JSON 모드를 받지 않습니다 — 프롬프트 지시만으로 다시 부릅니다`);
           attempt -= 1;
           continue;
+        }
+        /**
+         * v3.8.748 — 안 받는 파라미터는 **그것만 빼고** 같은 시도를 다시 한다(재시도 횟수를 쓰지 않는다).
+         * 위 허용 목록이 못 따라잡은 새 모델에서도 호출 자체가 막히지 않게 하는 두 번째 겹이다.
+         */
+        if (!droppedParams.size && /`?(temperature|top_p|top_k)`? is deprecated|unsupported parameter|not supported for this model/i.test(errorMsg)) {
+          const param = (errorMsg.match(/`?(temperature|top_p|top_k)`?/i) || [])[1];
+          if (param) {
+            droppedParams.add(param.toLowerCase());
+            console.warn(`[LLM] ${model} 은(는) ${param} 을(를) 받지 않습니다 — 그 값만 빼고 다시 부릅니다`);
+            attempt -= 1;
+            continue;
+          }
         }
         const kind = classifyProviderFailure(config, error);
         lastKind = kind;
