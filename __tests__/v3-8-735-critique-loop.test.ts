@@ -242,6 +242,116 @@ describe('④ 루프 — 문제 없는 글은 고치지 않고, 문제 절만 �
     expect(editorCalls).toBe(1);
   });
 
+  /**
+   * v3.8.738 — 가짜 수렴 차단. live 737 3회차 그대로:
+   *   Critic: S99 TITLE_PROMISE_UNMET · 편집기: resolvedIssueKeys 에 포함 · 검증: stillOpen 에 같은 지문
+   * 편집기는 수정자이지 심판이 아니다 → OPEN · 수렴 false.
+   */
+  const fakeConvergenceFixture = () => {
+    const a: ArticleSections = { ...article(), sections: article().sections.slice(0, 2) };
+    const key = issueKeyOf('S99', 'TITLE_PROMISE_UNMET', '가구원 동의를 먼저 정리한 뒤 접수일에 신청하면 됩니다');
+    const critic = JSON.stringify({ status: 'REVISION_REQUIRED', issues: [{ severity: 'MAJOR', sectionId: 'S99', exactSpan: '가구원 동의를 먼저 정리한 뒤 접수일에 신청하면 됩니다', type: 'TITLE_PROMISE_UNMET', problem: '제목은 가구원 동의 공식 확인을 약속하지만 본문은 조건부 설명만 반복한다', evidenceIds: [], requiredChange: '공식 근거로 확정하거나 제목·본문에서 공식 확인 단정을 뺀다' }], missingIntentAnswers: [], titleIssues: [{ problem: '제목이 공식 확인을 약속한다', requiredChange: '확인 필요 여부로 바꾼다' }], researchQueries: [] });
+    const editor = JSON.stringify({ revisions: [{ sectionId: 'S99', content: '<p>가구원 소득동의의 대상·필수 여부는 취급기관 App 의 개별 안내를 확인해야 합니다.</p>', resolvedIssueKeys: [key] }] });
+    return { a, key, critic, editor };
+  };
+
+  it('⭐⭐ 가짜 수렴 차단: 편집기가 "고쳤다" 해도 검증이 stillOpen 이면 OPEN · 수렴 false', async () => {
+    const { a, key, critic, editor } = fakeConvergenceFixture();
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return critic;
+      if (isEditor(p)) return editor;
+      if (isVerify(p)) return JSON.stringify({ resolved: [], stillOpen: [{ issueKey: key, reason: '공식 안내로 확정하지 않았다' }], issues: [] });
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: '2026년 청년미래적금 2차 신청 가구원 동의 공식 확인', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1 });
+    expect(r.report.revisions[0]!.resolvedIssueKeys).toEqual([key]);                       // 편집기는 고쳤다고 신고했지만
+    expect(r.report.issueLedger.find((i) => i.issueKey === key)!.status).toBe('OPEN');     // 심판은 검증이다
+    expect(r.report.converged).toBe(false);
+    expect(r.report.open.major).toBe(1);
+  });
+
+  it('⭐ 검증이 resolved 라 하면 RESOLVED · 수렴 true', async () => {
+    const { a, key, critic, editor } = fakeConvergenceFixture();
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return critic;
+      if (isEditor(p)) return editor;
+      if (isVerify(p)) return JSON.stringify({ resolved: [key], stillOpen: [], issues: [] });
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: '2026년 청년미래적금 2차 신청 가구원 동의 공식 확인', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1 });
+    expect(r.report.issueLedger.find((i) => i.issueKey === key)!.status).toBe('RESOLVED');
+    expect(r.report.converged).toBe(true);
+    expect(r.report.open.pending).toBe(0);
+  });
+
+  it('⭐⭐ 제목 수정은 검증 전에: 검증 비평은 새 제목("확인 필요 여부")을 받고, 옛 제목("공식 확인")은 검증 입력에 없다', async () => {
+    const { a, key, critic, editor } = fakeConvergenceFixture();
+    const verifyPrompts: string[] = []; let editorPrompt = '';
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return critic;
+      if (isEditor(p)) { editorPrompt = p; return editor; }
+      if (isVerify(p)) { verifyPrompts.push(p); return JSON.stringify({ resolved: [key], stillOpen: [], issues: [] }); }
+      return PASS;
+    };
+    const reviseTitle = jest.fn(async () => ({ title: '2026년 청년미래적금 2차 신청 가구원 동의 확인 필요 여부', pass: true }));
+    const r = await runCritiqueLoop({ title: '2026년 청년미래적금 2차 신청 가구원 동의 공식 확인', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1, reviseTitle });
+    expect(reviseTitle).toHaveBeenCalledTimes(1);
+    expect(r.title).toBe('2026년 청년미래적금 2차 신청 가구원 동의 확인 필요 여부');
+    expect(r.report.titleRevision).toEqual({ from: '2026년 청년미래적금 2차 신청 가구원 동의 공식 확인', to: '2026년 청년미래적금 2차 신청 가구원 동의 확인 필요 여부', pass: true });
+    expect(editorPrompt).toContain('제목: 2026년 청년미래적금 2차 신청 가구원 동의 확인 필요 여부');
+    expect(verifyPrompts[0]).toContain('제목: 2026년 청년미래적금 2차 신청 가구원 동의 확인 필요 여부');
+    expect(verifyPrompts[0]).not.toContain('제목: 2026년 청년미래적금 2차 신청 가구원 동의 공식 확인');   // 옛 제목은 검증 입력에 없다(지적 본문의 인용은 문맥)
+    const vc = r.report.verificationContexts[0]!;
+    expect(vc.originalTitle).toBe('2026년 청년미래적금 2차 신청 가구원 동의 공식 확인');
+    expect(vc.currentTitle).toBe('2026년 청년미래적금 2차 신청 가구원 동의 확인 필요 여부');
+    expect(vc.issues[0]!.issueKey).toBe(key);
+    expect(vc.issues[0]!.originalSection).toContain('가구원 동의를 먼저 정리한 뒤');
+    expect(vc.issues[0]!.currentSection).toContain('개별 안내를 확인해야 합니다');
+  });
+
+  it('⭐ 제목 수정안이 Title Fact Gate 를 못 지나면 옛 제목 유지 · 검증에 새 값이 든 제목이 가지 않는다', async () => {
+    const { a, key, critic, editor } = fakeConvergenceFixture();
+    const verifyPrompts: string[] = [];
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return critic;
+      if (isEditor(p)) return editor;
+      if (isVerify(p)) { verifyPrompts.push(p); return JSON.stringify({ resolved: [key], stillOpen: [], issues: [] }); }
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: '청년미래적금 2차 신청 가구원 동의 공식 확인', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1, reviseTitle: async () => ({ title: '청년미래적금 2차 신청 11월 2일 마감 확인', pass: false }) });
+    expect(r.title).toBe('청년미래적금 2차 신청 가구원 동의 공식 확인');
+    expect(verifyPrompts[0]).not.toContain('11월 2일');
+    expect(r.report.titleRevision!.pass).toBe(false);
+  });
+
+  it('⭐ 같은 지문이 resolved 와 stillOpen 양쪽에 있으면 stillOpen 이 이긴다 (보수적으로 OPEN)', async () => {
+    const { a, key, critic, editor } = fakeConvergenceFixture();
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return critic;
+      if (isEditor(p)) return editor;
+      if (isVerify(p)) return JSON.stringify({ resolved: [key], stillOpen: [{ issueKey: key, reason: '반쯤 고쳐졌다' }], issues: [] });
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: 't', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1 });
+    expect(r.report.issueLedger.find((i) => i.issueKey === key)!.status).toBe('OPEN');
+    expect(r.report.converged).toBe(false);
+  });
+
+  it('⭐ 검증 호출이 깨지면(빈 응답) PENDING_VERIFICATION 이 남아 수렴하지 못한다', async () => {
+    const { a, key, critic, editor } = fakeConvergenceFixture();
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return critic;
+      if (isEditor(p)) return editor;
+      if (isVerify(p)) return 'not json';
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: 't', mainKeyword: '청년미래적금 2차 신청', article: a, packetText, evidenceText, items, callModel, maxRevisions: 1 });
+    expect(r.report.issueLedger.find((i) => i.issueKey === key)!.status).toBe('PENDING_VERIFICATION');
+    expect(r.report.open.pending).toBe(1);
+    expect(r.report.converged).toBe(false);
+    expect(r.report.manualReviewReason).toContain('PENDING_VERIFICATION');
+  });
+
   it('⭐⭐ live 736-2 재현: 편집기가 content 에 <h3> 를 되돌려줘도 소제목이 겹치지 않는다 (두 회차 뒤 소제목이 세 번 찍혔다)', async () => {
     const a: ArticleSections = { ...article(), sections: article().sections.slice(0, 2) };
     const key = issueKeyOf('S02', 'MIXED_ENTITY', '3년 만기 자유적립식입니다');

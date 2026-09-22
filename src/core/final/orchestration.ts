@@ -3884,6 +3884,19 @@ ${quoted}
           title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
           packetText: researchPacketText, evidenceText: evidenceRender.text, items: currentEvidenceItems(),
           callModel: loopModel, onLog, modelOf, maxRevisions: 2,
+          /**
+           * v3.8.738 — 제목 수정은 루프 **안에서, 본문 편집·검증 전에** 돈다(옮긴 것 — 호출 수 그대로).
+           * 737 3회차: 루프 뒤에 제목을 고치니 검증 비평이 옛 제목을 보고 stillOpen 이라 했다.
+           * 제목 문제는 본문 편집기로 고치지 않는다 — 제목을 다시 만들고 Title Fact Gate 를 다시 지난다. PASS 가 아니면 옛 제목 유지.
+           */
+          reviseTitle: titleGateResult ? async (titleIssues: Array<{ problem: string; requiredChange: string }>) => {
+            const directive = `🚧 **비평이 제목 문제를 지적했습니다:**\n${titleIssues.map((t) => `  - ${t.problem} → ${t.requiredChange}`).join('\n')}\n본문의 실제 내용에 맞게 제목을 다시 지으세요. 값은 Research Packet 에 있는 것만.`;
+            const { ensureGroundedTitle } = require('./title-fact-gate');
+            const rerun = await ensureGroundedTitle(await makeTitleRef(directive), claimLedger(), makeTitleRef, { maxRetries: 1, onLog });
+            const pass = !!rerun.title && rerun.audit.status === 'PASS';
+            if (pass && rerun.title !== String(h1 || '')) { titleGateResult = { ...rerun, model: titleGateResult!.model, revisedByCritic: true }; titleRevisedByCritic = true; }
+            return rerun.title ? { title: rerun.title, pass } : null;
+          } : undefined,
           // 비평이 "근거가 모자란다"고 하면 상상하지 않고 검색으로 되돌아간다
           moreResearch: async (queries: string[]) => {
             const core = evidenceMod.coreEntityOf(keyword, 2);
@@ -3905,25 +3918,17 @@ ${quoted}
         });
         allSectionsObj = loop.article;
         critiqueReport = loop.report;
-        /**
-         * 제목 문제는 본문 편집기로 고치지 않는다 — 제목을 다시 만들고 Title Fact Gate 를 다시 지난다.
-         * 제목이 크게 바뀌면(핵심어가 달라지면) 소제목이 새 약속을 맡는지 다시 검사한다.
-         */
-        if (loop.report.titleIssues.length > 0 && titleGateResult) {
+        // 제목은 루프 안에서(검증 전에) 바뀌었다 — 여기서는 받아 적고, 새 약속을 본문이 맡는지만 본다
+        if (loop.title && loop.title !== String(h1 || '')) {
           const before = String(h1 || '');
-          const directive = `🚧 **비평이 제목 문제를 지적했습니다:**\n${loop.report.titleIssues.map((t: any) => `  - ${t.problem} → ${t.requiredChange}`).join('\n')}\n본문의 실제 내용에 맞게 제목을 다시 지으세요. 값은 Research Packet 에 있는 것만.`;
+          h1 = loop.title;
+          onLog?.(`[PROGRESS] 78% - ✍️ 제목 수정: "${before}" → "${h1}" (사실 관문 PASS · 검증 전 반영)`);
           try {
-            const { ensureGroundedTitle } = require('./title-fact-gate');
-            const rerun = await ensureGroundedTitle(await makeTitleRef(directive), claimLedger(), makeTitleRef, { maxRetries: 1, onLog });
-            if (rerun.title && rerun.title !== before) {
-              h1 = rerun.title; titleGateResult = { ...rerun, model: titleGateResult.model, revisedByCritic: true }; titleRevisedByCritic = true;
-              onLog?.(`[PROGRESS] 78% - ✍️ 제목 수정: "${before}" → "${h1}" (사실 관문 ${rerun.audit.status})`);
-              const { titlePromises } = require('./reader-retention');
-              const bodyText = JSON.stringify(allSectionsObj);
-              const unmet = titlePromises(h1).filter((p: string) => !evidenceMod.distinctiveTokens(p).some((w: string) => bodyText.includes(w)));
-              if (unmet.length) onLog?.(`[PROGRESS] 78% - ⚠️ 새 제목의 약속 중 본문이 아직 안 맡은 조각: ${unmet.join(' / ')}`);
-            }
-          } catch (titleErr: any) { console.warn('[CRITIQUE] 제목 수정 스킵:', String(titleErr?.message || titleErr).slice(0, 80)); }
+            const { titlePromises } = require('./reader-retention');
+            const bodyText = JSON.stringify(allSectionsObj);
+            const unmet = titlePromises(h1).filter((p: string) => !evidenceMod.distinctiveTokens(p).some((w: string) => bodyText.includes(w)));
+            if (unmet.length) onLog?.(`[PROGRESS] 78% - ⚠️ 새 제목의 약속 중 본문이 아직 안 맡은 조각: ${unmet.join(' / ')}`);
+          } catch { /* 참고 로그일 뿐 */ }
         }
         qualityLoopCalls += Math.max(0, (Number(((globalThis as any).__llmUsage || {}).calls) || 0) - loopCallsSnap);
         onLog?.(`[PROGRESS] 79% - 🔁 루프 종료: 비평 ${loop.report.criticCycles}회 · 수정 ${loop.report.revisionCycles}회 · 호출 ${loop.report.qualityLoopCalls}회 · 고친 절 ${loop.report.revisedSections}/${loop.report.totalSections} · OPEN critical ${loop.report.open.critical} · major ${loop.report.open.major} · ${loop.report.converged ? '수렴(QUALITY_CONVERGED 후보)' : `미수렴 — ${loop.report.manualReviewReason}`}`);
@@ -3931,7 +3936,7 @@ ${quoted}
         if ((loopErr as any)?.canceled === true) throw loopErr;
         console.warn('[CRITIQUE] 루프 실패 — 초안 그대로 진행:', String(loopErr?.message || loopErr).slice(0, 120));
         onLog?.(`[PROGRESS] 79% - ⚠️ 비평 루프 오류 (초안 그대로 진행, 자동 발행은 막습니다): ${String(loopErr?.message || loopErr).slice(0, 80)}`);
-        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], open: { critical: 0, major: 0, minor: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
+        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], titleRevision: null, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
       }
     }
     void titleRevisedByCritic;
@@ -4281,7 +4286,7 @@ ${quoted}
       RESEARCH_PACKET_PASS: researchPacket ? researchPacket.status !== 'EMPTY' : false,
       // v3.8.736 — 값 대조는 코드만. OPEN critical/major 0 · 편집 blocking 0. "한 번 더 고치면 나아진다" 조건은 뺐다(늘 true 라 수렴을 막았다)
       BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0,
-      SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0),
+      SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0 && (critiqueReport.open.pending || 0) === 0),
       NO_MAJOR_REDUNDANCY: !finalJudge || !finalJudge.blockingIssues.some((b: any) => b.type === 'REDUNDANCY'),
       FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
     };

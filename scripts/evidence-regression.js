@@ -193,6 +193,8 @@ function draftVsFinal(cq, logs, result) {
     openBlocking: ledgerIssues.filter((i) => (i.status === 'OPEN' || i.status === 'REGRESSED') && i.severity !== 'MINOR').map((i) => `${i.issueKey} [${i.severity}]`),
     resolved: ledgerIssues.filter((i) => i.status === 'RESOLVED').map((i) => `${i.issueKey} [${i.severity}]`),
   };
+  out.titleRevision = crit.titleRevision || null;
+  out.verificationSawCurrentTitle = (crit.verificationContexts || []).every((c) => c.currentTitle === (crit.titleRevision && crit.titleRevision.pass ? crit.titleRevision.to : c.originalTitle));
   out.criticCycles = crit.criticCycles; out.revisionCycles = crit.revisionCycles; out.researchRounds = crit.researchRounds; out.loopCallsReported = crit.qualityLoopCalls;
   out.revisedSections = `${crit.revisedSections}/${crit.totalSections}`; out.unchangedSections = `${crit.unchangedSections}/${crit.totalSections}`;
   out.revisionDetail = (crit.revisions || []).map((r) => ({ calls: r.calls, revised: r.revised, rejected: r.rejected, resolvedIssueKeys: r.resolvedIssueKeys, models: r.models }));
@@ -311,6 +313,8 @@ async function runOne(entry, env) {
   if (result && result.html) save('L-final-article.html', result.html);
   save('final-article.json', cq.finalArticle || {});
   save('issue-ledger.json', crit ? crit.issueLedger : []);
+  // v3.8.738 — 검증 비평이 받은 입력(최신 제목·절) 과 루프 안 제목 수정 기록
+  save('verification-contexts.json', { titleRevision: crit ? crit.titleRevision : null, contexts: crit ? crit.verificationContexts || [] : [] });
   save('exchanges.json', exchanges.map((e) => ({ ...e, response: e.response.slice(0, 20000) })));
   save('critique-report.json', { critique: crit, hardGates: cq.hardGates, qualityConverged: cq.qualityConverged, manualReviewReason: cq.manualReviewReason, finalQaNotes: cq.finalQaNotes, keywordProvenance: cq.keywordProvenance, publishDecision: result && result.publishDecision });
   save('writer-input.txt', writerInput);

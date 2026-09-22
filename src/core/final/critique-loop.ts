@@ -33,7 +33,11 @@ export interface ArticleSections {
 
 export type Severity = 'CRITICAL' | 'MAJOR' | 'MINOR';
 export type Operation = 'ADD' | 'REMOVE' | 'REPLACE' | 'REORDER';
-export type IssueStatus = 'OPEN' | 'RESOLVED' | 'REGRESSED';
+/**
+ * v3.8.738 — PENDING_VERIFICATION: 편집기가 고쳤다고 신고했지만 검증이 아직 확인하지 않은 상태.
+ * 편집기는 수정자이지 심판이 아니다 — 편집기 자가 신고만으로 RESOLVED 가 되지 못한다(live 737 3회차: 검증이 stillOpen 이라 했는데 RESOLVED 됐다).
+ */
+export type IssueStatus = 'OPEN' | 'PENDING_VERIFICATION' | 'RESOLVED' | 'REGRESSED';
 
 export interface Issue {
   issueKey: string;
@@ -85,9 +89,18 @@ export interface RevisionOutcome {
   revised: string[];
   rejected: Array<{ sectionId: string; reason: string }>;
   skipped: string[];
+  /** 편집기가 "고쳤다"고 신고한 지적 — **시도의 기록일 뿐**, 해결 여부는 검증이 정한다 */
   resolvedIssueKeys: string[];
   calls: number;
   models: string[];
+}
+
+/** 검증 비평 직전의 입력 — 최신 제목·최신 절을 봤는지 하네스가 확인한다 */
+export interface VerificationContext {
+  cycle: number;
+  originalTitle: string;
+  currentTitle: string;
+  issues: Array<{ issueKey: string; sectionId: string; originalSection: string; currentSection: string }>;
 }
 
 export interface JudgeBlocker { sectionId: string; exactSpan: string; type: string; reason: string }
@@ -108,6 +121,11 @@ export interface LoopInput {
   modelOf?: () => string;
   /** 수정 상한 — 기본 2 */
   maxRevisions?: number;
+  /**
+   * v3.8.738 — 제목 수정은 **검증 비평 전에** 끝난다(Critic → 제목 수정 → Title Fact Gate → 본문 편집 → 검증).
+   * 호출자가 제목을 다시 짓고 Title Fact Gate 를 지난 결과를 돌려준다. pass 가 아니면 옛 제목을 유지한다.
+   */
+  reviseTitle?: (titleIssues: Array<{ problem: string; requiredChange: string }>) => Promise<{ title: string; pass: boolean } | null>;
 }
 
 export interface LoopReport {
@@ -116,13 +134,17 @@ export interface LoopReport {
   qualityLoopCalls: number;
   critic1: CriticResult | null;
   verifications: CriticResult[];
+  /** 검증 비평이 받은 입력(최신 제목·절) — 옛 제목으로 판정하는 일이 없는지 하네스가 본다 */
+  verificationContexts: VerificationContext[];
   editorial: CriticResult | null;
   revisions: RevisionOutcome[];
   issueLedger: Issue[];
   titleIssues: Array<{ problem: string; requiredChange: string }>;
+  /** 루프 안에서 제목이 바뀌었으면 그 기록 */
+  titleRevision: { from: string; to: string; pass: boolean } | null;
   researchRounds: number;
   converged: boolean;
-  open: { critical: number; major: number; minor: number };
+  open: { critical: number; major: number; minor: number; pending: number };
   unchangedSections: number;
   revisedSections: number;
   totalSections: number;
@@ -319,9 +341,10 @@ async function runVerification(input: LoopInput, units: Unit[], open: Issue[], r
   const revisedUnits = units.filter((u) => revisedIds.has(u.id));
   const result = await callCritic(input, units, VERIFY_RULES, `===== OPEN 지적 =====\n${list}`, 'verify', false, revisedIds, revisedUnits.length ? revisedUnits : units);
   const parsed = readJson(result.raw || '') || {};
-  const resolved = new Set<string>((Array.isArray(parsed.resolved) ? parsed.resolved : []).map(String));
   const stillOpen = new Map<string, string>();
   for (const s of Array.isArray(parsed.stillOpen) ? parsed.stillOpen : []) stillOpen.set(String(s?.issueKey || ''), String(s?.reason || '').slice(0, 160));
+  // 같은 지문이 resolved 와 stillOpen 양쪽에 있으면 stillOpen 이 이긴다 — 보수적으로 OPEN
+  const resolved = new Set<string>((Array.isArray(parsed.resolved) ? parsed.resolved : []).map(String).filter((k: string) => !stillOpen.has(k)));
   return { result, resolved, stillOpen };
 }
 
@@ -483,22 +506,26 @@ export async function runFinalJudge(input: {
 
 // ─── 루프 ─────────────────────────────────────────────────────
 
-export async function runCritiqueLoop(input: LoopInput): Promise<{ article: ArticleSections; report: LoopReport }> {
+export async function runCritiqueLoop(input: LoopInput): Promise<{ article: ArticleSections; title: string; report: LoopReport }> {
   const maxRevisions = input.maxRevisions ?? 2;
   let article: ArticleSections = JSON.parse(JSON.stringify(input.article));
+  let title = input.title;
   let packetText = input.packetText; let evidenceText = input.evidenceText; let items = input.items;
   const report: LoopReport = {
-    criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], editorial: null, revisions: [], issueLedger: [],
-    titleIssues: [], researchRounds: 0, converged: false, open: { critical: 0, major: 0, minor: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0,
+    criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [],
+    titleIssues: [], titleRevision: null, researchRounds: 0, converged: false, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0,
     models: { critic1: '', revision: [], verify: [], editorial: '' }, manualReviewReason: '',
   };
   const ledgerIssues = new Map<string, Issue>();
   const revisedIds = new Set<string>();
   const log = (m: string) => input.onLog?.(m);
-  const ctx = (): LoopInput => ({ ...input, article, packetText, evidenceText, items });
+  const ctx = (): LoopInput => ({ ...input, title, article, packetText, evidenceText, items });
   const upsert = (issues: Issue[]) => { for (const i of issues) { const prev = ledgerIssues.get(i.issueKey); if (prev && prev.status === 'RESOLVED') { ledgerIssues.set(i.issueKey, { ...i, status: 'REGRESSED' }); } else if (!prev) ledgerIssues.set(i.issueKey, i); } };
   const openIssues = () => [...ledgerIssues.values()].filter((i) => i.status === 'OPEN' || i.status === 'REGRESSED');
   const openBlocking = () => openIssues().filter((i) => i.severity !== 'MINOR');
+  const pendingIssues = () => [...ledgerIssues.values()].filter((i) => i.status === 'PENDING_VERIFICATION');
+  const originalUnits = sectionize(article);
+  const sectionText = (units: Unit[], id: string) => stripHtml(units.find((u) => u.id === id)?.text || '');
   /** 코드 지적은 코드가 다시 재서 풀렸는지 정한다 — 모델의 "풀렸다"는 참고일 뿐 */
   const settleCodeIssues = (units: Unit[]) => {
     const ledger = ledgerOf(items, packetText);
@@ -525,6 +552,22 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
   report.titleIssues.push(...critic1.titleIssues);
   log(`🩺 Critic 1: 코드 관문 ${[...ledgerIssues.values()].filter((i) => i.origin === 'code').length} · 모델 지적 ${critic1.issues.length}(버림 ${critic1.rejectedIssues.length}) → OPEN critical ${openBlocking().filter((i) => i.severity === 'CRITICAL').length} · major ${openBlocking().filter((i) => i.severity === 'MAJOR').length}`);
 
+  /**
+   * ①-b 제목 수정 — **본문 편집·검증보다 먼저.** (v3.8.738)
+   * live 737 3회차: 제목 수정이 루프 뒤에 돌아 검증 비평이 옛 제목("공식 확인")을 보고 stillOpen 이라 했다.
+   * 호출자가 제목을 다시 짓고 Title Fact Gate 를 지난다(기존 호출을 옮긴 것 — 호출 수 그대로). PASS 가 아니면 옛 제목 유지.
+   */
+  if (critic1.titleIssues.length > 0 && input.reviseTitle) {
+    try {
+      const rt = await input.reviseTitle(critic1.titleIssues);
+      if (rt && rt.title && rt.title !== title) {
+        report.titleRevision = { from: title, to: rt.title, pass: rt.pass };
+        if (rt.pass) { log(`✍️ 제목 수정(검증 전): "${title}" → "${rt.title}" (사실 관문 PASS)`); title = rt.title; }
+        else log(`✍️ 제목 수정안이 사실 관문을 못 지나 옛 제목을 유지합니다: "${rt.title}"`);
+      }
+    } catch (err: any) { if ((err as any)?.canceled) throw err; log(`✍️ 제목 수정 실패 — 옛 제목 유지: ${String(err?.message || err).slice(0, 80)}`); }
+  }
+
   // ② 수정 → 검증 (최대 maxRevisions)
   while (openBlocking().length > 0 && report.revisionCycles < maxRevisions) {
     report.revisionCycles += 1;
@@ -538,14 +581,23 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
     /**
      * 검증은 **이번에 실제로 바뀐 절의 지적**만 묻는다. live 736-1: S05 수정이 관문에서 되돌려졌는데 검증 비평이 S00 만 보고도
      * S05 지적을 "풀렸다"고 답해 루프가 수렴이라 했다(가짜 수렴). 바뀌지 않은 절의 지적은 풀릴 수 없다 — OPEN 으로 남겨 다음 회차가 다시 고친다.
+     *
+     * v3.8.738 — 편집기 자가 신고(resolvedIssueKeys)는 **시도의 기록**일 뿐이다. 고친 절의 모델 지적은 PENDING_VERIFICATION 이 되고,
+     * 검증 비평의 resolved 만 RESOLVED 로, stillOpen(또는 언급 없음)은 OPEN 으로 되돌린다. 검증이 안 돌면 PENDING 이 남아 수렴하지 못한다.
      */
-    const stillOpenModel = openIssues().filter((i) => i.origin !== 'code' && outcome.revised.includes(i.sectionId));
-    if (stillOpenModel.length) {
-      const v = await runVerification(ctx(), units, stillOpenModel, revisedIds);
+    const pendingModel = openIssues().filter((i) => i.origin !== 'code' && outcome.revised.includes(i.sectionId));
+    for (const i of pendingModel) i.status = 'PENDING_VERIFICATION';
+    if (pendingModel.length) {
+      report.verificationContexts.push({
+        cycle: report.revisionCycles, originalTitle: input.title, currentTitle: title,
+        issues: pendingModel.map((i) => ({ issueKey: i.issueKey, sectionId: i.sectionId, originalSection: sectionText(originalUnits, i.sectionId), currentSection: sectionText(units, i.sectionId) })),
+      });
+      const v = await runVerification(ctx(), units, pendingModel, revisedIds);
       report.qualityLoopCalls += 1; report.criticCycles += 1; report.verifications.push(v.result); if (v.result.model) report.models.verify.push(v.result.model);
-      for (const i of stillOpenModel) if (v.resolved.has(i.issueKey) || outcome.resolvedIssueKeys.includes(i.issueKey)) i.status = 'RESOLVED';
+      const verified = !!readJson(v.result.raw || '');   // 호출 실패·깨진 JSON 이면 판정 없음 → PENDING 그대로(수렴 불가)
+      if (verified) for (const i of pendingModel) i.status = v.resolved.has(i.issueKey) ? 'RESOLVED' : 'OPEN';
       upsert(v.result.issues);
-      log(`🔍 검증 비평: 풀림 ${[...v.resolved].length} · 남음 ${v.stillOpen.size} · 수정이 만든 새 CRITICAL ${v.result.issues.filter((i) => i.severity === 'CRITICAL').length}`);
+      log(`🔍 검증 비평: 풀림 ${[...v.resolved].length} · 남음 ${pendingModel.filter((i) => i.status === 'OPEN').length} · 수정이 만든 새 CRITICAL ${v.result.issues.filter((i) => i.severity === 'CRITICAL').length}`);
     }
     // 수정한 절의 코드 지적이 새로 생겼을 수 있다(REGRESSED 포함)
     upsert(codeGate(units, ledgerOf(items, packetText)));
@@ -569,7 +621,15 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
       log(`✏️ 편집 수정 (호출 ${outcome.calls}): 고친 절 ${outcome.revised.join(', ') || '없음'}${outcome.rejected.length ? ` · 되돌림 ${outcome.rejected.map((r) => r.sectionId).join(', ')}` : ''}`);
       if (outcome.revised.length) {
         article = next; units = sectionize(article);
-        for (const i of edBlocking) if (outcome.revised.includes(i.sectionId)) i.status = 'RESOLVED';
+        /**
+         * v3.8.738 — 절이 바뀌었다는 것만으로 풀린 게 아니다. 편집 지적은 검증 호출을 따로 두지 않으므로(호출 수 유지) 코드가 잰다:
+         * 지적한 구절이 그 절에서 사라졌으면 RESOLVED, 그대로면 PENDING_VERIFICATION(수렴 불가 → MANUAL_REVIEW).
+         */
+        for (const i of edBlocking) {
+          if (!outcome.revised.includes(i.sectionId)) continue;
+          const stillThere = i.exactSpan.length >= 6 && flat(sectionText(units, i.sectionId)).includes(flat(i.exactSpan));
+          i.status = stillThere ? 'PENDING_VERIFICATION' : 'RESOLVED';
+        }
         settleCodeIssues(units);
         upsert(codeGate(units, ledgerOf(items, packetText)));
       }
@@ -582,10 +642,13 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
     critical: openBlocking().filter((i) => i.severity === 'CRITICAL').length,
     major: openBlocking().filter((i) => i.severity === 'MAJOR').length,
     minor: openIssues().filter((i) => i.severity === 'MINOR').length,
+    pending: pendingIssues().filter((i) => i.severity !== 'MINOR').length,
   };
   report.revisedSections = revisedIds.size;
   report.unchangedSections = Math.max(0, report.totalSections - revisedIds.size);
-  report.converged = report.open.critical === 0 && report.open.major === 0;
+  // 검증이 확인하지 않은 blocking 지적(PENDING_VERIFICATION)이 하나라도 있으면 수렴이 아니다
+  report.converged = report.open.critical === 0 && report.open.major === 0 && report.open.pending === 0;
   if (report.converged) report.manualReviewReason = '';
-  return { article, report };
+  else if (!report.manualReviewReason && report.open.pending > 0) report.manualReviewReason = `검증되지 않은 수정 ${report.open.pending}건 (PENDING_VERIFICATION)`;
+  return { article, title, report };
 }
