@@ -53,6 +53,8 @@ export interface Issue {
   status: IssueStatus;
   /** 검증 비평이 "수정 때문에 새로 생겼다"고 한 것만 true */
   causedByRevision?: boolean;
+  /** exactSpan 이 본문 구절이 아니라 소제목(보탤 위치)일 때 — MISSING_INFORMATION 만 */
+  anchor?: 'heading';
 }
 
 /** 팩트 종류 — evidenceIds 가 없으면 blocking 으로 인정하지 않는다 */
@@ -260,7 +262,18 @@ function acceptIssue(x: any, units: Unit[], itemIds: Set<string>, ledger: Ledger
   const evidenceIds = [...new Set((Array.isArray(x?.evidenceIds) ? x.evidenceIds : []).map(String))].filter((id) => itemIds.has(id as string)) as string[];
   if (problem.length < 10) return { reject: '문제 설명이 구체적이지 않음' };
 
-  const spanFound = exactSpan.length >= 6 && flat(stripHtml(unit.text)).includes(flat(exactSpan));
+  let spanFound = exactSpan.length >= 6 && flat(stripHtml(unit.text)).includes(flat(exactSpan));
+  /**
+   * 748-quality-prep — MISSING_INFORMATION(ADD) 만 **소제목을 insertionAnchor 로** 인정한다.
+   * 누락을 지적할 때는 틀린 구절이 없어 Critic 이 H2/H3 제목을 대는데(738 금융·746 연예 실측) 옛 규칙은 그걸 MINOR 로 내렸다.
+   * 소제목은 "틀린 구절" 이 아니라 "여기에 보태라" 는 위치 표시다. 다른 종류(CONTRADICTION·UNSUPPORTED_VALUE·MIXED_ENTITY·REDUNDANCY…)는 그대로.
+   */
+  let anchor: 'heading' | undefined;
+  if (type === 'MISSING_INFORMATION' && exactSpan.length >= 2) {
+    const headings = [unit.h2, ...unit.h3Sections.map((h) => String(h?.h3 || ''))].map((h) => flat(String(h || '').replace(/^\s*\d+[.)]\s*/, ''))).filter((h) => h.length >= 2);
+    const want = flat(exactSpan.replace(/^#+\s*/, '').replace(/^\s*\d+[.)]\s*/, ''));
+    if (want.length >= 2 && headings.some((h) => h === want || h.includes(want) || want.includes(h))) { spanFound = true; anchor = 'heading'; }
+  }
   if (severity !== 'MINOR') {
     if (!spanFound && type !== 'SEARCH_INTENT_MISSING' && type !== 'TITLE_PROMISE_UNMET' && type !== 'ANSWER_NEVER_GIVEN') severity = 'MINOR';   // 구절이 없으면 blocking 아님
     if (FACT_TYPES.has(type) && evidenceIds.length === 0) severity = 'MINOR';                                                                   // 팩트 지적은 근거 id 가 있어야
@@ -285,6 +298,7 @@ function acceptIssue(x: any, units: Unit[], itemIds: Set<string>, ledger: Ledger
       issueKey: issueKeyOf(sectionId, type, exactSpan || problem), severity, sectionId, exactSpan: exactSpan.slice(0, 200), type,
       problem: problem.slice(0, 300), evidenceIds, requiredChange: String(x?.requiredChange || '').trim().slice(0, 300),
       allowedOperations: opsFor(type), origin, status: 'OPEN', ...(x?.causedByRevision === true ? { causedByRevision: true } : {}),
+      ...(anchor ? { anchor } : {}),
     },
   };
 }
@@ -308,6 +322,7 @@ C. PACKET — Research Packet 에 있는 중요한 정보가 본문에 빠졌거
 - MAJOR: 제목의 핵심 질문에 답이 없음 · 검색 의도의 중요한 질문이 통째로 빠짐 · 패킷 핵심 사실 누락 · 같은 내용의 큰 반복(REDUNDANCY) · 핵심 답이 너무 뒤(ANSWER_TOO_LATE) · 절끼리 논리 충돌(SECTION_CONFLICT).
 - MINOR: 그 밖의 참고.
 CRITICAL/MAJOR 는 sectionId 와 **본문에 실제로 있는 구절(exactSpan, 원문 그대로 6자 이상)** 이 있어야 합니다. 없으면 MINOR 로 적으세요.
+단 MISSING_INFORMATION(빠진 정보를 보태라)은 틀린 구절이 없으므로 exactSpan 에 **그 정보를 보탤 소제목(h2 또는 h3 제목 그대로)** 을 적습니다.
 근거가 모자라 판단할 수 없으면 status NEEDS_MORE_RESEARCH 와 researchQueries(메인 키워드 포함).
 
 출력(JSON 객체 하나만):
@@ -438,7 +453,7 @@ export async function reviseSections(input: LoopInput, units: Unit[], open: Issu
     const u = units.find((x) => x.id === id)!;
     const mine = open.filter((i) => i.sectionId === id && i.status === 'OPEN');
     const ev = input.items.filter((it) => mine.some((m) => m.evidenceIds.includes(it.id))).map((it) => `[${it.id}] ${it.title}\n${it.cleanedText.slice(0, 1200)}`).join('\n\n');
-    const issuesText = mine.map((i) => `- ${i.issueKey} [${i.severity}] ${i.type} · 허용: ${i.allowedOperations.join('/')}\n  구절: "${i.exactSpan}"\n  문제: ${i.problem}\n  고칠 것: ${i.requiredChange}`).join('\n');
+    const issuesText = mine.map((i) => `- ${i.issueKey} [${i.severity}] ${i.type} · 허용: ${i.allowedOperations.join('/')}\n  ${i.anchor === 'heading' ? `보탤 위치(소제목): "${i.exactSpan}" — 이 소제목 아래 기존 문장은 그대로 두고, 누락된 내용을 문단 하나(관련 근거의 값 그대로)로 보탭니다` : `구절: "${i.exactSpan}"`}\n  문제: ${i.problem}\n  고칠 것: ${i.requiredChange}`).join('\n');
     const body = u.kind === 'section' ? u.h3Sections.map((h, i) => `[index ${i}] <h3>${h.h3}</h3>\n${h.content}`).join('\n\n') : u.text;
     return `===== [${u.id}] ${u.h2} =====\n--- 지적 ---\n${issuesText}\n${ev ? `--- 관련 근거 ---\n${ev}\n` : ''}--- 원문 ---\n${body}`;
   });

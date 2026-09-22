@@ -3197,6 +3197,21 @@ ${quoted}
     const overallScope = detectKeywordScope(keyword);
     let scopedSectionBlock = modeResult.sectionPromptBlock || '';
     /**
+     * 🎯 748-quality-prep — 핵심 값 → 쓸 절 (core-values.ts 머리말). 호출 0.
+     * 정보밀도 감사: 패킷에 있던 12,800 객실·3~6개월 전(여행), 9/17 14:00·15,000원(연예), 972만·2,320만원(자동차)을 Writer 가 버렸다.
+     * 검색 의도와 겹치는 값만 골라 한 절에 하나씩 배정한다 — 잡음은 빠지고, 같은 값의 3~5절 반복도 막힌다.
+     */
+    let coreValues: any[] = [];
+    try {
+      const cv = require('./core-values');
+      coreValues = cv.selectCoreValues(researchPacket, { keyword, title: String(h1 || ''), h2Titles, questions: demandSignals?.userQuestions || [] });
+      const coreBlock = cv.renderCoreBlock(coreValues, h2Titles);
+      if (coreBlock) {
+        scopedSectionBlock = `${scopedSectionBlock}\n${coreBlock}\n`;
+        onLog?.(`[PROGRESS] 45% - 🎯 핵심 값 ${coreValues.length}개를 절에 배정했습니다 (${coreValues.slice(0, 4).map((c: any) => c.value).join(' · ')}${coreValues.length > 4 ? ' …' : ''})`);
+      }
+    } catch (cvErr: any) { console.warn('[CORE-VALUES] 스킵:', String(cvErr?.message || cvErr).slice(0, 80)); }
+    /**
      * v3.8.660 — 제목을 절 프롬프트에 박는다.
      * 사장님: "제목의 공감을 본문이 끝까지 이어받아야 해". 절 생성 호출은 제목을 모른 채 키워드와
      * 소제목만 받았다 — 그래서 절마다 처음부터 설명을 시작했고 제목이 약속한 독자의 상황이 끊겼다.
@@ -4316,7 +4331,7 @@ ${quoted}
     onLog?.(qualityConverged
       ? (qualityLoopOn ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 77% - ✅ 품질 관문 통과 (품질 루프 OFF · 비평·수정 없음)`)
       : (qualityLoopOn ? `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 77% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason}`));
-    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, coreValues, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     // 8. HTML 조립
     onLog?.('[PROGRESS] 75% - 🎨 백서(White Paper) 구조 조립 중...');

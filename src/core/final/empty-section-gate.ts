@@ -159,10 +159,37 @@ export interface RepairDeps {
  * 빈 절을 찾아 핵심 절은 수리하고 선택 절은 지운다. 새 글 객체를 돌려준다(원본 불변).
  * 호출 수 = 수리가 필요한 핵심 절 수(빈 절이 없으면 0).
  */
+const INTRO_RULES = `당신은 빈 도입부 하나만 채우는 작성자입니다. 이 글의 도입부(introduction)가 비어 있습니다. **도입부만** 씁니다.
+- 첫 문장에 제목이 약속한 답(현재 상태·핵심 조건·기간)을 둡니다. 값은 Research Packet·근거에 글자로 있는 것만.
+- 300~500자, <p> 문단 2~3개. 독자의 상황을 받아 질문 하나로 끝내도 좋습니다. 근거에 없는 값은 만들지 않습니다.
+출력(JSON 객체 하나만): {"introduction":"<p>…</p><p>…</p>"}`;
+
+/**
+ * 빈 절을 찾아 핵심 절은 수리하고 선택 절은 지운다. 새 글 객체를 돌려준다(원본 불변).
+ * 호출 수 = 수리가 필요한 핵심 절 수(빈 절이 없으면 0).
+ * 748-quality-prep — **도입부가 비어 있어도** 수리한다. live 744(주담대): 초안 introduction 이 "" 인 채로 Critic 이 빈 S00 을 봤다(독자용 도입은 답변 블록이 대신했다).
+ */
 export async function repairEmptySections(article: any, deps: RepairDeps): Promise<{ article: any; result: EmptySectionResult }> {
   const findings = findEmptySections(article, deps.title, deps.intentQuestions || []);
   const result: EmptySectionResult = { findings, repaired: [], removed: [], unresolved: [], calls: 0 };
-  if (findings.length === 0) return { article, result };
+  // 도입부는 한 문장짜리도 있다 — 절 본문(30자) 보다 낮은 문턱. 정말 빈 것("", 태그만, 자리표시자)만 잡는다
+  const introText = bodyText(String(article?.introduction || ''));
+  const introEmpty = introText.replace(/\s/g, '').length < 12 || PLACEHOLDER_RE.test(introText);
+  if (findings.length === 0 && !introEmpty) return { article, result };
+
+  let introduction = String(article?.introduction || '');
+  if (introEmpty) {
+    deps.onLog?.('🕳️ 도입부가 비어 있습니다 → 도입부만 다시 채웁니다');
+    const prompt = [INTRO_RULES, '', `제목: ${deps.title}`, `메인 키워드: ${deps.mainKeyword}`, '', deps.packetText.slice(0, 4500), '', `===== FACT EVIDENCE(요약) =====\n${deps.evidenceText.slice(0, 5000)}`, '', `===== 첫 절 시작(문맥) =====\n${bodyText(((article?.sections || [])[0]?.h3Sections || []).map((h: any) => h.content).join(' ')).slice(0, 300)}`].join('\n');
+    try {
+      const parsed = readJson(await deps.callModel(prompt, { json: true })); result.calls += 1;
+      const content = String(parsed?.introduction || '').replace(/<h[1-3]\b[^>]*>[\s\S]*?<\/h[1-3]>\s*/gi, '').trim();
+      const why = verifyRepair(content, deps.ledger, '', deps.title);
+      if (why) { result.unresolved.push({ sectionIndex: -1, h2: '(도입)', reason: why }); deps.onLog?.(`🕳️ 도입부 수리 실패 — 자동 발행하지 않습니다: ${why}`); }
+      else { introduction = content; result.repaired.push({ sectionIndex: -1, h2: '(도입)', chars: bodyText(content).length }); deps.onLog?.(`🕳️ 도입부 수리 완료 (${bodyText(content).length}자 · 값 대조 통과)`); }
+    } catch (err: any) { if ((err as any)?.canceled) throw err; result.unresolved.push({ sectionIndex: -1, h2: '(도입)', reason: `수리 호출 실패: ${String(err?.message || err).slice(0, 80)}` }); }
+  }
+  if (findings.length === 0) return { article: { ...article, introduction }, result };
 
   const sections: any[] = (article.sections || []).map((s: any) => ({ ...s, h3Sections: (s.h3Sections || []).map((h: any) => ({ ...h })) }));
   const removeIdx = new Set<number>();
@@ -204,5 +231,5 @@ export async function repairEmptySections(article: any, deps: RepairDeps): Promi
     }
   }
   const kept = sections.filter((_, i) => !removeIdx.has(i));
-  return { article: { ...article, sections: kept.length ? kept : sections }, result };
+  return { article: { ...article, introduction, sections: kept.length ? kept : sections }, result };
 }
