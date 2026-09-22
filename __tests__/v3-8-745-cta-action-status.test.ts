@@ -69,8 +69,10 @@ describe('③ 배선 — 세 템플릿이 전부 상태를 거치고, 상태는 
   });
   it('ctaActionStatus 는 inferActionStatus(근거 본문) 로만 · orchestration 이 패킷+근거 본문을 넘긴다', () => {
     expect(gen).toMatch(/const ctaActionStatus: CtaActionStatus = inferActionStatus\(evidenceText \|\| ''\)/);
-    expect(orch).toMatch(/generateCTAsFinal\([\s\S]*?`\$\{researchPacketText\}\\n\$\{evidenceRender\.text\}`\)/);
-    expect((gen.match(/upgradeHomeCtas\(safeCTAs, keyword, .*allowedHosts, ctaActionStatus\);/g) || []).length).toBe(2);
+    // v3.8.748 — 뒤에 matchContext 인자가 붙었다. 패킷+근거 본문을 넘긴다는 뜻은 그대로다
+    expect(orch).toMatch(/generateCTAsFinal\([\s\S]*?`\$\{researchPacketText\}\\n\$\{evidenceRender\.text\}`[,)]/);
+    // v3.8.748 — 뒤에 matchContext 가 붙었다. ctaActionStatus 가 두 호출 모두에 실리는 것이 이 검사의 뜻이다
+    expect((gen.match(/upgradeHomeCtas\(safeCTAs, keyword, .*allowedHosts, ctaActionStatus(, matchContext)?\);/g) || []).length).toBe(2);
   });
   it('라우터가 쓴 훅도 AVAILABLE 이 아니면 단정 표현을 못 쓴다', () => {
     expect(gen).toMatch(/const routerHook = smart\?\.hookMessage && \(ctaActionStatus === 'AVAILABLE' \|\| !ASSERTIVE_AVAILABILITY_RE\.test/);

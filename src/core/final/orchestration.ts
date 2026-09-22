@@ -4231,7 +4231,24 @@ ${quoted}
       // v3.8.740 — 근거 URL 을 넘겨 CTA 후보가 근거·공식 출처와 다른 집이면 버리게 한다(biff.kr → biky.or.kr 오배송)
       ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl, evidenceItems.map((i: any) => String(i?.url || '')).filter(Boolean),
         // v3.8.745 — 지금 신청·예매 가능한지는 근거·패킷 본문으로만 정한다(매진·마감이면 "바로 할 수 있다" 금지)
-        `${researchPacketText}\n${evidenceRender.text}`);
+        `${researchPacketText}\n${evidenceRender.text}`,
+        /**
+         * v3.8.748 — CTA 적합성 관문 재료. 주소만으로는 "박물관 전시 페이지" 인지 알 수 없다 —
+         * 근거 장부에 있는 그 문서의 제목·본문을 넘겨 준다(live Run 3: gyeongju.museum.go.kr 이 "예약 안내" 로 나갔다).
+         */
+        {
+          title: String(h1 || ''),
+          lookup: (url: string) => {
+            const apex = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+            const want = apex(url);
+            if (!want) return undefined;
+            const hit = evidenceItems.find((i: any) => String(i?.url || '') === url)
+              || evidenceItems.find((i: any) => apex(String(i?.url || '')) === want);
+            if (!hit) return undefined;
+            return { title: String(hit.title || ''), text: String(hit.cleanedText || '').slice(0, 600) };
+          },
+          onLog: (m: string) => onLog?.(`[PROGRESS] 70% - ${m}`),
+        });
     }
 
     // CTA 배치

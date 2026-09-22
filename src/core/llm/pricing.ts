@@ -259,10 +259,12 @@ export const TIER_MODELS: readonly TierModel[] = [
     title: 'Claude Opus 5',
     tier: '프리미엄',
     description: 'Claude Opus 5 · 상급 추론 · 페이블 한도 찼을 때',
-    costKrw: 315,
+    costKrw: 191,   // 단가에서 계산된 값 (deriveCostKrw) — 선언값과 계산값이 어긋나면 pricing-unification 테스트가 잡는다
     provider: 'claude',
     modelId: 'claude-opus-5',
     fallback: ['claude-opus-5', 'claude-sonnet-5'],
+    // 사장님 확인(2026-09-23, Anthropic 공식 표준 API 단가) — 선언값 대신 토큰 기준으로 계산된다
+    usdPer1M: { input: 5, output: 25, source: 'Anthropic 표준 API 단가 (입력 $5 / 출력 $25 per 1M) · 2026-09-23 확인' },
     // 화면 가격표에는 아직 안 넣는다 — UI 작업은 748 제품 통합에서 한다. 지금은 라우팅(env·하네스)만
     hiddenFromUi: true,
   },

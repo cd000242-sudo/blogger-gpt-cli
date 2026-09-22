@@ -3437,7 +3437,39 @@ export function allowedHostsFrom(urls: Array<string | undefined | null>): Set<st
   return out;
 }
 
-export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[], allowedHosts?: ReadonlySet<string>, actionStatus: CtaActionStatus = 'UNKNOWN'): Promise<FinalCTAData[]> {
+/**
+ * 🎯 v3.8.748 — CTA 적합성 마지막 관문. **근거에 있는 주소·공식 도메인은 자격이 아니다.**
+ * live Run 3: 경주 숙소 예약 글의 CTA 가 국립경주박물관 전시 페이지를 "예약 안내 확인" 으로 걸었다(근거 장부에 있던 주소라 기존 검사는 통과).
+ * 맞는 목적지가 없으면 **링크를 뺀다** — 잘못된 링크보다 없는 편이 낫다(사장님 지시).
+ * 목적지를 설명할 재료(근거 장부의 제목·본문)가 없으면 막지 않는다 — 모르는 것으로 기능을 죽이지 않는다.
+ */
+function applyCtaMatchGate(list: FinalCTAData[], keyword: string, ctx?: CtaMatchContext): FinalCTAData[] {
+  if (!ctx || typeof ctx.lookup !== 'function') return list;
+  const { checkCtaMatch } = require('../../cta/cta-match');
+  const out: FinalCTAData[] = [];
+  for (const cta of list) {
+    const info = ctx.lookup(String(cta.url || ''));
+    const verdict = checkCtaMatch({
+      keyword,
+      ...(ctx.title ? { title: ctx.title } : {}),
+      action: `${cta.buttonText || cta.text || ''} ${cta.hookingMessage || cta.hook || ''}`,
+      destination: { url: String(cta.url || ''), ...(info || {}) },
+    });
+    if (verdict.ok) { out.push(cta); continue; }
+    console.warn(`[CTA] 🚫 ${verdict.failed} — 링크를 뺍니다: ${cta.url} · ${verdict.reason}`);
+    ctx.onLog?.(`🚫 CTA 링크 제외(${verdict.failed}): ${verdict.reason}`);
+  }
+  return out;
+}
+
+export interface CtaMatchContext {
+  title?: string;
+  /** 주소 → 근거 장부의 제목·본문·등급. 모르면 undefined */
+  lookup?: (url: string) => { title?: string; text?: string; tier?: 'CORE' | 'SUPPORTING' | 'CONTEXT_ONLY' | 'NONE' } | undefined;
+  onLog?: (m: string) => void;
+}
+
+export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[], allowedHosts?: ReadonlySet<string>, actionStatus: CtaActionStatus = 'UNKNOWN', matchContext?: CtaMatchContext): Promise<FinalCTAData[]> {
   /**
    * v3.8.616: **키워드가 먼저다.**
    *
@@ -3541,7 +3573,8 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
     console.log(`[CTA] 🔁 홈 → 행동 화면 교체(${doing} · ${actionStatus}): ${cta.url} → ${better}`);
     out.push({ ...cta, url: better, buttonText, text: buttonText, hookingMessage: copy.hookingMessage, hook: copy.hookingMessage, actionStatus });
   }
-  return out;
+  // v3.8.748 — 마지막으로 "이 글·이 행동에 맞는 목적지인가" 를 본다. 안 맞으면 링크를 뺀다
+  return applyCtaMatchGate(out, keyword, matchContext);
 }
 
 export async function generateCTAsFinal(
@@ -3571,6 +3604,8 @@ export async function generateCTAsFinal(
   evidenceUrls?: string[],
   /** v3.8.745 — 근거·Research Packet 본문. 지금 신청·예매가 가능한지(매진·마감인지)는 **이것으로만** 정한다. 없으면 UNKNOWN(안내형 문구) */
   evidenceText?: string,
+  /** v3.8.748 — CTA 적합성 관문 재료: 글 제목 + 주소별 근거 장부 정보(제목·본문·등급) */
+  matchContext?: CtaMatchContext,
 ): Promise<FinalCTAData[]> {
   const allowedHosts = evidenceUrls ? allowedHostsFrom([...evidenceUrls, ...(officialSources || []).map((s) => s?.url)]) : undefined;
   const ctaActionStatus: CtaActionStatus = inferActionStatus(evidenceText || '');
@@ -4450,7 +4485,7 @@ JSON만 출력:
       });
       console.log(`[CTA] 🎯 행동 화면으로 연결(${doing}): ${actionUrl}`);
       onLog?.(`[PROGRESS] 70% - 🎯 CTA: ${actionHit!.label} ${doing} 화면`);
-      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies, allowedHosts, ctaActionStatus);
+      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies, allowedHosts, ctaActionStatus, matchContext);
     }
 
     const found = findFallbackSite([keyword, routerSite, ...ctaArticleAgencies]);
@@ -4650,7 +4685,7 @@ JSON만 출력:
    * v3.8.616: 마지막 관문 — 홈 주소면 행동 화면으로 갈아끼운다.
    * 라우터는 이미 물어봤으면 캐시에서 즉시 돌아온다(ensureSmartTarget 이 한 번만 부른다).
    */
-  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies, allowedHosts, ctaActionStatus);
+  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies, allowedHosts, ctaActionStatus, matchContext);
 }
 
 /**
