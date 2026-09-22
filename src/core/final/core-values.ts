@@ -47,42 +47,98 @@ const overlap = (contextFlat: string, tokens: Iterable<string>): number => { let
 const yearsIn = (s: string): number[] => (String(s || '').match(/(20\d{2})\s*년?/g) || []).map((y) => Number(y.slice(0, 4)));
 const PAST_ROUND = /(최초|1차|지난|앞서|직전)\s*(?:모집|접수|공고|회차|시즌|행사)/;
 const CITIES = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '수원', '성남', '고양', '용인', '창원', '청주', '전주', '천안', '포항', '경주', '과천', '양산', '김해', '구미', '제주', '강릉', '춘천', '여수', '순천', '군산', '목포', '안동'];
+/** 748-fix-2: 동네 이름은 도시로 읽는다 — "해운대 모던 스테이" 는 부산 숙소다(경주 글에 끼던 것). 동네가 키워드면 그 도시의 값은 같은 지역이다 */
+const DISTRICTS: Record<string, string> = { '해운대': '부산', '서면': '부산', '광안리': '부산', '동성로': '대구', '강남': '서울', '명동': '서울', '홍대': '서울', '보문단지': '경주', '황리단길': '경주' };
+/** 글자에 든 도시(동네는 도시로) — 중복 없이 */
+export function citiesIn(text: string): string[] {
+  const t = String(text || '');
+  const out = new Set<string>(CITIES.filter((city) => t.includes(city)));
+  for (const [district, city] of Object.entries(DISTRICTS)) if (t.includes(district)) out.add(city);
+  return [...out];
+}
 
-export function selectCoreValues(packet: any, ctx: CoreContext): CoreValue[] {
+/** 값 하나에 대한 판정 — 748-fix-2 에서 selectCoreValues 와 Writer 패킷 보기가 같은 규칙을 쓴다 */
+export type PacketValueReason =
+  | 'ARTICLE_DATE' | 'STALE_YEAR' | 'PAST_ROUND' | 'PAST_DATE' | 'OTHER_CITY' | 'SPLIT_NUMBER' | 'DEFINITION' | 'WEEKDAY_MISMATCH' | 'SITE_CHROME' | 'LOW_INTENT' | 'NO_VALUE_IN_CONTEXT';
+/** 사이트 껍데기 수치 — "350개 호텔, 숙소 검색 결과"·조회수·댓글 수는 주제의 값이 아니다 (748-fix-2 fixture E) */
+const SITE_CHROME = /검색\s*결과|조회수|댓글\s*\d|공감\s*\d|구독자|좋아요|팔로워/;
+export interface PacketValueVerdict {
+  ok: boolean;
+  reason?: PacketValueReason;
+  /** 의도 낱말 겹침 수 — 2 이상이면 판단 기준 후보 */
+  intentHit: number;
+  /** 문맥 문장에 값 자체가 있는가 */
+  valueInContext: boolean;
+  /** 다른 도시가 키워드 도시와 **함께** 있는가 (대구→경주 셔틀 같은 관계) */
+  crossCity: boolean;
+}
+export interface PacketJudgeContext {
+  intent: Set<string>;
+  intentCities: string[];
+  nowYear: number;
+  asOf: RegExpMatchArray | null;
+  todayMD: number | null;
+}
+
+export function buildJudgeContext(packet: any, ctx: CoreContext): PacketJudgeContext {
   // 의도 낱말에 소제목 낱말도 넣는다 — 글이 스스로 고른 주제어("주담대 월상환액", "변동금리")라 키워드 표기("주택담보대출")와 어긋나도 잡힌다
   const intent = new Set<string>([ctx.keyword, ctx.title, ctx.searchIntent || packet?.searchIntent || '', ...(ctx.questions || []), ...(packet?.readerQuestions || []), ...(ctx.h2Titles || [])].flatMap(toks));
-  const h2Tokens = (ctx.h2Titles || []).map((h) => new Set(toks(h)));
   const asOf = String(packet?.currentAsOf || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   const nowYear = asOf ? Number(asOf[1]) : new Date().getFullYear();
   const todayMD = asOf ? Number(asOf[2]) * 100 + Number(asOf[3]) : null;
   // 키워드에 도시가 있으면 다른 도시의 값은 판단 기준이 아니다 (여행 경주 글에 "웨스틴조선 부산 예약률 90%" 가 끼던 것)
-  const intentCities = CITIES.filter((city) => norm(`${ctx.keyword} ${ctx.title}`).includes(city));
+  const intentCities = citiesIn(norm(`${ctx.keyword} ${ctx.title}`));
+  return { intent, intentCities, nowYear, asOf, todayMD };
+}
+
+export function judgePacketValue(kind: CoreValue['kind'], value: string, context: string, j: PacketJudgeContext): PacketValueVerdict {
+  const c = String(context || ''); const v = String(value || '').trim();
+  const cf = norm(c);
+  const at = c.indexOf(v);
+  const intentHit = overlap(cf, j.intent);
+  const contextCities = citiesIn(cf);
+  const otherCity = j.intentCities.length > 0 && contextCities.some((city) => !j.intentCities.includes(city));
+  const sameCity = j.intentCities.some((city) => contextCities.includes(city));
+  const crossCity = otherCity && sameCity;
+  const base = { intentHit, valueInContext: at >= 0, crossCity };
+  const no = (reason: PacketValueReason): PacketValueVerdict => ({ ok: false, reason, ...base });
+  if (!v || NOISE_CONTEXT.test(c)) return no('ARTICLE_DATE');
+  if (STALE_CONTEXT.test(c)) return no('STALE_YEAR');
+  if (PAST_ROUND.test(c)) return no('PAST_ROUND');
+  if ([...yearsIn(v), ...yearsIn(c)].some((y) => y < j.nowYear)) return no('STALE_YEAR');
+  // 오늘 날짜 그 자체(기사·방송 날짜)는 판단 기준이 아니다
+  if (j.asOf && norm(v).includes(`${j.nowYear}년${Number(j.asOf[2])}월${Number(j.asOf[3])}일`)) return no('ARTICLE_DATE');
+  // 오늘보다 앞선 날짜(올해)는 이미 지난 일정이다 — 독자가 지금 쓸 판단 기준이 아니다 ("9월 11일 시간표 선공개", "7월 15일 동의 기한")
+  if (j.todayMD !== null && (kind === 'date' || kind === 'fact') && !yearsIn(v).some((y) => y > j.nowYear)) {
+    const all = [...v.matchAll(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/g)].map((m) => Number(m[1]) * 100 + Number(m[2]));
+    // "10월 7일부터 16일까지" 처럼 끝이 일만 있으면 앞의 달을 쓴다
+    const tail = v.match(/(?:~|부터|-)\s*(\d{1,2})\s*일/); if (tail && all.length === 1) all.push(Math.floor(all[0]! / 100) * 100 + Number(tail[1]));
+    const last = all.length ? Math.max(...all) : null;   // 기간이면 끝 날짜, 하루면 그 날짜
+    if (last !== null && last < j.todayMD) return no('PAST_DATE');
+  }
+  if (otherCity && !sameCity) return no('OTHER_CITY');
+  // "138만5000명" 을 "5000명" 으로 쪼갠 값 — 앞 글자가 숫자·만·천·억이면 조각이다
+  if (at > 0 && /[\d만천억,]/.test(c[at - 1] || '')) return no('SPLIT_NUMBER');
+  // "10월 27일(월)" — 연도가 없는 일정은 요일로 해를 알 수 있다. 올해 그 날짜의 요일과 다르면 지난해 일정이다 (경주 APEC SOM 일정이 이 경우)
+  if (weekdayMismatch(c, j.nowYear) || weekdayMismatch(v, j.nowYear)) return no('WEEKDAY_MISMATCH');
+  if (at > 0 && c[at - 1] === '=') return no('DEFINITION');   // "(1bp=0.01%포인트)" 같은 정의는 판단 기준이 아니다
+  if (SITE_CHROME.test(c)) return no('SITE_CHROME');
+  if (intentHit < 2) return no('LOW_INTENT');   // 낱말 하나("경주"가 든 경주월드 73%)로는 판단 기준이 아니다 — 둘 이상 겹쳐야
+  // 문맥 문장에 값 자체가 없으면(출처 요약만 붙은 값) 뜻을 알 수 없다 — 의도와 셋 이상 겹칠 때만 남긴다 (렌트·리스 블로그의 12월 2일 같은 것)
+  if (at < 0 && intentHit < 3) return no('NO_VALUE_IN_CONTEXT');
+  return { ok: true, ...base };
+}
+
+export function selectCoreValues(packet: any, ctx: CoreContext): CoreValue[] {
+  const judge = buildJudgeContext(packet, ctx);
+  const h2Tokens = (ctx.h2Titles || []).map((h) => new Set(toks(h)));
   const rows: CoreValue[] = [];
   const push = (kind: CoreValue['kind'], value: string, context: string, sourceIds: string[]) => {
     const c = String(context || ''); const v = String(value || '').trim();
-    if (!v || NOISE_CONTEXT.test(c) || STALE_CONTEXT.test(c) || PAST_ROUND.test(c)) return;
-    if ([...yearsIn(v), ...yearsIn(c)].some((y) => y < nowYear)) return;
-    // 오늘 날짜 그 자체(기사·방송 날짜)는 판단 기준이 아니다
-    if (asOf && norm(v).includes(`${nowYear}년${Number(asOf[2])}월${Number(asOf[3])}일`)) return;
-    // 오늘보다 앞선 날짜(올해)는 이미 지난 일정이다 — 독자가 지금 쓸 판단 기준이 아니다 ("9월 11일 시간표 선공개", "7월 15일 동의 기한")
-    if (todayMD !== null && (kind === 'date' || kind === 'fact') && !yearsIn(v).some((y) => y > nowYear)) {
-      const all = [...v.matchAll(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/g)].map((m) => Number(m[1]) * 100 + Number(m[2]));
-      // "10월 7일부터 16일까지" 처럼 끝이 일만 있으면 앞의 달을 쓴다
-      const tail = v.match(/(?:~|부터|-)\s*(\d{1,2})\s*일/); if (tail && all.length === 1) all.push(Math.floor(all[0]! / 100) * 100 + Number(tail[1]));
-      const last = all.length ? Math.max(...all) : null;   // 기간이면 끝 날짜, 하루면 그 날짜
-      if (last !== null && last < todayMD) return;
-    }
-    if (intentCities.length) { const cf0 = norm(c); if (CITIES.some((city) => !intentCities.includes(city) && cf0.includes(city)) && !intentCities.some((city) => cf0.includes(city))) return; }
-    // "138만5000명" 을 "5000명" 으로 쪼갠 값 — 앞 글자가 숫자·만·천·억이면 조각이다
-    const at = c.indexOf(v); if (at > 0 && /[\d만천억,]/.test(c[at - 1] || '')) return;
-    // "10월 27일(월)" — 연도가 없는 일정은 요일로 해를 알 수 있다. 올해 그 날짜의 요일과 다르면 지난해 일정이다 (경주 APEC SOM 일정이 이 경우)
-    if (weekdayMismatch(c, nowYear) || weekdayMismatch(v, nowYear)) return;
-    if (at > 0 && c[at - 1] === '=') return;   // "(1bp=0.01%포인트)" 같은 정의는 판단 기준이 아니다
+    const verdict = judgePacketValue(kind, v, c, judge);
+    if (!verdict.ok) return;
     const cf = norm(c);
-    const intentHit = overlap(cf, intent);
-    if (intentHit < 2) return;   // 낱말 하나("경주"가 든 경주월드 73%)로는 판단 기준이 아니다 — 둘 이상 겹쳐야
-    // 문맥 문장에 값 자체가 없으면(출처 요약만 붙은 값) 뜻을 알 수 없다 — 의도와 셋 이상 겹칠 때만 남긴다 (렌트·리스 블로그의 12월 2일 같은 것)
-    if (at < 0 && intentHit < 3) return;
+    const intentHit = verdict.intentHit;
     const ranked = h2Tokens.map((set, i) => ({ i, hit: overlap(cf, set) })).filter((x) => x.hit > 0).sort((a, b) => b.hit - a.hit).map((x) => x.i);
     rows.push({ value: v, context: c.replace(/\s+/g, ' ').trim().slice(0, 90), kind, sourceIds: Array.isArray(sourceIds) ? sourceIds.slice(0, 3) : [], sectionIndex: ranked[0] ?? -1, score: intentHit * 2 + (ranked.length ? overlap(cf, h2Tokens[ranked[0]!]!) : 0), candidates: ranked } as CoreValue & { candidates: number[] });
   };

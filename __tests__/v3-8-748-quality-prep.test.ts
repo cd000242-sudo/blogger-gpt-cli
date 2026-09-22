@@ -181,7 +181,7 @@ describe('④ 배선 — Writer 프롬프트에 핵심 값 블록 · Critic 규�
     expect(at).toBeGreaterThan(orch.indexOf('h2Titles = await generateH2TitlesFinal('));
     expect(at).toBeLessThan(orch.indexOf('let allSectionsObj = await generateAllSectionsFinal('));
     expect(orch).toMatch(/process\.env\['CORE_VALUES_BLOCK'\] === '1' \? cv\.renderCoreBlock\(coreValues, h2Titles\) : cv\.renderRulesOnly\(\)/);
-    expect(orch).toContain('coreValues, ctas: ctas.map(');
+    expect(orch).toContain('coreValues, threadQuestions: threadQuestionAudit');
     const { renderRulesOnly } = require('../src/core/final/core-values');
     const rules = renderRulesOnly();
     expect(rules.length).toBeLessThan(600);

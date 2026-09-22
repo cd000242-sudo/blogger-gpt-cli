@@ -40,6 +40,128 @@ export interface ThreadInput {
   /** 앱이 긁은 지식iN 질문 */
   userQuestions?: unknown;
   h2Titles?: string[];
+  /** 748 — 주면 지식iN 질문을 관련도로 거른다(filterThreadQuestions). 안 주면 예전 그대로 */
+  relevance?: ThreadRelevanceContext;
+}
+
+/* ───────────────────────────── 748 (A) 관련도 필터 ───────────────────────────── */
+
+export type ThreadDropReason =
+  | 'NO_ENTITY_OVERLAP' | 'GENERIC_ONLY' | 'INTENT_MISMATCH'
+  | 'OFF_TOPIC_REGION' | 'OFF_TOPIC_TIME' | 'NO_PACKET_SUPPORT';
+
+export interface ThreadRelevanceContext {
+  keyword: string;
+  title?: string;
+  /** 자동완성 등 함께 검색된 말 — 실체 낱말을 넓혀 준다(키워드 > 제목 > 패킷 > 관련 검색어 > 질문) */
+  relatedQueries?: string[];
+  /** Research Packet 렌더 글자 — 지역만 겹치는 질문은 패킷이 받쳐 줄 때만 산다 */
+  packetText?: string;
+}
+
+export interface ThreadQuestionVerdict { question: string; reason: ThreadDropReason; detail: string }
+export interface ThreadFilterResult { accepted: string[]; dropped: ThreadQuestionVerdict[]; log: string[] }
+
+/**
+ * 질문 자체의 뼈대 낱말 — 이것만 남으면 무엇을 묻는지 알 수 없다.
+ * "추천 좀 알려주세요" 처럼 실체 없는 질문을 거른다. 주제 낱말(호텔·객실·예약)은 넣지 않는다.
+ */
+const Q_GENERIC = new Set([
+  '추천', '정보', '알려주세요', '알려주세요.', '알려주', '국내', '해외', '방법', '총정리', '정리', '안내', '질문', '문의', '궁금',
+  '있나요', '없나요', '어떤', '어디', '어디가', '어떻게', '무엇', '뭐', '좀', '선', '가지', '베스트', '순위', '팁', '꿀팁', '괜찮나요',
+  '좋나요', '좋은', '언제', '하나요', '해야', '되나요', '가능', '가능한가요', '관련', '대해', '대한', '위한', '입니다', '요', '것',
+]);
+
+/** 행동 낱말 — 키워드와 질문이 서로 다른 행동을 말하면 다른 의도다("숙소 예약" ≠ "자원봉사 신청") */
+const ACTION_WORDS = ['예약', '신청', '접수', '환불', '취소', '구매', '가입', '조회', '등록', '발급', '납부', '변경', '해지', '예매', '대출', '상환'];
+
+/** 지역 — core-values 와 같은 목록. 키워드에 도시가 있을 때만 본다 */
+const REGIONS = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경주', '포항', '창원', '수원', '성남', '고양', '용인', '청주', '천안', '전주', '제주', '강릉', '속초', '여수', '안동', '춘천', '김해', '구미'];
+
+const SEASON_MONTHS: Record<string, number[]> = { '봄': [3, 4, 5], '여름': [6, 7, 8], '가을': [9, 10, 11], '겨울': [12, 1, 2] };
+
+function qTokens(s: string): string[] {
+  return [...askNouns(String(s || '').toLowerCase())].filter((w) => !Q_GENERIC.has(w) && !/^\d+$/.test(w));
+}
+
+function monthsIn(s: string): Set<number> {
+  const out = new Set<number>();
+  const text = String(s || '');
+  for (const m of text.matchAll(/(\d{1,2})\s*월/g)) { const n = Number(m[1]); if (n >= 1 && n <= 12) out.add(n); }
+  for (const [season, months] of Object.entries(SEASON_MONTHS)) if (text.includes(season)) months.forEach((n) => out.add(n));
+  return out;
+}
+
+function regionsIn(s: string): string[] {
+  const text = String(s || '');
+  return REGIONS.filter((r) => text.includes(r));
+}
+
+/**
+ * 지식iN 질문을 **키워드 실체**에 대고 거른다 — AI 호출 0, 같은 입력이면 같은 답.
+ *
+ * 우선순위: 키워드 > 제목 > 패킷 > 관련 검색어 > 질문. 질문은 위의 것들과 겹칠 때만 산다.
+ * 실측(2026-09-22 경주 APEC live 3회): 지식iN 1번 "국내 여름 휴양지 추천 10 선" 이 실의 「독자의 문제」가 되어
+ * 도입·결론이 휴양지를 말했고 Judge 가 CTA_OFFTOPIC 을 냈다. 걸러진 질문은 검색·소제목·실·상황 블록 어디에도 가지 않는다.
+ */
+export function filterThreadQuestions(questions: unknown, ctx: ThreadRelevanceContext): ThreadFilterResult {
+  const qs = (Array.isArray(questions) ? questions : []).map((q) => norm(q).replace(/^Q\.\s*/i, '')).filter(Boolean);
+  if (qs.length === 0) return { accepted: [], dropped: [], log: [] };
+  const keyword = norm(ctx.keyword);
+  const kwTokens = new Set(qTokens(keyword));
+  const entity = new Set<string>([...kwTokens, ...qTokens(norm(ctx.title)), ...(ctx.relatedQueries || []).flatMap((q) => qTokens(String(q || '')))]);
+  const kwRegions = regionsIn(keyword);
+  const kwActions = ACTION_WORDS.filter((a) => keyword.includes(a));
+  const ctxMonths = new Set<number>([...monthsIn(norm(ctx.title)), ...monthsIn(String(ctx.packetText || ''))]);
+  const packet = String(ctx.packetText || '');
+
+  const accepted: string[] = [];
+  const dropped: ThreadQuestionVerdict[] = [];
+  const log: string[] = [];
+  const drop = (question: string, reason: ThreadDropReason, detail: string) => {
+    dropped.push({ question, reason, detail });
+    log.push(`THREAD_QUESTION_DROPPED [${reason}] 「${question}」 — ${detail}`);
+  };
+
+  for (const q of qs) {
+    const tokens = qTokens(q);
+    if (tokens.length === 0) { drop(q, 'GENERIC_ONLY', '뼈대 낱말만 있어 무엇을 묻는지 알 수 없음'); continue; }
+    const overlap = tokens.filter((t) => entity.has(t) || [...entity].some((e) => e.length >= 2 && (t.includes(e) || e.includes(t))));
+    if (overlap.length === 0) { drop(q, 'NO_ENTITY_OVERLAP', `키워드·제목·관련 검색어 낱말과 겹침 0 (질문 낱말: ${tokens.slice(0, 5).join('·')})`); continue; }
+
+    const qRegions = regionsIn(q);
+    if (kwRegions.length > 0 && qRegions.length > 0 && !qRegions.some((r) => kwRegions.includes(r))) {
+      drop(q, 'OFF_TOPIC_REGION', `키워드 지역 ${kwRegions.join('·')} 이 아니라 ${qRegions.join('·')} 를 묻는다`);
+      continue;
+    }
+
+    const qMonths = monthsIn(q);
+    if (qMonths.size > 0 && ctxMonths.size > 0 && ![...qMonths].some((m) => ctxMonths.has(m))) {
+      drop(q, 'OFF_TOPIC_TIME', `질문 시기 ${[...qMonths].join(',')}월 · 글 시기 ${[...ctxMonths].join(',')}월`);
+      continue;
+    }
+
+    const qActions = ACTION_WORDS.filter((a) => q.includes(a));
+    if (kwActions.length > 0 && qActions.length > 0 && !qActions.some((a) => kwActions.includes(a))) {
+      drop(q, 'INTENT_MISMATCH', `키워드 행동 ${kwActions.join('·')} ≠ 질문 행동 ${qActions.join('·')}`);
+      continue;
+    }
+
+    // 지역 낱말로만 겹치는 질문("11월 2일 경주")은 패킷이 그 나머지를 받쳐 줄 때만 산다 — 735 제목 사고의 씨앗이 여기서 들어왔다
+    const topical = overlap.filter((t) => !REGIONS.includes(t));
+    if (topical.length === 0) {
+      const rest = tokens.filter((t) => !REGIONS.includes(t) && !/^\d+\s*(?:월|일)$/.test(t));
+      // 날짜는 통째로 본다 — "11월 2일" 을 "11월" 로 쪼개면 다른 날(11월 1일)이 받쳐 준 것처럼 보인다
+      const fullDates = [...q.matchAll(/\d{1,2}\s*월\s*\d{1,2}\s*일/g)].map((m) => m[0].replace(/\s+/g, ''));
+      const dateBits = fullDates.length ? fullDates : [...q.matchAll(/\d{1,2}\s*월/g)].map((m) => m[0].replace(/\s+/g, ''));
+      const supported = [...rest, ...dateBits].some((t) => t.length >= 2 && packet.replace(/\s+/g, '').includes(t));
+      if (!supported) { drop(q, 'NO_PACKET_SUPPORT', `지역(${overlap.join('·')})만 겹치고 패킷이 나머지(${[...rest, ...dateBits].slice(0, 4).join('·') || '없음'})를 받쳐 주지 않음`); continue; }
+    }
+
+    accepted.push(q);
+    log.push(`THREAD_QUESTION_ACCEPTED 「${q}」 — 겹침 ${overlap.slice(0, 4).join('·')}`);
+  }
+  return { accepted, dropped, log };
 }
 
 const MAX_Q = 90;
@@ -110,7 +232,9 @@ export function buildThread(input: ThreadInput): Thread {
   const slot = input.slot || {};
   const clicks = list(slot.clickReasons);
   const kinQuotes = list(slot.realQuestions).map((q) => q.replace(/^"|"$/g, ''));
-  const appKin = list(input.userQuestions).map((q) => q.replace(/^Q\.\s*/i, ''));
+  const appKinRaw = list(input.userQuestions).map((q) => q.replace(/^Q\.\s*/i, ''));
+  // 748 — 문맥을 받았으면 무관한 지식iN 질문은 실이 되지 못한다(다음 순위로 내려간다)
+  const appKin = input.relevance ? filterThreadQuestions(appKinRaw, input.relevance).accepted : appKinRaw;
   const promises = titlePromises(norm(input.title));
 
   let question = '';

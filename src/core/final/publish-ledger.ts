@@ -43,6 +43,11 @@ export interface LedgerEntry {
   preflightRevised?: number;
   /** 그때 AI 를 몇 번 불렀나 */
   preflightCalls?: number;
+  /** 748 — 자가 수정에 든 비용(USD)·평문 글자 변화량. Judge 를 그 뒤로 옮긴 뒤 "이 단계가 값을 하는가" 를 장부로 본다 */
+  preflightCostUsd?: number;
+  preflightChangedChars?: number;
+  /** 748 — Final Judge 가 무엇을 봤나: 발행 직전 HTML(visible-html) 인가 초안 객체(draft-object) 인가 */
+  finalJudgeInput?: string;
   /**
    * v3.8.731 — 왜 못 고쳤는지(반려 사유)·무엇을 고쳤는지 한 줄씩. 최대 6줄.
    * 33편 중 2편만 고쳐진 것을 장부로는 알 수 없었다 — 로그로만 흘러갔다.

@@ -113,7 +113,9 @@ describe('④ 관문 실행 표 — OFF 에서도 도는 것 / ON 에서만 도�
     expect(orch.indexOf("require('./empty-section-gate')")).toBeLessThan(loopOn);
     const faqAt = orch.indexOf("require('./faq-fact-guard')"); expect(faqAt).toBeGreaterThan(loopOn); expect(faqAt).toBeLessThan(finalQa);
     expect(orch.indexOf('ctas = await generateCTAsFinal(')).toBeLessThan(finalQa);
-    expect(orch).toMatch(/const hardGates: Record<string, boolean> = \{/);
+    // 748 — 하드 게이트는 Judge 뒤(97%)에서 채운다. 자리(let)는 앞에, 값은 뒤에
+    expect(orch).toMatch(/let hardGates: Record<string, boolean> = \{\};/);
+    expect(orch).toMatch(/\n\s*hardGates = \{\n/);
   });
   it('ON 에서만: Critic 1 · Research Recovery · Editor · Verification · Editorial · Final Judge · Final QA FAQ', () => {
     const loopBlock = orch.slice(loopOn, orch.indexOf('void titleRevisedByCritic;'));

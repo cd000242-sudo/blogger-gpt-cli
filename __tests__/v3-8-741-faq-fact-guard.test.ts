@@ -108,6 +108,8 @@ describe('③ 배선 — 옛 토큰 도려내기 필터가 FAQ 에서 사라지�
     const heading = orch.match(/sanitizeFactUnsafeHeading\(String\(item\.question/g) || [];
     expect(heading).toHaveLength(0);
     expect(orch).not.toContain('FAQ 항목 제거 (질문 또는 답변이 비어 짝 밀림 방지)');
-    expect(orch).toMatch(/faqItems: faqs\.map\(/);   // Judge 에도 질문/답변을 따로 준다
+    // Judge 에도 질문/답변을 따로 준다 — 748 부터는 보이는 글(HTML)에서 되읽은 FAQ 항목, 없으면 faqs
+    expect(orch).toMatch(/faqItems: judgeFaqItems/);
+    expect(orch).toMatch(/: faqs\.map\(\(f: any\) => \(\{ question: String\(f\.question \|\| ''\), answer: String\(f\.answer \|\| ''\) \}\)\)/);
   });
 });

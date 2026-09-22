@@ -197,6 +197,22 @@ function draftVsFinal(cq, logs, result) {
   out.titleRevision = crit.titleRevision || null;
   out.researchRecovery = crit.researchRecovery || null;   // v3.8.746 — 편집보다 검색이 먼저였는가
   out.coreValues = (cq.coreValues || []).map((c) => ({ value: c.value, section: c.sectionIndex, kind: c.kind }));   // 748-quality-prep
+  // 748-quality-fix-2 — (A) 지식iN 질문 거름 · (B) Writer 패킷 보기 · (C) Judge 입력·자가 수정 측정
+  out.threadQuestions = cq.threadQuestions ? {
+    raw: cq.threadQuestions.raw,
+    accepted: (cq.threadQuestions.pass2 ? cq.threadQuestions.pass2.accepted : cq.threadQuestions.pass1.accepted),
+    dropped: [...(cq.threadQuestions.pass1.dropped || []), ...((cq.threadQuestions.pass2 || {}).dropped || [])].map((d) => `${d.reason}: ${d.question}`),
+    thread: cq.thread || null,
+  } : null;
+  out.writerPacketView = cq.writerPacketView ? {
+    summary: cq.writerPacketView.summary,
+    core: cq.writerPacketView.decisions.filter((d) => d.tier === 'CORE').map((d) => d.value),
+    demoted: cq.writerPacketView.decisions.filter((d) => d.verdict === 'DEMOTE').map((d) => `${d.tier}/${d.reason}: ${String(d.value).slice(0, 40)}`),
+    dropped: cq.writerPacketView.decisions.filter((d) => d.verdict === 'DROP_FROM_WRITER_VIEW').map((d) => `${d.reason}: ${String(d.value).slice(0, 40)}`),
+  } : null;
+  out.judgeInput = cq.judge ? cq.judge.input || 'draft-object' : null;
+  out.visibleArticle = cq.visibleArticle || null;
+  out.preflight = cq.preflight || null;
   out.ctas = cq.ctas || [];   // v3.8.745 — 주소·문구·actionStatus
   out.verificationSawCurrentTitle = (crit.verificationContexts || []).every((c) => c.currentTitle === (crit.titleRevision && crit.titleRevision.pass ? crit.titleRevision.to : c.originalTitle));
   out.criticCycles = crit.criticCycles; out.revisionCycles = crit.revisionCycles; out.researchRounds = crit.researchRounds; out.loopCallsReported = crit.qualityLoopCalls;
@@ -314,6 +330,11 @@ async function runOne(entry, env) {
   save('J2-verification-2.json', crit && crit.verifications[1] ? { ...crit.verifications[1], exchange: byStage('Verification')[1] || null } : { status: 'SKIPPED' });
   save('K-editorial.json', crit && crit.editorial ? { ...crit.editorial, exchange: byStage('Editorial')[0] || null } : { status: 'SKIPPED' });
   save('K-final-judge.json', cq.judge ? { ...cq.judge, exchange: byStage('Final Judge')[0] || null } : { decision: 'N/A' });
+  // 748-quality-fix-2 — 입력 위생 산출물: 거른 질문 · Writer 패킷 보기 · 보이는 글 · 자가 수정 측정
+  save('M-thread-questions.json', cq.threadQuestions || { status: 'N/A' });
+  save('N-writer-packet-view.txt', cq.writerPacketView ? `${cq.writerPacketView.summary}\n\n${cq.writerPacketView.text}` : 'N/A');
+  save('N-writer-packet-decisions.json', cq.writerPacketView ? cq.writerPacketView.decisions : []);
+  save('O-visible-article.json', { visible: cq.visibleArticle || null, judgeInput: cq.judge ? cq.judge.input || null : null, preflight: cq.preflight || null });
   if (result && result.html) save('L-final-article.html', result.html);
   save('final-article.json', cq.finalArticle || {});
   save('issue-ledger.json', crit ? crit.issueLedger : []);

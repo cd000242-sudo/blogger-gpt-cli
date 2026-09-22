@@ -45,6 +45,8 @@ import { findStructureIssues, describeStructureIssues } from './structure-guard'
 import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness } from './naver-grounding';
 // v3.8.730: 공고형 글은 주관기관을 먼저 정하고 그 밖의 자료를 뺀다 (사장님 실측: LH 공고 글에 HUG·매물 시세가 섞였다)
 import { deriveSourceScope, selectScopedSources, sourceMatchesScope, isScopedOfficialSource, buildSourceScopeDirective, hasOfficialSource } from './source-scope';
+// 748 (A): 지식iN 질문은 키워드 실체에 대고 거른 뒤에만 패킷·소제목·실로 간다 (경주 APEC live: "국내 여름 휴양지" 가 실이 됐다)
+import { filterThreadQuestions } from './thread';
 // v3.8.587: 고유명사의 뜻을 모델이 지어내지 않게 — 먼저 검색해 정체를 알려 준다
 import { checkEntities, buildEntityBlock, describeEntities } from './entity-check';
 // v3.8.588: 제도가 올해 바뀌었는지 쓰기 전에 물어본다 (작년 체계로 쓰는 사고 방지)
@@ -1415,12 +1417,22 @@ export async function generateUltimateMaxModeArticleFinal(
     const bySource = (tag: string) => crawledPosts
       .filter((p: any) => String(p?.source || '') === tag)
       .flatMap((p: any) => Array.isArray(p?.subheadings) ? p.subheadings : []);
-    const demandSignals = {
-      userQuestions: bySource('naver-kin'),
+    /**
+     * 748 (A) — 지식iN 질문은 **키워드 실체에 대고 거른 뒤에만** 아래로 간다.
+     * 실측(경주 APEC live 3회): 1번 질문 "국내 여름 휴양지 추천 10 선" 이 패킷·소제목·실·상황 블록에 그대로 실려
+     * 도입·결론이 휴양지를 말했다(Judge CTA_OFFTOPIC). 1차는 키워드+자동완성으로, 2차는 제목·패킷이 생긴 뒤(소제목 전) 다시 거른다.
+     * 걸러진 질문은 검색어·소제목·실·상황 블록 어디에도 가지 않는다. 검색은 애초에 키워드만 쓴다(fetchGrounding).
+     */
+    const rawUserQuestions: string[] = bySource('naver-kin');
+    const threadPass1 = filterThreadQuestions(rawUserQuestions, { keyword, relatedQueries: bySource('google-suggest') });
+    let demandSignals = {
+      userQuestions: threadPass1.accepted,
       searchQueries: bySource('google-suggest'),
     };
+    const threadQuestionAudit = { raw: rawUserQuestions, pass1: threadPass1, pass2: null as ReturnType<typeof filterThreadQuestions> | null };
+    for (const line of threadPass1.log) onLog?.(`[PROGRESS] 34% - 🧵 ${line}`);
     if (demandSignals.userQuestions.length > 0 || demandSignals.searchQueries.length > 0) {
-      onLog?.(`[PROGRESS] 34% - 🎯 검색자 수요 신호 확보: 지식인 질문 ${demandSignals.userQuestions.length}개 · 자동완성 ${demandSignals.searchQueries.length}개 → 소제목 생성에 반영`);
+      onLog?.(`[PROGRESS] 34% - 🎯 검색자 수요 신호 확보: 지식인 질문 ${demandSignals.userQuestions.length}개(관련도 거름 ${threadPass1.dropped.length}건 제외) · 자동완성 ${demandSignals.searchQueries.length}개 → 소제목 생성에 반영`);
     } else {
       onLog?.('[PROGRESS] 34% - ⚠️ 검색자 질문 데이터 없음 — 경쟁 글 소제목 기준으로 생성합니다');
     }
@@ -1796,6 +1808,14 @@ export async function generateUltimateMaxModeArticleFinal(
         onLog?.(`[PROGRESS] 30% - ✅ 제목 완료: "${h1}"`);
       }
     };
+
+    // 748 (A) 2차 거름 — 제목·패킷이 생겼으니 지역만 겹치는 질문("11월 2일 경주")·시기 어긋난 질문을 소제목 전에 뺀다
+    if (demandSignals.userQuestions.length > 0) {
+      const pass2 = filterThreadQuestions(demandSignals.userQuestions, { keyword, title: String(h1 || ''), relatedQueries: demandSignals.searchQueries, packetText: researchPacketText });
+      threadQuestionAudit.pass2 = pass2;
+      for (const line of pass2.log.filter((l) => l.startsWith('THREAD_QUESTION_DROPPED'))) onLog?.(`[PROGRESS] 31% - 🧵 ${line}`);
+      if (pass2.dropped.length > 0) demandSignals = { ...demandSignals, userQuestions: pass2.accepted };
+    }
 
     // 3. H2 생성 — 모드 디스패처 우선, 없으면 기존 하드코딩 폴백
     /**
@@ -3085,8 +3105,26 @@ ${quoted}
       productData: (payload as any).coupangEnrichment || (payload as any).affiliateProducts,
       maxChars: 6000,
     }).trim();
+    /**
+     * 748 (B) — Writer 는 **정제된 패킷 보기**를 받는다. RAW 패킷(researchPacketText)은 그대로 두어
+     * Title Fact Gate·Critic·Verification·Judge·장부가 본다(여기서 뺀 값도 근거로는 유효하다).
+     * 748a 실측: 값 배정 블록이 부산 숙소 조건·지난 일정·기사 날짜를 밀어 넣어 Critic 이 도로 빼냈다 → 강제하지 말고 입력에서 내린다.
+     */
+    let writerPacketView: { text: string; decisions: any[]; summary: string } | null = null;
+    try {
+      const wpv = require('./writer-packet-view');
+      writerPacketView = wpv.buildWriterPacketView(researchPacket, { keyword, title: String(h1 || ''), h2Titles, questions: demandSignals?.userQuestions || [] });
+      if (writerPacketView) {
+        const dropped = writerPacketView.decisions.filter((d: any) => d.verdict === 'DROP_FROM_WRITER_VIEW');
+        const demoted = writerPacketView.decisions.filter((d: any) => d.verdict === 'DEMOTE');
+        onLog?.(`[PROGRESS] 40% - 📄 Writer 패킷 보기: ${writerPacketView.summary}`);
+        for (const d of [...dropped, ...demoted].slice(0, 12)) onLog?.(`[PROGRESS] 40% -    ${d.verdict === 'DEMOTE' ? `↓${d.tier}` : '✕'} [${d.reason}] ${String(d.value).slice(0, 40)}`);
+      }
+    } catch (viewErr: any) {
+      console.warn('[WRITER-VIEW] 패킷 보기 실패 — RAW 패킷을 그대로 줍니다:', String(viewErr?.message || viewErr).slice(0, 80));
+    }
     const writerEvidenceBlocks: string[] = [
-      researchPacketText,
+      writerPacketView?.text || researchPacketText,
       ...(evidenceRender.text
         ? [`[FACT EVIDENCE — 근거 항목 ${evidenceRender.used.length}건 · 머리줄의 id·게시일·출처·URL 을 보고 시점을 구분하세요]\n${evidenceRender.text}`]
         : []),
@@ -3240,6 +3278,8 @@ ${quoted}
         slot: (payload as any)?.cpcReportSlot,
         userQuestions: demandSignals?.userQuestions,
         h2Titles,
+        // 748 (A): 여기 오는 목록은 이미 걸러졌지만, 실은 "독자의 문제" 한 줄이 되므로 한 번 더 댄다
+        relevance: { keyword, title: String(h1 || ''), relatedQueries: demandSignals?.searchQueries, packetText: researchPacketText },
       });
       if (articleThread) {
         scopedSectionBlock = `${scopedSectionBlock}\n${buildThreadBlock(articleThread, { title: String(h1 || ''), h2Titles })}`;
@@ -4275,32 +4315,6 @@ ${quoted}
           const c = checkClaims(String(summaryTable.answer), ledgerNow);
           if (c.unsupported.length) finalQaNotes.push(`답변 상자에 근거 없는 값: ${c.unsupported.join(', ')}`);
         }
-
-        const modelUse = require('./model-use');
-        const judgeSnap = modelUse.snapshotModels();
-        finalJudge = await require('./critique-loop').runFinalJudge({
-          title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
-          packetText: researchPacketText, evidenceText: evidenceRender.text,
-          items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
-          faqText: faqs.map((f: any) => `Q. ${f.question}\nA. ${f.answer}`).join('\n'),
-          faqItems: faqs.map((f: any) => ({ question: String(f.question || ''), answer: String(f.answer || '') })),   // v3.8.742 — 질문 값은 가정값
-          summaryText: [String(summaryTable.answer || ''), ...(summaryTable.headers || []), ...(summaryTable.rows || []).map((r: string[]) => r.join(' | '))].join('\n'),
-          ctaText: ctas.map((c) => `${c.hookingMessage || c.hook || ''} [${c.buttonText || c.text || ''}] ${c.url || ''}`).join('\n'),
-          // 심사는 이미 나온 관문 결과를 종합한다 — 처음부터 다시 판단하지 않는다
-          gateSummary: [
-            `TitleFactGate: ${titleGateResult ? titleGateResult.audit.status : 'N/A'}`,
-            `EvidenceGate: ${gate ? gate.status : 'N/A'}`,
-            `ResearchPacket: ${researchPacket ? researchPacket.status : 'N/A'}`,
-            `BodyFactGate(코드): 근거 없는 값 ${require('./fact-claims').checkClaims(articleTextForAux, ledgerNow).unsupported.length}개`,
-            `Critic: OPEN critical ${critiqueReport?.open?.critical ?? 0} · major ${critiqueReport?.open?.major ?? 0} · 해결 ${(critiqueReport?.issueLedger || []).filter((i: any) => i.status === 'RESOLVED').length}`,
-            `Editorial: ${critiqueReport?.editorial ? critiqueReport.editorial.status : 'N/A'}`,
-          ].join('\n'),
-          callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
-          onLog,
-        });
-        finalJudge.model = modelUse.modelsSince(judgeSnap);
-        qualityLoopCalls += 1;
-        onLog?.(`[PROGRESS] 76% - ⚖️ Final Judge: ${finalJudge.decision}${finalJudge.blockingIssues.length ? ` — ${finalJudge.blockingIssues.slice(0, 3).map((b: any) => `${b.sectionId} ${b.type}: ${b.reason}`).join(' / ')}` : ''}${finalJudge.advisory?.length ? ` · 참고 ${finalJudge.advisory.length}건(발행 안 막음)` : ''}`);
       } catch (qaErr: any) {
         if ((qaErr as any)?.canceled === true) throw qaErr;
         console.warn('[FINAL-QA] 스킵:', String(qaErr?.message || qaErr).slice(0, 100));
@@ -4309,38 +4323,17 @@ ${quoted}
     }
 
     /**
-     * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
-     * 전부 PASS 이고 비평 루프가 수렴했고 심사가 "한 번 더 고쳐도 별 차이 없다"고 하면 QUALITY_CONVERGED → 자동 발행.
-     * 아니면 MANUAL_REVIEW — 글은 돌려주되 자동으로 발행하지 않는다.
+     * 🚦 748 (C) — Final Judge · Hard Gates · 발행 결정은 **HTML 조립과 발행 전 수정이 모두 끝난 뒤**(97%)에 한다.
+     * 748a 실측: Judge 가 초안 객체를 보고 MANUAL_REVIEW 를 냈는데, 그 문장은 97% 자가 수정에서 이미 고쳐져 있었다(낡은 판정).
+     * 여기서는 자리만 잡는다 — 값은 아래 "FINAL JUDGE (visible)" 블록이 채운다.
      */
-    const bodyClaimCheck = (() => { try { return require('./fact-claims').checkClaims(articleTextForAux, claimLedger()); } catch { return { supported: [], unsupported: [] }; } })();
-    const hardGates: Record<string, boolean> = {
-      TITLE_FACT_PASS: titleGateResult ? titleGateResult.audit.status === 'PASS' : require('./title-fact-gate').auditTitle(String(h1 || ''), claimLedger()).status === 'PASS',
-      EVIDENCE_GATE_PASS: gate ? gate.status === 'GROUNDING_OK' : false,
-      RESEARCH_PACKET_PASS: researchPacket ? researchPacket.status !== 'EMPTY' : false,
-      // v3.8.736 — 값 대조는 코드만. OPEN critical/major 0 · 편집 blocking 0. "한 번 더 고치면 나아진다" 조건은 뺐다(늘 true 라 수렴을 막았다)
-      BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0,
-      // v3.8.739 — 핵심 절이 비어 있고 수리도 못 했으면 자동 발행하지 않는다(절을 지워 "성공" 으로 만들지 않는다)
-      EMPTY_SECTION_PASS: (emptySectionResult?.unresolved || []).length === 0,
-      SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0 && (critiqueReport.open.pending || 0) === 0),
-      NO_MAJOR_REDUNDANCY: !finalJudge || !finalJudge.blockingIssues.some((b: any) => b.type === 'REDUNDANCY'),
-      FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
-    };
-    const hardGatesAllPass = Object.values(hardGates).every(Boolean);
-    const qualityConverged = runFinalQa
-      ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
-      : hardGatesAllPass;
-    const manualReviewReason = qualityConverged ? '' : [
-      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => k),
-      ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
-      ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
-    ].filter(Boolean).join(' · ');
-    const publishDecision: 'AUTO_PUBLISH' | 'MANUAL_REVIEW' = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
-    pipelineStatus.mark('FINAL', qualityConverged ? 'QUALITY_CONVERGED' : 'MANUAL_REVIEW', manualReviewReason);
-    onLog?.(qualityConverged
-      ? (qualityLoopOn ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 77% - ✅ 품질 관문 통과 (품질 루프 OFF · 비평·수정 없음)`)
-      : (qualityLoopOn ? `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 77% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason}`));
-    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, coreValues, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
+    let hardGates: Record<string, boolean> = {};
+    let hardGatesAllPass = false;
+    let qualityConverged = false;
+    let manualReviewReason = '';
+    let publishDecision: 'AUTO_PUBLISH' | 'MANUAL_REVIEW' = 'MANUAL_REVIEW';
+    let bodyClaimCheck: { supported: string[]; unsupported: string[] } = { supported: [], unsupported: [] };
+    let visibleArticle: import('./visible-article').VisibleArticle | null = null;
 
     // 8. HTML 조립
     onLog?.('[PROGRESS] 75% - 🎨 백서(White Paper) 구조 조립 중...');
@@ -6985,6 +6978,9 @@ ${conclusionHTML}
      */
     try {
       const { fixBeforePublish } = require('./pre-publish-fix');
+      // 748 (C): 자가 수정이 글을 얼마나 바꾸고 얼마가 드는지 잰다 — 없애지 않는다. Judge 는 이 뒤에 온다
+      const usdBeforePreflight = (() => { try { return Number(require('../llm/usage-cost').estimateCost().usd) || 0; } catch { return 0; } })();
+      const htmlBeforePreflight = html;
       const outcome = await fixBeforePublish(
         { title: h1 || keyword, html, reportSlot: (payload as any)?.cpcReportSlot, question: articleThread?.question },
         (prompt: string) => callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 }),
@@ -6994,9 +6990,11 @@ ${conclusionHTML}
         html = outcome.html;
         onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
       }
+      const usdAfterPreflight = (() => { try { return Number(require('../llm/usage-cost').estimateCost().usd) || 0; } catch { return 0; } })();
+      const changedChars = Math.abs(String(html).replace(/<[^>]+>/g, '').length - String(htmlBeforePreflight).replace(/<[^>]+>/g, '').length);
       // v3.8.632: 장부에 남긴다 — 자가 수정이 줄어드는지가 첫 생성이 좋아졌다는 신호다
       // v3.8.731: 반려 사유도 남긴다 — 33편 중 2편만 고쳐진 것을 장부로는 알 수 없었다
-      (globalThis as any).__lastPreflight = { revised: outcome.revised, calls: outcome.calls, notes: outcome.notes.slice(0, 6) };
+      (globalThis as any).__lastPreflight = { revised: outcome.revised, calls: outcome.calls, notes: outcome.notes.slice(0, 6), costUsd: Math.max(0, usdAfterPreflight - usdBeforePreflight), changed: html !== htmlBeforePreflight, changedChars };
     } catch (preflightError: any) {
       // 자가 수정 실패가 발행을 막지는 않는다
       console.warn('[PREFLIGHT] 건너뜀:', String(preflightError?.message || preflightError).slice(0, 120));
@@ -7016,6 +7014,123 @@ ${conclusionHTML}
           : '[PROGRESS] 97% - 🧷 답변 블록의 질문 줄을 되살렸습니다');
       }
     } catch { /* 지키기 실패가 발행을 막지는 않는다 */ }
+
+    const beforeRepair = findEmptyBlocks(html);
+    if (beforeRepair.length > 0) {
+      const repaired = removeEmptyFaqBlocks(html);
+      if (repaired.removed > 0) {
+        html = repaired.html;
+        onLog?.(`[PROGRESS] 97% - 🩹 답변이 빈 FAQ ${repaired.removed}개를 지웠습니다 (발행은 계속합니다)`);
+        console.log(`[EMPTY-BLOCK] FAQ ${repaired.removed}개 제거 후 계속`);
+      }
+    }
+
+    /**
+     * 🫙 v3.8.719 — 테두리만 남은 빈 상자를 걷는다.
+     *
+     * 사장님 실물 검수(발행글 5710): "이거 공란도" — 빈 `<blockquote>` 4개가 그대로 나갔다.
+     * FAQ 와 달리 findEmptyBlocks 가 애초에 세지 않는 종류라, 위 조건 안에 두면 안 돈다.
+     * **조건 없이 매번 돌린다** — 지울 게 없으면 아무 일도 안 일어난다.
+     * 748 (C): 장부 뒤에 있던 것을 Judge 앞으로 옮겼다 — Judge 뒤에는 본문을 바꾸는 단계가 없어야 한다.
+     */
+    {
+      const boxes = removeEmptyDecorativeBoxes(html);
+      if (boxes.removed > 0) {
+        html = boxes.html;
+        onLog?.(`[PROGRESS] 97% - 🫙 내용이 빈 상자 ${boxes.removed}개를 지웠습니다`);
+        console.log(`[EMPTY-BLOCK] 빈 장식 상자 ${boxes.removed}개 제거`);
+      }
+    }
+
+    /**
+     * ⚖️ 748 (C) — FINAL JUDGE (visible). 여기가 본문을 바꾸는 마지막 단계 **뒤**다.
+     * 이 아래로는 직렬화·장부·빈 블록 걷기·발행 결정 기록만 있다(본문의 뜻을 바꾸는 단계 없음).
+     * 심사 입력은 조립된 HTML 을 되읽은 것 — 제목 · 보이는 도입(답 상자 포함) · 절 · FAQ · CTA · 결론.
+     */
+    try {
+      visibleArticle = require('./visible-article').parseVisibleArticle(html);
+      if (visibleArticle && visibleArticle.notes.length) onLog?.(`[PROGRESS] 97% - 👁️ 보이는 글 되읽기: ${visibleArticle.notes.join(' · ')}`);
+    } catch (visErr: any) {
+      console.warn('[VISIBLE] 되읽기 실패 — 초안 객체로 심사합니다:', String(visErr?.message || visErr).slice(0, 80));
+    }
+    const judgeArticle: any = visibleArticle && visibleArticle.sections.length > 0 ? visibleArticle : allSectionsObj;
+    const judgeTitle = String((visibleArticle && visibleArticle.title) || h1 || '');
+    const judgeFaqItems: Array<{ question: string; answer: string }> = visibleArticle && visibleArticle.faqItems.length
+      ? visibleArticle.faqItems
+      : faqs.map((f: any) => ({ question: String(f.question || ''), answer: String(f.answer || '') }));
+    const judgeCtaText = (visibleArticle && visibleArticle.ctaText) || ctas.map((c) => `${c.hookingMessage || c.hook || ''} [${c.buttonText || c.text || ''}] ${c.url || ''}`).join('\n');
+    const judgeSummaryText = (visibleArticle && visibleArticle.summaryText) || [String(summaryTable.answer || ''), ...(summaryTable.headers || []), ...(summaryTable.rows || []).map((r: string[]) => r.join(' | '))].join('\n');
+    const judgeBodyText = visibleArticle && visibleArticle.sections.length > 0 ? require('./visible-article').visiblePlainText(visibleArticle) : articleTextForAux;
+    bodyClaimCheck = (() => { try { return require('./fact-claims').checkClaims(judgeBodyText, claimLedger()); } catch { return { supported: [], unsupported: [] }; } })();
+
+    if (runFinalQa && !finalJudge) {
+      try {
+        const modelUse = require('./model-use');
+        const judgeSnap = modelUse.snapshotModels();
+        finalJudge = await require('./critique-loop').runFinalJudge({
+          title: judgeTitle, mainKeyword: keyword, article: judgeArticle,
+          packetText: researchPacketText, evidenceText: evidenceRender.text,
+          items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
+          faqText: judgeFaqItems.map((f) => `Q. ${f.question}\nA. ${f.answer}`).join('\n'),
+          faqItems: judgeFaqItems,   // v3.8.742 — 질문 값은 가정값
+          summaryText: judgeSummaryText,
+          ctaText: judgeCtaText,
+          // 심사는 이미 나온 관문 결과를 종합한다 — 처음부터 다시 판단하지 않는다
+          gateSummary: [
+            `TitleFactGate: ${titleGateResult ? titleGateResult.audit.status : 'N/A'}`,
+            `EvidenceGate: ${gate ? gate.status : 'N/A'}`,
+            `ResearchPacket: ${researchPacket ? researchPacket.status : 'N/A'}`,
+            `BodyFactGate(코드): 근거 없는 값 ${bodyClaimCheck.unsupported.length}개`,
+            `Critic: OPEN critical ${critiqueReport?.open?.critical ?? 0} · major ${critiqueReport?.open?.major ?? 0} · 해결 ${(critiqueReport?.issueLedger || []).filter((i: any) => i.status === 'RESOLVED').length}`,
+            `Editorial: ${critiqueReport?.editorial ? critiqueReport.editorial.status : 'N/A'}`,
+            `입력: ${visibleArticle && visibleArticle.sections.length > 0 ? '발행 직전 HTML(보이는 글)' : '초안 객체'}`,
+          ].join('\n'),
+          callModel: (p: string, o?: { json?: boolean }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}) }),
+          onLog,
+        });
+        finalJudge.model = modelUse.modelsSince(judgeSnap);
+        finalJudge.input = visibleArticle && visibleArticle.sections.length > 0 ? 'visible-html' : 'draft-object';
+        qualityLoopCalls += 1;
+        onLog?.(`[PROGRESS] 97% - ⚖️ Final Judge(보이는 글): ${finalJudge.decision}${finalJudge.blockingIssues.length ? ` — ${finalJudge.blockingIssues.slice(0, 3).map((b: any) => `${b.sectionId} ${b.type}: ${b.reason}`).join(' / ')}` : ''}${finalJudge.advisory?.length ? ` · 참고 ${finalJudge.advisory.length}건(발행 안 막음)` : ''}`);
+      } catch (qaErr: any) {
+        if ((qaErr as any)?.canceled === true) throw qaErr;
+        console.warn('[FINAL-QA] 스킵:', String(qaErr?.message || qaErr).slice(0, 100));
+        finalJudge = { decision: 'BLOCK', blockingIssues: [{ sectionId: 'QA', exactSpan: '', type: 'QA_ERROR', reason: `Final QA 오류: ${String(qaErr?.message || qaErr).slice(0, 80)}` }], advisory: [] };
+      }
+    }
+
+    /**
+     * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
+     * 전부 PASS 이고 비평 루프가 수렴했고 심사가 "한 번 더 고쳐도 별 차이 없다"고 하면 QUALITY_CONVERGED → 자동 발행.
+     * 아니면 MANUAL_REVIEW — 글은 돌려주되 자동으로 발행하지 않는다.
+     */
+    hardGates = {
+      TITLE_FACT_PASS: titleGateResult && judgeTitle === String(h1 || '') ? titleGateResult.audit.status === 'PASS' : require('./title-fact-gate').auditTitle(judgeTitle, claimLedger()).status === 'PASS',
+      EVIDENCE_GATE_PASS: gate ? gate.status === 'GROUNDING_OK' : false,
+      RESEARCH_PACKET_PASS: researchPacket ? researchPacket.status !== 'EMPTY' : false,
+      // v3.8.736 — 값 대조는 코드만. OPEN critical/major 0 · 편집 blocking 0. "한 번 더 고치면 나아진다" 조건은 뺐다(늘 true 라 수렴을 막았다)
+      BODY_FACT_PASS: bodyClaimCheck.unsupported.length === 0,
+      // v3.8.739 — 핵심 절이 비어 있고 수리도 못 했으면 자동 발행하지 않는다(절을 지워 "성공" 으로 만들지 않는다)
+      EMPTY_SECTION_PASS: (emptySectionResult?.unresolved || []).length === 0,
+      SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0 && (critiqueReport.open.pending || 0) === 0),
+      NO_MAJOR_REDUNDANCY: !finalJudge || !finalJudge.blockingIssues.some((b: any) => b.type === 'REDUNDANCY'),
+      FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
+    };
+    hardGatesAllPass = Object.values(hardGates).every(Boolean);
+    qualityConverged = runFinalQa
+      ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
+      : hardGatesAllPass;
+    manualReviewReason = qualityConverged ? '' : [
+      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => k),
+      ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
+      ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
+    ].filter(Boolean).join(' · ');
+    publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
+    pipelineStatus.mark('FINAL', qualityConverged ? 'QUALITY_CONVERGED' : 'MANUAL_REVIEW', manualReviewReason);
+    onLog?.(qualityConverged
+      ? (qualityLoopOn ? `[PROGRESS] 97% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 97% - ✅ 품질 관문 통과 (품질 루프 OFF · 비평·수정 없음)`)
+      : (qualityLoopOn ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason}`));
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, coreValues, threadQuestions: threadQuestionAudit, writerPacketView: writerPacketView ? { summary: writerPacketView.summary, decisions: writerPacketView.decisions, text: writerPacketView.text } : null, thread: articleThread ? { question: articleThread.question, source: articleThread.source } : null, visibleArticle: visibleArticle ? { title: visibleArticle.title, sections: visibleArticle.sections.length, faq: visibleArticle.faqItems.length, notes: visibleArticle.notes } : null, preflight: (globalThis as any).__lastPreflight || null, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: judgeArticle, title: judgeTitle, packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     /**
      * 📒 v3.8.632 — 이번 발행의 측정값을 장부에 남긴다.
@@ -7100,6 +7215,8 @@ ${conclusionHTML}
         selfOverlapHits: Number(overlap.count) || 0,
         preflightRevised: Number(pre.revised) || 0,
         preflightCalls: Number(pre.calls) || 0,
+        ...(pre.costUsd != null ? { preflightCostUsd: Number(pre.costUsd) || 0, preflightChangedChars: Number(pre.changedChars) || 0 } : {}),
+        ...(finalJudge?.input ? { finalJudgeInput: String(finalJudge.input) } : {}),
         ...(Array.isArray(pre.notes) && pre.notes.length ? { preflightNotes: pre.notes.map(String).slice(0, 6) } : {}),
         // v3.8.731 — 초안 감사 전후 결함 수 (generation.generateAllSectionsFinal 이 남긴다)
         ...((globalThis as any).__lastDraftAudit ? {
@@ -7125,32 +7242,7 @@ ${conclusionHTML}
       console.warn('[LEDGER] 건너뜀:', String(ledgerError?.message || ledgerError).slice(0, 100));
     }
 
-    const beforeRepair = findEmptyBlocks(html);
-    if (beforeRepair.length > 0) {
-      const repaired = removeEmptyFaqBlocks(html);
-      if (repaired.removed > 0) {
-        html = repaired.html;
-        onLog?.(`[PROGRESS] 97% - 🩹 답변이 빈 FAQ ${repaired.removed}개를 지웠습니다 (발행은 계속합니다)`);
-        console.log(`[EMPTY-BLOCK] FAQ ${repaired.removed}개 제거 후 계속`);
-      }
-    }
-
-    /**
-     * 🫙 v3.8.719 — 테두리만 남은 빈 상자를 걷는다.
-     *
-     * 사장님 실물 검수(발행글 5710): "이거 공란도" — 빈 `<blockquote>` 4개가 그대로 나갔다.
-     * FAQ 와 달리 findEmptyBlocks 가 애초에 세지 않는 종류라, 위 조건 안에 두면 안 돈다.
-     * **조건 없이 매번 돌린다** — 지울 게 없으면 아무 일도 안 일어난다.
-     */
-    {
-      const boxes = removeEmptyDecorativeBoxes(html);
-      if (boxes.removed > 0) {
-        html = boxes.html;
-        onLog?.(`[PROGRESS] 97% - 🫙 내용이 빈 상자 ${boxes.removed}개를 지웠습니다`);
-        console.log(`[EMPTY-BLOCK] 빈 장식 상자 ${boxes.removed}개 제거`);
-      }
-    }
-
+    // 748 (C): 빈 FAQ·빈 상자 걷기는 Judge 앞으로 옮겼다(위 "FINAL JUDGE (visible)" 바로 앞). 여기서는 남은 빈 블록만 센다
     const emptyBlocks = findEmptyBlocks(html);
     if (emptyBlocks.length > 0) {
       const detail = describeEmptyBlocks(emptyBlocks);
