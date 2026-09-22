@@ -60,7 +60,7 @@ describe('② 배선 — orchestration 이 근거 URL 을 넘기고, 두 교체 
   const loop = read('src/core/final/critique-loop.ts');
   it('generateCTAsFinal 에 evidenceUrls → allowedHosts → upgradeHomeCtas 두 호출 모두', () => {
     expect(orch).toMatch(/generateCTAsFinal\(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl, evidenceItems\.map/);
-    expect((gen.match(/upgradeHomeCtas\(safeCTAs, keyword, .*allowedHosts\);/g) || []).length).toBe(2);
+    expect((gen.match(/upgradeHomeCtas\(safeCTAs, keyword, .*allowedHosts(, ctaActionStatus)?\);/g) || []).length).toBe(2);
   });
   it('검색으로 찾은 후보(기관 행동 화면 · 사이트 안 행동 화면) 둘 다 ctaCandidateVerdict 를 지난다 · 표 후보는 예외', () => {
     const body = gen.slice(gen.indexOf('export async function upgradeHomeCtas'), gen.indexOf('export async function generateCTAsFinal'));

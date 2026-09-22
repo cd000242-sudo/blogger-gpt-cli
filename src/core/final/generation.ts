@@ -237,7 +237,7 @@ import { createCtaPageFetcher } from '../../cta/page-fetcher';
 import { resolveAgencyHost } from '../../cta/agency-registry';
 import { buildOfficialCtaCandidates } from '../../cta/inference-candidates';
 // v3.8.570: 버튼과 훅을 한 자리에서 만든다 — 예전엔 옆줄에서 서로 다른 것을 말했다
-import { buildCtaCopy } from '../../cta/cta-copy';
+import { buildCtaCopy, inferActionStatus, ASSERTIVE_AVAILABILITY_RE, type CtaActionStatus } from '../../cta/cta-copy';
 import { dropEmptyFaqItems } from './empty-block-guard';
 import { buildArchetypeGuide } from './title-archetypes';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
@@ -3437,7 +3437,7 @@ export function allowedHostsFrom(urls: Array<string | undefined | null>): Set<st
   return out;
 }
 
-export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[], allowedHosts?: ReadonlySet<string>): Promise<FinalCTAData[]> {
+export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, routerSite: string, ctaArticleAgencies: string[], allowedHosts?: ReadonlySet<string>, actionStatus: CtaActionStatus = 'UNKNOWN'): Promise<FinalCTAData[]> {
   /**
    * v3.8.616: **키워드가 먼저다.**
    *
@@ -3532,10 +3532,14 @@ export async function upgradeHomeCtas(list: FinalCTAData[], keyword: string, rou
       continue;
     }
 
-    const buttonText = `🔗 ${label}에서 ${doing}하기`;
-    const hook = `${keyword} — ${label}에서 바로 ${doing}할 수 있습니다.`;
-    console.log(`[CTA] 🔁 홈 → 행동 화면 교체(${doing}): ${cta.url} → ${better}`);
-    out.push({ ...cta, url: better, buttonText, text: buttonText, hookingMessage: hook, hook });
+    /**
+     * v3.8.745 — "바로 ${doing}할 수 있습니다" 는 AVAILABLE 일 때만. 근거로 확인이 안 되면(UNKNOWN) 안내형, 매진·마감이면(UNAVAILABLE) 현황형.
+     * live(부산국제영화제 744): 본문 "전석 매진" 인데 CTA "바로 예매할 수 있습니다" → Judge CONTRADICTION. 훅에 제목을 넣지 않는다(v3.8.570 규칙).
+     */
+    const copy = buildCtaCopy({ url: better, siteName: label, action: doing, actionStatus });
+    const buttonText = actionStatus === 'AVAILABLE' ? `🔗 ${label}에서 ${doing}하기` : `🔗 ${copy.buttonText}`;
+    console.log(`[CTA] 🔁 홈 → 행동 화면 교체(${doing} · ${actionStatus}): ${cta.url} → ${better}`);
+    out.push({ ...cta, url: better, buttonText, text: buttonText, hookingMessage: copy.hookingMessage, hook: copy.hookingMessage, actionStatus });
   }
   return out;
 }
@@ -3565,8 +3569,12 @@ export async function generateCTAsFinal(
   blogUrl?: string,
   /** v3.8.740 — 근거(EvidenceItem)의 URL. 공식 출처와 합쳐 CTA 후보의 "허용된 집" 목록이 된다. 안 주면 옛 경로(검사 없음) */
   evidenceUrls?: string[],
+  /** v3.8.745 — 근거·Research Packet 본문. 지금 신청·예매가 가능한지(매진·마감인지)는 **이것으로만** 정한다. 없으면 UNKNOWN(안내형 문구) */
+  evidenceText?: string,
 ): Promise<FinalCTAData[]> {
   const allowedHosts = evidenceUrls ? allowedHostsFrom([...evidenceUrls, ...(officialSources || []).map((s) => s?.url)]) : undefined;
+  const ctaActionStatus: CtaActionStatus = inferActionStatus(evidenceText || '');
+  if (evidenceText) console.log(`[CTA] 🎫 행동 가능 여부(근거 기준): ${ctaActionStatus}`);
   if (allowedHosts && allowedHosts.size) console.log(`[CTA] 🏠 허용된 집(근거·공식 출처 apex): ${[...allowedHosts].slice(0, 8).join(', ')}${allowedHosts.size > 8 ? ` 외 ${allowedHosts.size - 8}` : ''}`);
   // 🛡️ 애드센스 모드: CTA 완전 차단
   if (contentMode === 'adsense') {
@@ -4055,7 +4063,7 @@ JSON만 출력:
               : keyword.match(/보조금|지원금|지원사업|보조/) ? '지원금 신청'
               : '';
             if (actionWord) {
-              const actionCopy = buildCtaCopy({ url: officialLink.url, action: actionWord });
+              const actionCopy = buildCtaCopy({ url: officialLink.url, action: actionWord, actionStatus: ctaActionStatus });
               btnText2 = actionCopy.buttonText;
               hookText2 = actionCopy.hookingMessage;
             }
@@ -4425,21 +4433,24 @@ JSON만 출력:
 
     if (actionUrl) {
       const doing = wantsCheck ? '조회' : (actionIntentForCta || '신청');
-      const buttonText = `🔗 ${actionHit!.label}에서 ${doing}하기`;
+      // v3.8.745 — 표에서 온 행동 화면도 "바로 할 수 있다" 는 AVAILABLE 일 때만 (근거로 정한 상태)
+      const tableCopy = buildCtaCopy({ url: actionUrl, siteName: actionHit!.label, action: doing, actionStatus: ctaActionStatus });
+      const buttonText = ctaActionStatus === 'AVAILABLE' ? `🔗 ${actionHit!.label}에서 ${doing}하기` : `🔗 ${tableCopy.buttonText}`;
       safeCTAs.push({
-        hookingMessage: `${keyword} — ${actionHit!.label}에서 바로 ${doing}할 수 있습니다.`,
+        hookingMessage: tableCopy.hookingMessage,
         buttonText,
         url: actionUrl,
         position: 1,
         type: 'link',
         design: 'button',
         text: buttonText,
-        hook: `${keyword} — ${actionHit!.label}에서 바로 ${doing}할 수 있습니다.`,
+        hook: tableCopy.hookingMessage,
         searchFallback: false,
+        actionStatus: ctaActionStatus,
       });
       console.log(`[CTA] 🎯 행동 화면으로 연결(${doing}): ${actionUrl}`);
       onLog?.(`[PROGRESS] 70% - 🎯 CTA: ${actionHit!.label} ${doing} 화면`);
-      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies, allowedHosts);
+      return await upgradeHomeCtas(safeCTAs, keyword, routerSite, ctaArticleAgencies, allowedHosts, ctaActionStatus);
     }
 
     const found = findFallbackSite([keyword, routerSite, ...ctaArticleAgencies]);
@@ -4553,17 +4564,20 @@ JSON만 출력:
       }
 
       if (namedUrl && namedUrlAlive) {
-        const copy = buildCtaCopy({ url: namedUrl.url, siteName: namedUrl.name, action: smart?.action || '' });
+        const copy = buildCtaCopy({ url: namedUrl.url, siteName: namedUrl.name, action: smart?.action || '', actionStatus: ctaActionStatus });
+        // v3.8.745 — 라우터가 쓴 훅이 "바로/지금 할 수 있다" 고 단정하면 AVAILABLE 일 때만 쓴다. 아니면 상태에 맞는 문구
+        const routerHook = smart?.hookMessage && (ctaActionStatus === 'AVAILABLE' || !ASSERTIVE_AVAILABILITY_RE.test(smart.hookMessage)) ? smart.hookMessage : '';
         safeCTAs.push({
-          hookingMessage: smart?.hookMessage || copy.hookingMessage,
+          hookingMessage: routerHook || copy.hookingMessage,
           buttonText: copy.buttonText,
           url: namedUrl.url,
           position: 1,
           type: 'link',
           design: 'button',
           text: copy.buttonText,
-          hook: smart?.hookMessage || copy.hookingMessage,
+          hook: routerHook || copy.hookingMessage,
           searchFallback: false,
+          actionStatus: ctaActionStatus,
         });
         console.log(`[CTA] 🧭 라우터가 지목한 기관 이름을 주소로 해석: "${namedUrl.name}" → ${namedUrl.url} (${namedUrl.source})`);
         onLog?.(`[PROGRESS] 70% - 🧭 CTA: ${namedUrl.name}`);
@@ -4636,7 +4650,7 @@ JSON만 출력:
    * v3.8.616: 마지막 관문 — 홈 주소면 행동 화면으로 갈아끼운다.
    * 라우터는 이미 물어봤으면 캐시에서 즉시 돌아온다(ensureSmartTarget 이 한 번만 부른다).
    */
-  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies, allowedHosts);
+  return await upgradeHomeCtas(safeCTAs, keyword, (await ensureSmartTarget())?.site || '', ctaArticleAgencies, allowedHosts, ctaActionStatus);
 }
 
 /**

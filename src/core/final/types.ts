@@ -61,6 +61,8 @@ export interface FinalCTAData {
   text?: string;     // buttonText 별칭
   hook?: string;     // hookingMessage 별칭
   searchFallback?: boolean; // 검증된 직접 URL을 못 찾았을 때 쓰는 투명한 검색 fallback
+  /** v3.8.745 — 지금 할 수 있는가(근거·패킷으로만 정함). 없으면 UNKNOWN. "바로 할 수 있다" 는 AVAILABLE 일 때만 */
+  actionStatus?: 'AVAILABLE' | 'UNKNOWN' | 'UNAVAILABLE';
 }
 
 export interface FinalArticleStructure {

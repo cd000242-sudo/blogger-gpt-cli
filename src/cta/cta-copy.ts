@@ -30,6 +30,16 @@ import { OFFICIAL_CATALOG } from './official-catalog';
 
 export type CtaDocCopy = { buttonText: string; hookingMessage: string };
 
+/**
+ * v3.8.745 — 지금 실제로 할 수 있는가.
+ *   AVAILABLE   근거·패킷·검증된 행동 화면에 "지금 신청·예매·조회 가능" 근거가 있다 → 행동형("…에서 예매하기 / 바로 하실 수 있습니다")
+ *   UNKNOWN     공식 주소는 있지만 가능 여부는 확인 안 됨 → 안내형("…에서 예매 안내 확인"). **근거 없으면 이것**
+ *   UNAVAILABLE 근거에 매진·마감·종료·접수 종료가 있다 → 현황형("…에서 예매 현황 확인"). "바로/지금 할 수 있다" 금지
+ * live(부산국제영화제 744): 본문은 "개막식 티켓 전석 매진"인데 CTA 가 "바로 예매할 수 있습니다" → Judge CONTRADICTION.
+ * 공식 주소라는 사실만으로 AVAILABLE 로 보지 않는다.
+ */
+export type CtaActionStatus = 'AVAILABLE' | 'UNKNOWN' | 'UNAVAILABLE';
+
 export type CtaCopyInput = {
   /** 목적지 주소 — 이름을 모를 때 여기서 유추한다 */
   url?: string;
@@ -39,9 +49,42 @@ export type CtaCopyInput = {
   action?: string;
   /** PDF·HWP 같은 문서면 문서용 문구를 그대로 쓴다 (다운로드는 성격이 다르다) */
   doc?: CtaDocCopy | null;
+  /** 지금 할 수 있는가 — 없으면 UNKNOWN(안내형) */
+  actionStatus?: CtaActionStatus;
 };
 
-export type CtaCopy = { buttonText: string; hookingMessage: string };
+export type CtaCopy = { buttonText: string; hookingMessage: string; actionStatus: CtaActionStatus };
+
+const UNAVAILABLE_RE = /(전석\s*)?매진|마감(?:됐|되었|됩니다|된)|접수\s*(?:종료|마감)|판매\s*종료|모집\s*(?:종료|마감)|신청\s*(?:종료|마감)|종료됐|종료되었|조기\s*마감|소진(?:됐|되었)/;
+const AVAILABLE_RE = /(?:현재|지금|아직)\s*(?:신청|예매|예약|접수|판매)\s*(?:가능|중|받)|(?:신청|예매|예약|접수)\s*(?:기간|가능)\s*[:：]?\s*\d{1,2}\s*월|(?:신청|예매|예약|접수)\s*(?:중입니다|중이다|가능합니다|가능하다|받습니다|받는다)|(?:부터|~)\s*(?:접수|신청|예매|판매)|\d{1,2}\s*일\s*(?:부터|~|까지)[^.]{0,30}?(?:신청|접수|예매|예약)[^.]{0,6}(?:받|접수|가능|진행)/;
+
+/**
+ * 근거 본문에서 행동 가능 여부를 읽는다 — 매진·마감이 보이면 UNAVAILABLE, "현재 접수 중·N월 N일부터 접수" 같은 것이 보이면 AVAILABLE, 둘 다 아니면 UNKNOWN.
+ * 둘 다 보이면(예: "개막식은 매진, 일반 상영은 예매 중") 보수적으로 UNAVAILABLE 이 아니라 UNKNOWN — 단정하지 않는다.
+ */
+export function inferActionStatus(evidenceText: string, action?: string): CtaActionStatus {
+  const text = String(evidenceText || '');
+  if (!text.trim()) return 'UNKNOWN';
+  const unavailable = UNAVAILABLE_RE.test(text);
+  const available = AVAILABLE_RE.test(text);
+  void action;
+  if (unavailable && !available) return 'UNAVAILABLE';
+  if (available && !unavailable) return 'AVAILABLE';
+  return 'UNKNOWN';
+}
+
+/** 행동 낱말 → 상태별 안내 낱말 */
+function guidanceWord(action: string, status: CtaActionStatus): string {
+  const a = action.trim();
+  if (status === 'UNAVAILABLE') return `${a} 현황 확인`;
+  // UNKNOWN — 방법·안내
+  if (/신청|접수|등록/.test(a)) return `${a} 방법 확인`;
+  if (/일정|기간/.test(a)) return `최신 ${a} 확인`;
+  return `${a} 안내 확인`;
+}
+
+/** 단정 표현이 들어 있는가 — AVAILABLE 이 아닌 문구를 검사하는 데 쓴다 */
+export const ASSERTIVE_AVAILABILITY_RE = /바로\s*(?:[가-힣]+\s*)?(?:할|하실)\s*수\s*있|지금\s*(?:바로\s*)?(?:신청|예매|예약|접수|조회)|현재\s*(?:신청|예매|예약|접수)\s*가능/;
 
 /** 주소에서 호스트만. 실패하면 빈 문자열 — 던지지 않는다 */
 function hostOf(url: string): string {
@@ -200,18 +243,30 @@ function clean(text: string | undefined, max: number): string {
  * 이 함수가 유일한 창구다. 여기를 거치지 않고 문구를 조립하면 또 따로 놀게 된다.
  */
 export function buildCtaCopy(input: CtaCopyInput): CtaCopy {
+  const status: CtaActionStatus = input.actionStatus || 'UNKNOWN';
   // 문서(PDF·HWP)는 "가서 하는 것"이 아니라 "받는 것"이라 문구 성격이 다르다
   if (input.doc && input.doc.buttonText && input.doc.hookingMessage) {
-    return { buttonText: input.doc.buttonText, hookingMessage: input.doc.hookingMessage };
+    return { buttonText: input.doc.buttonText, hookingMessage: input.doc.hookingMessage, actionStatus: status };
   }
 
   const site = clean(input.siteName, 24) || siteNameFromUrl(input.url || '');
   const action = clean(input.action, 20);
 
   if (site && action) {
+    /**
+     * v3.8.745 — "바로 하실 수 있습니다" 는 AVAILABLE 일 때만. 근거가 없으면(UNKNOWN) 안내형, 매진·마감이면(UNAVAILABLE) 현황형.
+     * 버튼과 훅은 같은 목적지·같은 태도를 말한다.
+     */
+    if (status === 'AVAILABLE') {
+      return { buttonText: `${site}에서 ${action}`.slice(0, 30), hookingMessage: `${withTopicParticle(action)} ${site}에서 바로 하실 수 있습니다.`, actionStatus: status };
+    }
+    const guide = guidanceWord(action, status);
     return {
-      buttonText: `${site}에서 ${action}`.slice(0, 30),
-      hookingMessage: `${withTopicParticle(action)} ${site}에서 바로 하실 수 있습니다.`,
+      buttonText: `${site}에서 ${guide}`.slice(0, 30),
+      hookingMessage: status === 'UNAVAILABLE'
+        ? `${withTopicParticle(action)} 현재 마감·매진일 수 있습니다. ${site}에서 현황과 추가 일정을 확인할 수 있습니다.`
+        : `${withTopicParticle(action)} ${site}의 공식 안내에서 절차와 가능 여부를 확인할 수 있습니다.`,
+      actionStatus: status,
     };
   }
   /**
@@ -234,13 +289,14 @@ export function buildCtaCopy(input: CtaCopyInput): CtaCopy {
     return {
       buttonText: `🔗 ${site} 바로가기`,
       hookingMessage: `${site}에 원문 안내가 있습니다.`,
+      actionStatus: status,
     };
   }
   if (action) {
-    return {
-      buttonText: `🚀 ${action} 바로가기`.slice(0, 30),
-      hookingMessage: `${withTopicParticle(action)} 아래에서 이어서 하실 수 있습니다.`,
-    };
+    // v3.8.745 — 목적지 이름도 모르는데 "이어서 하실 수 있습니다" 는 단정이다. AVAILABLE 일 때만
+    return status === 'AVAILABLE'
+      ? { buttonText: `🚀 ${action} 바로가기`.slice(0, 30), hookingMessage: `${withTopicParticle(action)} 아래에서 이어서 하실 수 있습니다.`, actionStatus: status }
+      : { buttonText: `🔗 ${guidanceWord(action, status)}`.slice(0, 30), hookingMessage: `${withTopicParticle(action)} 아래 공식 안내에서 절차와 가능 여부를 확인할 수 있습니다.`, actionStatus: status };
   }
   /**
    * v3.8.619 — 이름을 몰라도 **도메인은 성격을 말해 준다.**
@@ -257,12 +313,14 @@ export function buildCtaCopy(input: CtaCopyInput): CtaCopy {
     return {
       buttonText: `🔗 ${kind} 원문 확인하기`,
       hookingMessage: `${withSubjectParticle(kind)} 안내하는 원문입니다.`,
+      actionStatus: status,
     };
   }
 
   return {
     buttonText: '🔗 공식 사이트 바로가기',
     hookingMessage: '운영 기관의 원문 안내로 이어집니다.',
+    actionStatus: status,
   };
 }
 

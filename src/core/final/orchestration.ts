@@ -4136,7 +4136,9 @@ ${quoted}
         loadEnvFromFile()['WORDPRESS_SITE_URL'] || ''
       ).trim().replace(/\/+$/, '');
       // v3.8.740 — 근거 URL 을 넘겨 CTA 후보가 근거·공식 출처와 다른 집이면 버리게 한다(biff.kr → biky.or.kr 오배송)
-      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl, evidenceItems.map((i: any) => String(i?.url || '')).filter(Boolean));
+      ctas = await generateCTAsFinal(keyword, crawledPosts, sections, contentMode, officialSources, onLog, ctaBlogUrl, evidenceItems.map((i: any) => String(i?.url || '')).filter(Boolean),
+        // v3.8.745 — 지금 신청·예매 가능한지는 근거·패킷 본문으로만 정한다(매진·마감이면 "바로 할 수 있다" 금지)
+        `${researchPacketText}\n${evidenceRender.text}`);
     }
 
     // CTA 배치

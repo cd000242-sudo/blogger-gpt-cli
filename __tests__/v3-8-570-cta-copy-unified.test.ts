@@ -61,7 +61,7 @@ describe('② 버튼과 훅이 같은 목적지를 말한다', () => {
   });
 
   test('할 일까지 알면 둘 다 그 행동을 말한다', () => {
-    const copy = buildCtaCopy({ url: 'https://www.wetax.go.kr/', action: '취득세 조회' });
+    const copy = buildCtaCopy({ url: 'https://www.wetax.go.kr/', action: '취득세 조회', actionStatus: 'AVAILABLE' });   // v3.8.745: "바로 하실 수 있습니다" 는 AVAILABLE 일 때만
     expect(copy.buttonText).toBe('위택스에서 취득세 조회');
     expect(copy.hookingMessage).toBe('취득세 조회는 위택스에서 바로 하실 수 있습니다.');
   });
@@ -168,7 +168,7 @@ describe('④ 문구를 만드는 자리가 전부 한 창구를 지난다', () 
   });
 
   test('폴백 경로들이 buildCtaCopy 를 쓴다', () => {
-    expect(gen).toContain("import { buildCtaCopy } from '../../cta/cta-copy'");
+    expect(gen).toMatch(/import \{ buildCtaCopy[^}]*\} from '\.\.\/\.\.\/cta\/cta-copy'/);   // v3.8.745 부터 inferActionStatus 등을 함께 들여온다
     // 카탈로그 · 매핑 폴백 · 크롤 공식 · CSE 폴백
     expect((gen.match(/buildCtaCopy\(/g) || []).length).toBeGreaterThanOrEqual(5);
   });
