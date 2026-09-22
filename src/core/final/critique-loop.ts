@@ -75,6 +75,8 @@ const opsFor = (type: string): Operation[] => OPS_BY_TYPE[type] || ['REPLACE'];
 
 export interface CriticResult {
   status: 'PASS' | 'REVISION_REQUIRED' | 'NEEDS_MORE_RESEARCH';
+  /** 모델 raw status 가 NEEDS_MORE_RESEARCH 이고 researchQueries 가 있음 — blocking 여부와 무관 */
+  researchRequested?: boolean;
   issues: Issue[];
   /** 살아남지 못한 모델 지적(왜 버렸는지) */
   rejectedIssues: Array<{ reason: string; raw: any }>;
@@ -126,6 +128,24 @@ export interface LoopInput {
    * 호출자가 제목을 다시 짓고 Title Fact Gate 를 지난 결과를 돌려준다. pass 가 아니면 옛 제목을 유지한다.
    */
   reviseTitle?: (titleIssues: Array<{ problem: string; requiredChange: string }>) => Promise<{ title: string; pass: boolean } | null>;
+  /** 지금까지 쓴 비용(USD) — Research Recovery 비용을 따로 재는 데 쓴다. 없으면 0 */
+  usageUsd?: () => number;
+}
+
+/** v3.8.746 — Research Recovery 기록. 편집기보다 검색이 먼저였는지, 그래서 편집 호출을 몇 회 아꼈는지 */
+export interface ResearchRecovery {
+  triggered: boolean;
+  queries: string[];
+  searchCount: number;
+  evidenceAdded: number;
+  criticBefore: { status: string; blocking: number; critical: number; major: number };
+  criticAfter: { status: string; blocking: number; critical: number; major: number } | null;
+  /** 검색으로 blocking 이 0 이 됐으면 편집 1회(+검증 1회)를 아낀 것 */
+  editorCallsSaved: number;
+  recoveryCalls: number;
+  recoveryCost: number;
+  /** 보강 뒤에도 Critic 이 다시 근거를 요구했다(상한 1회라 더 안 간다) */
+  stillRequested: boolean;
 }
 
 export interface LoopReport {
@@ -143,6 +163,7 @@ export interface LoopReport {
   /** 루프 안에서 제목이 바뀌었으면 그 기록 */
   titleRevision: { from: string; to: string; pass: boolean } | null;
   researchRounds: number;
+  researchRecovery: ResearchRecovery | null;
   converged: boolean;
   open: { critical: number; major: number; minor: number; pending: number };
   unchangedSections: number;
@@ -317,6 +338,8 @@ async function callCritic(input: LoopInput, units: Unit[], rules: string, extra:
   const researchQueries = (Array.isArray(parsed?.researchQueries) ? parsed.researchQueries : []).map(String).filter((q: string) => q.trim().length >= 2).slice(0, 3);
   return {
     status: issues.some(isBlocking) ? 'REVISION_REQUIRED' : (status === 'NEEDS_MORE_RESEARCH' && researchQueries.length ? 'NEEDS_MORE_RESEARCH' : 'PASS'),
+    // v3.8.746 — blocking 지적이 있어도 "근거가 모자란다" 는 요청은 따로 남긴다. 검색이 편집보다 먼저다
+    researchRequested: status === 'NEEDS_MORE_RESEARCH' && researchQueries.length > 0,
     issues, rejectedIssues,
     missingIntentAnswers: (Array.isArray(parsed?.missingIntentAnswers) ? parsed.missingIntentAnswers : []).map(String).slice(0, 8),
     titleIssues: (Array.isArray(parsed?.titleIssues) ? parsed.titleIssues : []).filter((t: any) => t?.problem).map((t: any) => ({ problem: String(t.problem).slice(0, 200), requiredChange: String(t.requiredChange || '').slice(0, 200) })).slice(0, 3),
@@ -522,7 +545,7 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
   let packetText = input.packetText; let evidenceText = input.evidenceText; let items = input.items;
   const report: LoopReport = {
     criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [],
-    titleIssues: [], titleRevision: null, researchRounds: 0, converged: false, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0,
+    titleIssues: [], titleRevision: null, researchRounds: 0, researchRecovery: null, converged: false, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0,
     models: { critic1: '', revision: [], verify: [], editorial: '' }, manualReviewReason: '',
   };
   const ledgerIssues = new Map<string, Issue>();
@@ -549,13 +572,38 @@ export async function runCritiqueLoop(input: LoopInput): Promise<{ article: Arti
   upsert(codeGate(units, ledgerOf(items, packetText)));
   let critic1 = await runCritic1(ctx(), units);
   report.qualityLoopCalls += 1; report.criticCycles += 1; report.critic1 = critic1; report.models.critic1 = critic1.model || '';
-  if (critic1.status === 'NEEDS_MORE_RESEARCH' && input.moreResearch) {
+  /**
+   * ①-a Research Recovery — **편집보다 검색이 먼저.** (v3.8.746)
+   * live 742(주담대): Critic 이 NEEDS_MORE_RESEARCH + "한국은행 기준금리 2026년 9월" 을 냈는데 blocking 지적이 함께 있어 검색 없이 편집으로 갔다.
+   * 편집기는 문장만 두 번 바꿨고 검증은 두 번 다 "근거가 패킷에 없다" → 호출 2회 낭비 뒤 MANUAL_REVIEW. 문제는 문장이 아니라 근거였다.
+   * 이제 요청이 있으면 blocking 여부와 무관하게 기존 검색 경로(moreResearch: 검색 → CLEAN → 관련도 관문 → 패킷 갱신)를 한 번 타고 Critic 1 을 다시 돈다.
+   * 한 글에 한 번뿐(무한 검색 금지). 보강 뒤에도 요구하면 기존 정책대로 간다(blocking 남으면 편집, 아니면 편집 비평·심사).
+   */
+  if (critic1.researchRequested && input.moreResearch && report.researchRounds < 1) {
+    const blockingOf = (c: CriticResult) => c.issues.filter(isBlocking);
+    const summarize = (c: CriticResult) => ({ status: c.researchRequested && c.status !== 'NEEDS_MORE_RESEARCH' ? `${c.status}+RESEARCH` : c.status, blocking: blockingOf(c).length, critical: blockingOf(c).filter((i) => i.severity === 'CRITICAL').length, major: blockingOf(c).filter((i) => i.severity === 'MAJOR').length });
+    const usd0 = input.usageUsd ? input.usageUsd() : 0;
+    const before = summarize(critic1);
+    const itemsBefore = items.length;
     report.researchRounds = 1;
-    log(`🔎 비평이 근거 부족을 알렸습니다 → 검색으로 되돌아갑니다: ${critic1.researchQueries.join(' / ')}`);
+    log(`🔎 비평이 근거 부족을 알렸습니다 (blocking ${before.blocking}) → 편집보다 먼저 검색으로 되돌아갑니다: ${critic1.researchQueries.join(' / ')}`);
     const more = await input.moreResearch(critic1.researchQueries);
-    if (more) { packetText = more.packetText; evidenceText = more.evidenceText; items = more.items; }
-    critic1 = await runCritic1(ctx(), units);
-    report.qualityLoopCalls += 1; report.criticCycles += 1; report.critic1 = critic1;
+    const recovery: ResearchRecovery = { triggered: true, queries: critic1.researchQueries, searchCount: critic1.researchQueries.length, evidenceAdded: 0, criticBefore: before, criticAfter: null, editorCallsSaved: 0, recoveryCalls: 0, recoveryCost: 0, stillRequested: false };
+    if (more) {
+      packetText = more.packetText; evidenceText = more.evidenceText; items = more.items;
+      recovery.evidenceAdded = Math.max(0, items.length - itemsBefore);
+      critic1 = await runCritic1(ctx(), units);
+      report.qualityLoopCalls += 1; report.criticCycles += 1; report.critic1 = critic1; recovery.recoveryCalls = 1;
+      recovery.criticAfter = summarize(critic1);
+      recovery.stillRequested = !!critic1.researchRequested;
+      recovery.editorCallsSaved = before.blocking > 0 && recovery.criticAfter.blocking === 0 ? 1 : 0;
+      log(`🔎 보강 검색 뒤 재비평: 근거 +${recovery.evidenceAdded} · blocking ${before.blocking} → ${recovery.criticAfter.blocking}${recovery.editorCallsSaved ? ' · 편집 호출 1회 절약' : ''}${recovery.stillRequested ? ' · 여전히 근거 부족(상한 1회라 더 검색하지 않음)' : ''}`);
+    } else {
+      recovery.stillRequested = true;
+      log('🔎 보강 검색에서 관련 근거를 더 찾지 못했습니다 — 기존 근거로 계속 갑니다(재검색 없음)');
+    }
+    recovery.recoveryCost = input.usageUsd ? Number((input.usageUsd() - usd0).toFixed(4)) : 0;
+    report.researchRecovery = recovery;
   }
   upsert(critic1.issues);
   report.titleIssues.push(...critic1.titleIssues);

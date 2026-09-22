@@ -3910,6 +3910,8 @@ ${quoted}
           title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
           packetText: researchPacketText, evidenceText: evidenceRender.text, items: currentEvidenceItems(),
           callModel: loopModel, onLog, modelOf, maxRevisions: 2,
+          // v3.8.746 — Research Recovery 비용을 따로 잰다(usage-cost 장부 델타)
+          usageUsd: () => { try { return require('../llm/usage-cost').estimateCost().usd; } catch { return 0; } },
           /**
            * v3.8.738 — 제목 수정은 루프 **안에서, 본문 편집·검증 전에** 돈다(옮긴 것 — 호출 수 그대로).
            * 737 3회차: 루프 뒤에 제목을 고치니 검증 비평이 옛 제목을 보고 stillOpen 이라 했다.
@@ -3962,7 +3964,7 @@ ${quoted}
         if ((loopErr as any)?.canceled === true) throw loopErr;
         console.warn('[CRITIQUE] 루프 실패 — 초안 그대로 진행:', String(loopErr?.message || loopErr).slice(0, 120));
         onLog?.(`[PROGRESS] 79% - ⚠️ 비평 루프 오류 (초안 그대로 진행, 자동 발행은 막습니다): ${String(loopErr?.message || loopErr).slice(0, 80)}`);
-        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], titleRevision: null, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
+        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], titleRevision: null, researchRounds: 0, researchRecovery: null, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
       }
     }
     void titleRevisedByCritic;
@@ -4314,7 +4316,7 @@ ${quoted}
     onLog?.(qualityConverged
       ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.`
       : `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}`);
-    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
+    (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     // 8. HTML 조립
     onLog?.('[PROGRESS] 75% - 🎨 백서(White Paper) 구조 조립 중...');
@@ -7051,6 +7053,17 @@ ${conclusionHTML}
           revisionCycles: Number(critiqueReport.revisionCycles) || 0,
           revisedSections: Number(critiqueReport.revisedSections) || 0,
           unchangedSections: Number(critiqueReport.unchangedSections) || 0,
+          // v3.8.746 — 편집보다 검색이 먼저였는가
+          ...(critiqueReport.researchRecovery ? {
+            researchRecoveryTriggered: true,
+            researchQueries: (critiqueReport.researchRecovery.queries || []).join(' | '),
+            researchRecoverySearchCount: Number(critiqueReport.researchRecovery.searchCount) || 0,
+            evidenceAdded: Number(critiqueReport.researchRecovery.evidenceAdded) || 0,
+            criticBeforeRecovery: `${critiqueReport.researchRecovery.criticBefore.status} blocking ${critiqueReport.researchRecovery.criticBefore.blocking}`,
+            criticAfterRecovery: critiqueReport.researchRecovery.criticAfter ? `${critiqueReport.researchRecovery.criticAfter.status} blocking ${critiqueReport.researchRecovery.criticAfter.blocking}` : '재비평 없음(근거 추가 0)',
+            recoveryCost: Number(critiqueReport.researchRecovery.recoveryCost) || 0,
+            editorCallsSaved: Number(critiqueReport.researchRecovery.editorCallsSaved) || 0,
+          } : { researchRecoveryTriggered: false }),
         } : {}),
         ...(finalJudge ? { finalJudgeModel: String(finalJudge.model || '') } : {}),
         finalDecision: publishDecision,

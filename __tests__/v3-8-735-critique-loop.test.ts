@@ -445,6 +445,97 @@ describe('④ 루프 — 문제 없는 글은 고치지 않고, 문제 절만 �
     expect(researched).toEqual(['청년미래적금 가구원 동의']);
     expect(r.report.researchRounds).toBe(1);
     expect(r.report.converged).toBe(true);
+    expect(r.report.researchRecovery).toMatchObject({ triggered: true, evidenceAdded: 0, recoveryCalls: 1, editorCallsSaved: 0 });
+  });
+
+  /**
+   * v3.8.746 — Research Recovery: 편집보다 검색이 먼저. live 742(주담대) 그대로:
+   *   Critic 1: NEEDS_MORE_RESEARCH + researchQueries ["한국은행 기준금리 2026년 9월"] + blocking MAJOR 1(S02 TITLE_PROMISE_UNMET: 한국 기준금리 근거 없음)
+   *   옛 흐름: blocking 있으니 편집 → 검증 stillOpen → 편집 → stillOpen → MANUAL_REVIEW (호출 2회 낭비)
+   *   새 흐름: 검색 → 근거 확보 → Critic 1 재실행 → 지적 해결 → 편집 0회
+   */
+  const finance742 = () => {
+    const ev = [{ id: 'E01', title: '미 연준 금리', cleanedText: '미국 연방준비제도의 기준금리는 연 3.75%에서 4.00%다. 국내 5대 은행 고정형 주담대 상단은 연 7.17%다.' }];
+    const evText = `[E01][뉴스] ${ev[0]!.title}\n${ev[0]!.cleanedText}`;
+    const packet = '[RESEARCH PACKET]\n▸ 수치\n- 3.75~4.00% [E01]\n- 7.17% [E01]';
+    const a: ArticleSections = {
+      introduction: '<p>주택담보대출 금리 7% 돌파가 기준금리 7%를 뜻하는지 봅니다.</p>',
+      sections: [
+        { h2: '1. 주담대 상단', h3Sections: [{ h3: '수치', content: '<p>5대 은행 고정형 상단은 연 7.17%입니다. 변동형과 다릅니다.</p>' }] },
+        { h2: '2. 기준금리와 다른 이유', h3Sections: [{ h3: '기준금리', content: '<p>미국 연방준비제도의 기준금리는 연 3.75%에서 4.00%입니다. 대출금리는 장기금리와 상품 구조가 더해져 정해집니다.</p>' }] },
+      ],
+      conclusion: '<p>상품유형을 먼저 확인하는 것이 먼저입니다.</p>',
+    };
+    const issue = { severity: 'MAJOR', sectionId: 'S02', exactSpan: '미국 연방준비제도의 기준금리는 연 3.75%에서 4.00%입니다', type: 'TITLE_PROMISE_UNMET', problem: '제목은 한국 기준금리 7% 여부를 묻는데 본문은 미국 기준금리만 제시하고 한국 기준금리 근거가 패킷에 없다', evidenceIds: [], requiredChange: '한국 기준금리 현재 수준을 공식 자료로 확인해 답하라' };
+    const askResearch = JSON.stringify({ status: 'NEEDS_MORE_RESEARCH', issues: [issue], missingIntentAnswers: [], titleIssues: [], researchQueries: ['한국은행 기준금리 2026년 9월'] });
+    const bokItem = { id: 'E02', title: '한국은행 기준금리', cleanedText: '한국은행 금융통화위원회는 기준금리를 연 2.50%로 유지했다.' };
+    return { ev, evText, packet, a, askResearch, bokItem };
+  };
+
+  it('⭐⭐ Research Recovery (금융 742 재현): NEEDS_MORE_RESEARCH + blocking → 편집 전에 검색 → 재비평에서 해결 → 편집 0회', async () => {
+    const { ev, evText, packet, a, askResearch, bokItem } = finance742();
+    let critic = 0; let editor = 0; let researched: string[] = []; const order: string[] = [];
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) { critic += 1; order.push('critic'); return critic === 1 ? askResearch : PASS; }   // 근거가 생기면 지적이 사라진다
+      if (isEditor(p)) { editor += 1; order.push('editor'); return JSON.stringify({ revisions: [] }); }
+      order.push('other'); return PASS;
+    };
+    const r = await runCritiqueLoop({ title: '주택담보대출 금리 7% 돌파, 기준금리도 7%인가', mainKeyword: '주택담보대출 금리 7% 돌파', article: a, packetText: packet, evidenceText: evText, items: ev, callModel,
+      moreResearch: async (q) => { researched = q; order.push('research'); return { packetText: `${packet}\n- 2.50% [E02]`, evidenceText: `${evText}\n\n[E02][공식] ${bokItem.title}\n${bokItem.cleanedText}`, items: [...ev, bokItem] }; } });
+    expect(order.slice(0, 3)).toEqual(['critic', 'research', 'critic']);   // 편집보다 검색이 먼저
+    expect(researched).toEqual(['한국은행 기준금리 2026년 9월']);
+    expect(editor).toBe(0);
+    expect(r.report.researchRecovery).toMatchObject({ triggered: true, evidenceAdded: 1, recoveryCalls: 1, editorCallsSaved: 1, stillRequested: false });
+    expect(r.report.researchRecovery!.criticBefore.blocking).toBe(1);
+    expect(r.report.researchRecovery!.criticAfter!.blocking).toBe(0);
+    expect(r.report.issueLedger.filter((i) => i.origin === 'critic1' && i.severity !== 'MINOR')).toHaveLength(0);   // 첫 비평의 지적은 장부에 남지 않는다
+    expect(r.report.converged).toBe(true);
+    expect(r.report.qualityLoopCalls).toBe(3);   // critic1 ×2 + 편집 비평
+  });
+
+  it('⭐ Recovery 뒤에도 지적이 남으면 그때 편집 (1회 이하) · 검색은 다시 안 한다', async () => {
+    const { ev, evText, packet, a, askResearch, bokItem } = finance742();
+    let critic = 0; let research = 0; let editor = 0;
+    const key = issueKeyOf('S02', 'TITLE_PROMISE_UNMET', '미국 연방준비제도의 기준금리는 연 3.75%에서 4.00%입니다');
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) { critic += 1; return askResearch; }   // 보강 뒤에도 같은 지적 + 또 근거 요구
+      if (isEditor(p)) { editor += 1; return JSON.stringify({ revisions: [{ sectionId: 'S02', h3Sections: [{ index: 0, content: '<p>미국 연방준비제도의 기준금리는 연 3.75%에서 4.00%이고, 한국은행 기준금리는 연 2.50%로 유지됐습니다. 주담대 상단 7%와는 다른 숫자입니다.</p>' }], resolvedIssueKeys: [key] }] }); }
+      if (isVerify(p)) return JSON.stringify({ resolved: [key], stillOpen: [], issues: [] });
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: 't', mainKeyword: '주택담보대출 금리 7% 돌파', article: a, packetText: packet, evidenceText: evText, items: ev, callModel,
+      moreResearch: async () => { research += 1; return { packetText: `${packet}\n- 2.50% [E02]`, evidenceText: evText, items: [...ev, bokItem] }; } });
+    expect(research).toBe(1);                       // 상한 1회 — 검색→비평→검색 반복 없음
+    expect(critic).toBe(2);
+    expect(editor).toBe(1);
+    expect(r.report.researchRecovery!.stillRequested).toBe(true);
+    expect(r.report.converged).toBe(true);
+  });
+
+  it('⭐ Recovery 실패(관련 근거 없음): 재검색 없음 · 편집기가 값을 지어내면 관문이 되돌리고 MANUAL_REVIEW', async () => {
+    const { ev, evText, packet, a, askResearch } = finance742();
+    let research = 0; let editor = 0;
+    const callModel = async (p: string) => {
+      if (isCritic1(p)) return askResearch;
+      if (isEditor(p)) { editor += 1; return JSON.stringify({ revisions: [{ sectionId: 'S02', h3Sections: [{ index: 0, content: '<p>한국은행 기준금리는 연 2.50%이고 미국은 연 3.75%에서 4.00%입니다. 주담대 상단 7.17%와는 다릅니다.</p>' }], resolvedIssueKeys: [] }] }); }   // 2.50% 는 근거에 없다 — 창작
+      if (isVerify(p)) return JSON.stringify({ resolved: [], stillOpen: [], issues: [] });
+      return PASS;
+    };
+    const r = await runCritiqueLoop({ title: 't', mainKeyword: '주택담보대출 금리 7% 돌파', article: a, packetText: packet, evidenceText: evText, items: ev, callModel, moreResearch: async () => { research += 1; return null; } });
+    expect(research).toBe(1);
+    expect(r.report.researchRecovery).toMatchObject({ triggered: true, evidenceAdded: 0, recoveryCalls: 0, stillRequested: true });
+    expect(r.report.revisions.every((rv) => rv.revised.length === 0)).toBe(true);   // 지어낸 값(2.50%)은 과수정 관문이 되돌린다
+    expect(r.article.sections[1]!.h3Sections[0]!.content).not.toContain('2.50%');
+    expect(r.report.converged).toBe(false);
+  });
+
+  it('Recovery 는 moreResearch 훅이 없으면 돌지 않고 예전 흐름(편집)으로 간다', async () => {
+    const { ev, evText, packet, a, askResearch } = finance742();
+    let editor = 0;
+    const callModel = async (p: string) => { if (isCritic1(p)) return askResearch; if (isEditor(p)) { editor += 1; return JSON.stringify({ revisions: [] }); } return PASS; };
+    const r = await runCritiqueLoop({ title: 't', mainKeyword: 'k', article: a, packetText: packet, evidenceText: evText, items: ev, callModel });
+    expect(r.report.researchRecovery).toBeNull();
+    expect(editor).toBe(1);
   });
 
   it('과수정 관문 — 새 근거 없는 값·REMOVE 없는 값 삭제·다른 절과 같은 문장·지적된 값 잔존은 거부, REMOVE 지적의 값 삭제는 허용', () => {

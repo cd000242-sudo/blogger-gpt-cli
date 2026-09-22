@@ -84,6 +84,15 @@ export interface LedgerEntry {
   revisionCycles?: number;
   revisedSections?: number;
   unchangedSections?: number;
+  /** v3.8.746 — Research Recovery(편집보다 검색이 먼저) 기록 */
+  researchRecoveryTriggered?: boolean;
+  researchQueries?: string;
+  researchRecoverySearchCount?: number;
+  evidenceAdded?: number;
+  criticBeforeRecovery?: string;
+  criticAfterRecovery?: string;
+  recoveryCost?: number;
+  editorCallsSaved?: number;
   finalDecision?: 'AUTO_PUBLISH' | 'MANUAL_REVIEW';
   qualityConverged?: boolean;
   manualReviewReason?: string;
