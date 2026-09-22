@@ -94,6 +94,9 @@ export interface LedgerEntry {
   recoveryCost?: number;
   editorCallsSaved?: number;
   finalDecision?: 'AUTO_PUBLISH' | 'MANUAL_REVIEW';
+  /** v3.8.747 — 이 판정이 발행을 실제로 막는가(품질 루프 ON) · 루프가 켜져 있었는가 */
+  publishHoldEnforced?: boolean;
+  qualityLoopEnabled?: boolean;
   qualityConverged?: boolean;
   manualReviewReason?: string;
   /** v3.8.734 — 단계 상태 요약(SEARCH_OK · GROUNDING_WEAK …)과 근거 통계 */

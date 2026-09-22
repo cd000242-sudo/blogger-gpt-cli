@@ -1780,12 +1780,33 @@ export async function publishGeneratedContent(
    * payload.forcePublish 로 사람이 명시하면 막지 않는다.
    */
   try {
-    const { checkPublishDecision } = require('./final/publish-gate');
+    const { checkPublishDecision, findManualReviewByTitle, recordPublishOverride } = require('./final/publish-gate');
     const hold = checkPublishDecision(html);
-    if (hold && hold.decision === 'MANUAL_REVIEW' && payload?.forcePublish !== true) {
+    // forcePublish 는 명시적 true 만 — undefined/null/"true" 문자열은 켜진 것이 아니다
+    const forced = payload?.forcePublish === true;
+    // v3.8.747 — 루프 OFF 글의 MANUAL_REVIEW 는 참고 판정(enforced=false): 알리되 막지 않는다(기존 사용자 경로 유지)
+    if (hold && hold.decision === 'MANUAL_REVIEW' && hold.enforced === false && !forced) {
+      emit(`[PUBLISH] ℹ️ 품질 관문 참고: ${hold.reason || '알 수 없음'} — 품질 루프가 꺼져 있어 발행은 막지 않습니다 (QUALITY_LOOP 를 켜면 자동으로 고치고 못 고치면 막습니다)`);
+    }
+    if (hold && hold.decision === 'MANUAL_REVIEW' && hold.enforced !== false && !forced) {
       const reason = `MANUAL_REVIEW — 품질 관문을 통과하지 못해 자동 발행하지 않았습니다. 사유: ${hold.reason || '알 수 없음'}. 미리보기에서 확인해 고친 뒤 발행하거나, 그대로 발행하려면 forcePublish 를 켜 주세요.`;
       emit(`[PUBLISH] 🛑 ${reason}`);
       return { ok: false, error: reason, blockedReason: 'MANUAL_REVIEW', recoverable: true };
+    }
+    /**
+     * v3.8.747 — 우회는 조용히 지나가지 않는다.
+     *   · forcePublish=true 로 MANUAL_REVIEW 본문을 그대로 내보내면 forcePublished 로 기록
+     *   · 같은 제목의 MANUAL_REVIEW 가 있는데 지문이 다르면 사람이 고친 본문(userEdited) 으로 기록
+     */
+    if (hold && hold.decision === 'MANUAL_REVIEW' && hold.enforced !== false && forced) {
+      const o = recordPublishOverride('forcePublish', title, hold.reason);
+      emit(`[PUBLISH] ⚠️ forcePublished=true — MANUAL_REVIEW 를 우회해 발행합니다 (사유: ${hold.reason || '알 수 없음'} · ${o.at})`);
+    } else if (!hold) {
+      const prior = findManualReviewByTitle(title);
+      if (prior && prior.enforced !== false) {
+        const o = recordPublishOverride('userEdited', title, prior.reason);
+        emit(`[PUBLISH] ✏️ userEdited=true — MANUAL_REVIEW 였던 글의 본문이 편집돼 지문이 달라졌습니다. 사람이 검토한 것으로 보고 발행합니다 (원 사유: ${prior.reason || '알 수 없음'} · ${o.at})`);
+      }
     }
   } catch { /* 관문 조회 실패가 발행을 막지 않는다 */ }
   try {

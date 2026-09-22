@@ -609,7 +609,9 @@ describe('⑥ Hard Gate · 발행 결정 · 장부 · 유료 호출 가드', () 
     expect(checkPublishDecision(html)!.decision).toBe('MANUAL_REVIEW');
     expect(checkPublishDecision(html + '<p>사람이 한 줄 고쳤다</p>')).toBeNull();
     const idx = read('src/core/index.ts');
-    expect(idx).toContain("hold.decision === 'MANUAL_REVIEW' && payload?.forcePublish !== true");
+    // v3.8.747 부터 forcePublish 는 `=== true` 로만, 차단은 enforced(루프 ON) 일 때만
+    expect(idx).toContain("const forced = payload?.forcePublish === true;");
+    expect(idx).toContain("hold.decision === 'MANUAL_REVIEW' && hold.enforced !== false && !forced");
   });
   it('장부에 호출 수·단계별 모델·주기·결정이 남는다', () => {
     const ledgerSrc = read('src/core/final/publish-ledger.ts');

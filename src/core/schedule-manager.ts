@@ -374,6 +374,16 @@ export class ScheduleManager {
           result.html || result.content || '',
           result.thumbnail || result.thumbnailUrl || ''
         );
+        /**
+         * v3.8.747 — MANUAL_REVIEW 는 재시도 대상이 아니다. 예전엔 일반 실패로 던져져 retryCount 가 늘고
+         * 다음 회차에 **글을 처음부터 다시 생성**(유료)했다 — 최대 3편 값을 조용히 쓰고도 같은 관문에 막힐 수 있다.
+         * 예약은 실패로 두고 사유를 남긴다. 사람이 미리보기에서 확인해 고치거나 forcePublish 로 내보낸다.
+         */
+        if (!publishResult.ok && publishResult.blockedReason === 'MANUAL_REVIEW') {
+          this.updateSchedule(schedule.id, { status: 'failed', errorMessage: `MANUAL_REVIEW — 자동 발행하지 않음(재시도 없음): ${String(publishResult.error || '').slice(0, 200)}` });
+          console.warn(`🛑 예약 글이 품질 관문(MANUAL_REVIEW)에 막혀 발행하지 않았습니다 — 재생성하지 않습니다: ${schedule.id}`);
+          return;
+        }
         if (!publishResult.ok) {
           throw new Error(publishResult.error || '발행 실패');
         }

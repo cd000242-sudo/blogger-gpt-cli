@@ -4314,8 +4314,8 @@ ${quoted}
     const publishDecision: 'AUTO_PUBLISH' | 'MANUAL_REVIEW' = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
     pipelineStatus.mark('FINAL', qualityConverged ? 'QUALITY_CONVERGED' : 'MANUAL_REVIEW', manualReviewReason);
     onLog?.(qualityConverged
-      ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.`
-      : `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}`);
+      ? (qualityLoopOn ? `[PROGRESS] 77% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 77% - ✅ 품질 관문 통과 (품질 루프 OFF · 비평·수정 없음)`)
+      : (qualityLoopOn ? `[PROGRESS] 77% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 77% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason}`));
     (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: allSectionsObj, title: String(h1 || ''), packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     // 8. HTML 조립
@@ -7067,6 +7067,8 @@ ${conclusionHTML}
         } : {}),
         ...(finalJudge ? { finalJudgeModel: String(finalJudge.model || '') } : {}),
         finalDecision: publishDecision,
+        publishHoldEnforced: qualityLoopOn,   // v3.8.747 — OFF 는 참고 판정
+        qualityLoopEnabled: qualityLoopOn,
         qualityConverged,
         ...(manualReviewReason ? { manualReviewReason } : {}),
         auditKinds: kinds,
@@ -7135,8 +7137,13 @@ ${conclusionHTML}
     }
 
     // v3.8.735 — 발행 창구가 이 본문의 지문으로 결정을 찾는다. 사람이 편집기에서 고치면 지문이 달라져 막지 않는다
-    try { require('./publish-gate').recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || '')); } catch { /* 기록 실패가 생성을 막지 않는다 */ }
-    if (publishDecision === 'MANUAL_REVIEW') onLog?.(`[PROGRESS] 99% - 🛑 이 글은 MANUAL_REVIEW 입니다 — 자동 발행하지 않습니다. 미리보기에서 확인 후 직접 발행하세요. 사유: ${manualReviewReason}`);
+    // v3.8.747 — 발행 차단은 품질 루프가 켜진 글만(enforced). OFF 는 판정을 남기되 막지 않는다(736 설계: 기본은 734 와 같다)
+    try { require('./publish-gate').recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || ''), qualityLoopOn); } catch { /* 기록 실패가 생성을 막지 않는다 */ }
+    if (publishDecision === 'MANUAL_REVIEW') {
+      onLog?.(qualityLoopOn
+        ? `[PROGRESS] 99% - 🛑 이 글은 MANUAL_REVIEW 입니다 — 자동 발행하지 않습니다. 미리보기에서 확인 후 직접 발행하세요. 사유: ${manualReviewReason}`
+        : `[PROGRESS] 99% - ℹ️ 품질 관문 참고(발행은 막지 않음 · 품질 루프 OFF): ${manualReviewReason}`);
+    }
 
     return {
       html,
