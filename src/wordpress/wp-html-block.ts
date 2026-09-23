@@ -44,6 +44,22 @@ export function wrapAsHtmlBlock(html: string): string {
 }
 
 /**
+ * v3.8.749 — 발행 **뒤에** 다시 저장하는 길(글 재생성·개선안 적용·CTA 일괄 수리·애드센스 보강·거미줄 백링크)용.
+ *
+ * 실측(발행글 5816): 발행 8분 뒤 블록 표식 없이 다시 저장돼, 워드프레스가 스킨 CSS 95줄에 <p> 를 끼워 넣었다.
+ *
+ * 블록 표식(`<!-- wp:…`)이 **하나도 없을 때만** 감싼다. 표식이 하나라도 있으면 워드프레스는
+ * wpautop 을 돌리지 않으므로(has_blocks) 그대로 둔다 — 이미 감싼 뒤 끝에 JSON-LD 를 붙인 본문이나,
+ * 사용자가 편집기에서 만든 블록 구조(이미지 블록 등)를 한 덩어리로 뭉개지 않기 위해서다.
+ */
+export function protectFromWpautop(html: string): string {
+  const body = String(html || '');
+  if (!body.trim()) return body;
+  if (/<!--\s*wp:[a-z]/i.test(body)) return body;
+  return wrapAsHtmlBlock(body);
+}
+
+/**
  * 편집기에 보여줄 모양으로 벗긴다.
  * 감싸져 있지 않으면 그대로 돌려준다(예전 글은 안 감싸져 있다).
  */

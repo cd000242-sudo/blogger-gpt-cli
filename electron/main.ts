@@ -14311,10 +14311,13 @@ async function updateWordPressSpiderBacklink(post: SpiderBacklinkSourcePost, hub
     return { action: 'unchanged', url: wpPost.link || post.url || '' };
   }
 
+  // v3.8.749: 재저장도 wpautop 을 막는다 — 블록 표식 없이 보내면 <style> 안에까지 <p> 가 끼어 스킨이 깨진다
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { protectFromWpautop } = require('../dist/wordpress/wp-html-block');
   const putResponse = await fetch(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ content: patch.html }),
+    body: JSON.stringify({ content: protectFromWpautop(patch.html) }),
   });
   const putText = await putResponse.text();
   if (!putResponse.ok) {
@@ -16661,7 +16664,14 @@ function buildPlatformAdapter(creds: PlatformCreds, axiosInstance: any) {
       async updatePost(postId: string, fields: { title?: string; content?: string }): Promise<void> {
         const body: any = {};
         if (fields.title !== undefined) body.title = fields.title;
-        if (fields.content !== undefined) body.content = fields.content;
+        /**
+         * v3.8.749 — 재저장 기능 여섯 곳(글 재생성·개선안 적용·CTA 일괄 수리·애드센스 보강·연도 갱신·스키마 주입)이
+         * 모두 이 한 곳을 지난다. 블록 표식 없이 보내면 워드프레스가 wpautop 으로 <style> 안에까지 <p> 를 끼워
+         * 스킨이 깨진다(발행글 5816: 스킨 CSS 95줄 오염).
+         */
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { protectFromWpautop } = require('../dist/wordpress/wp-html-block');
+        if (fields.content !== undefined) body.content = protectFromWpautop(fields.content);
         await axiosInstance.post(`${siteUrl}/wp-json/wp/v2/posts/${encodeURIComponent(postId)}`, body, {
           headers, timeout: 30000,
         });
