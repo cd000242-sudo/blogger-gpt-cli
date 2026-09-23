@@ -117,6 +117,20 @@ export function extractLivedSignals(
 }
 
 /**
+ * 재료가 0일 때 화면 로그 꼬리말 (v3.8.750).
+ *
+ * 예전엔 지식인·후기가 0이면 무조건 "네이버 API 키를 넣으면…" 이라고 했다. URL 모드가 지식iN 을 아예
+ * 안 찾던 때 키가 있는데도 이렇게 떠서 원인을 키로 오해하게 만들었다(749 라이브).
+ * 키가 없을 때만 키를 말하고, 키가 있으면 이 주제로는 못 찾았다고, 모르면 아무것도 붙이지 않는다.
+ */
+export function describeMissingLivedMaterial(kinCount: number, reviewCount: number, hasNaverKeys: boolean | null): string {
+  if (kinCount > 0 || reviewCount > 0 || hasNaverKeys === null) return '';
+  return hasNaverKeys
+    ? ' — 이 주제로 지식iN 답변을 찾지 못했습니다'
+    : ' — 네이버 API 키를 넣으면 지식인 답변을 재료로 씁니다';
+}
+
+/**
  * 뽑은 신호를 **인용이 아니라 아는 사람의 말투**로 쓰게 하는 프롬프트 블록.
  *
  * 신호가 없으면 빈 문자열 — 프롬프트가 이전과 완전히 같아진다.

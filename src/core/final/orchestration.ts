@@ -37,7 +37,7 @@ import { buildOfficialSourceBlock } from './official-sources';
 import {
   normalizeExperience, hasExperience, buildExperienceBlock, NO_EXPERIENCE_GUARD,
 } from './experience-block';
-import { extractLivedSignals, buildLivedVoiceBlock, HUMAN_VOICE_RULES } from './lived-voice';
+import { extractLivedSignals, buildLivedVoiceBlock, describeMissingLivedMaterial, HUMAN_VOICE_RULES } from './lived-voice';
 import { guardFacts, buildGroundingReference } from './fact-guard';
 // v3.8.574: AI 를 부르지 않는 구조 검사 — 열거 구멍·앞 잘린 문단·과한 단정
 import { findStructureIssues, describeStructureIssues } from './structure-guard';
@@ -69,7 +69,7 @@ import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTI
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
 import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, renderCoupangProductBlock, renderCoupangDisclosureBanner, enforceCoupangCompliance } from '../coupang-partners';
 import { uploadBase64ToImageHost } from './image-helpers';
-import { collectUrlModeSources, buildUrlUpgradeWriterBlock, type UrlModeSources } from './url-mode';
+import { collectUrlModeSources, collectUrlModeQuestionPosts, buildUrlUpgradeWriterBlock, type UrlModeSources } from './url-mode';
 import { recoverTopicFromContent, describeCrawlFailure } from './url-topic-recovery';
 import { parseNaverBlogUrl } from './naver-blog-source';
 import { crawlSingleUrlFast } from './crawlers';
@@ -1135,8 +1135,36 @@ export async function generateUltimateMaxModeArticleFinal(
     let crawledPosts: FinalCrawledPost[] = [];
 
     if (urlModeSources) {
-      // 🔗 v3.8.749 URL 모드 — 위에서 읽은 원문이 곧 근거 자료다 (다시 읽거나 검색하지 않는다)
-      crawledPosts = urlModeSources.posts;
+      // 🔗 v3.8.749 URL 모드 — 위에서 읽은 원문이 곧 근거 자료다 (다시 읽거나 블로그·뉴스를 검색하지 않는다)
+      // v3.8.750 — 질문 소재(지식iN·자동완성)만은 키워드 글처럼 모은다. 빠지면 소제목이 검색자 질문 없이 서고
+      //   겪은 사람 말투 재료가 0이 된다(749 라이브). 지식iN 은 검색 키가 있을 때만, 자동완성은 무료라 늘.
+      //   무엇이 실패해도 원문만으로 계속 쓴다 — 질문 소재는 재료일 뿐, 글을 멈출 이유가 아니다.
+      let questionPosts: FinalCrawledPost[] = [];
+      try {
+        const envQ = loadEnvFromFile();
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const naverClientQ = require('../naver-search-client');
+        naverClientQ.resetNaverCallLog();
+        const hasQuestionSearchKeys = (naverClientQ.resolveAllNaverCredentials(payload) || []).length > 0;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { ContentCrawler: QuestionCrawler } = require('../content-crawler');
+        const questionCrawler = new QuestionCrawler();
+        const questionConfig = (topic: string) => ({
+          topic,
+          keywords: [topic],
+          maxResults: 5,
+          naverClientId: (payload as any).naverClientId || envQ['naverClientId'] || envQ['NAVER_CLIENT_ID'] || '',
+          naverClientSecret: (payload as any).naverClientSecret || envQ['naverClientSecret'] || envQ['NAVER_CLIENT_SECRET'] || '',
+        });
+        questionPosts = await collectUrlModeQuestionPosts(keyword, {
+          ...(hasQuestionSearchKeys ? { crawlKin: (topic: string) => questionCrawler.crawlFromNaverKin(questionConfig(topic)) } : {}),
+          crawlSuggest: (topic: string) => questionCrawler.crawlGoogleSuggest(questionConfig(topic)),
+          onLog: (msg: string) => onLog?.(msg),
+        });
+      } catch (questionErr: any) {
+        onLog?.(`   ⚠️ 질문 소재 수집을 건너뜁니다 (${String(questionErr?.message || questionErr).slice(0, 60)}) — 원문만으로 씁니다`);
+      }
+      crawledPosts = [...urlModeSources.posts, ...questionPosts];
     } else if (manualUrls.length > 0) {
       // 🔗 URL 직접 크롤링 모드 (사용자가 참고 URL 입력한 경우 → 유지!)
       onLog?.('[PROGRESS] 5% - 🔗 URL 직접 크롤링 중...');
@@ -3460,8 +3488,12 @@ ${quoted}
          * 조용히 넘어가면 "이 모드는 왜 밋밋하지?" 를 나중에 못 찾는다.
          */
         const kinCount = (crawledPosts as any[]).filter((p: any) => p?.source === 'naver-kin').length;
+        let hasNaverKeys: boolean | null = null;
+        try {
+          hasNaverKeys = (require('../naver-search-client').resolveAllNaverCredentials(payload) || []).length > 0;
+        } catch { /* 키 유무를 모르면 키 이야기를 하지 않는다 */ }
         onLog?.(`[PROGRESS] 43% - ℹ️ 겪은 사람 말투 재료 없음 (지식인 ${kinCount}건 · 후기 ${livedReviews.length}건)`
-          + (kinCount === 0 && livedReviews.length === 0 ? ' — 네이버 API 키를 넣으면 지식인 답변을 재료로 씁니다' : ''));
+          + describeMissingLivedMaterial(kinCount, livedReviews.length, hasNaverKeys));
       }
 
       /** 🖋️ v3.8.470 — 문체 층위. 재료가 있든 없든 항상 붙인다. */

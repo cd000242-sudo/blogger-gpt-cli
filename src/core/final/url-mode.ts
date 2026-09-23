@@ -138,6 +138,81 @@ export async function collectUrlModeSources(urls: string[], deps: UrlModeDeps): 
   };
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * v3.8.750 — URL 모드도 **질문 소재**(지식iN·자동완성)는 키워드 글처럼 모은다.
+ *
+ * 749 는 검색 단계를 통째로 건너뛰어 이 둘이 늘 0이었다. 라이브 1편(실손보험 청구 기사)에서
+ * "검색자 질문 데이터 없음 — 경쟁 글 소제목 기준으로 생성" · "겪은 사람 말투 재료 없음 (지식인 0건)"이
+ * 떴다(네이버 키는 있었다). 키워드 글은 지식iN 질문으로 소제목을 세우고 답변에서 막힌 지점을 뽑는다.
+ *
+ * 근거는 여전히 원문이 맡는다. 질문 소재는 "독자가 무엇을 궁금해하나"만 알려 주고, 관련도 문에서도
+ * 건너뛴다(orchestration QUESTION_SOURCES). 한쪽이 실패해도 멈추지 않는다 — 재료가 줄 뿐이다.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/** 질문 소재 수집기가 돌려주는 한 건 (content-crawler 의 CrawledContent 와 같은 모양) */
+export interface QuestionSourceLike {
+  title?: string;
+  url?: string;
+  content?: string;
+  subheadings?: string[];
+  source?: string;
+}
+
+export interface UrlModeQuestionDeps {
+  /** 네이버 지식iN — 실제로 묻는 질문·답 (검색 키가 없으면 넘기지 않는다) */
+  crawlKin?: (topic: string) => Promise<QuestionSourceLike[]>;
+  /** 구글 자동완성 — 함께 검색하는 표현 (키 없이 무료) */
+  crawlSuggest: (topic: string) => Promise<QuestionSourceLike[]>;
+  onLog?: (msg: string) => void;
+}
+
+export type QuestionSourceTag = 'naver-kin' | 'google-suggest';
+
+/** 질문 소재 한 건 — 키워드 글의 변환(CrawledContent → FinalCrawledPost)과 같은 모양 */
+export interface UrlModeQuestionPost {
+  title: string;
+  url: string;
+  content: string;
+  subheadings: string[];
+  source: QuestionSourceTag;
+  pubDate: null;
+  originalLink: string;
+  hasBody: false;
+}
+
+const QUESTION_SOURCE_TAGS: ReadonlySet<string> = new Set<QuestionSourceTag>(['naver-kin', 'google-suggest']);
+
+export async function collectUrlModeQuestionPosts(topic: string, deps: UrlModeQuestionDeps): Promise<UrlModeQuestionPost[]> {
+  const run = async (crawl: ((t: string) => Promise<QuestionSourceLike[]>) | undefined): Promise<QuestionSourceLike[]> => {
+    if (!crawl) return [];
+    try {
+      const items = await crawl(topic);
+      return Array.isArray(items) ? items : [];
+    } catch {
+      return [];
+    }
+  };
+  const [kin, suggest] = await Promise.all([run(deps.crawlKin), run(deps.crawlSuggest)]);
+
+  const posts: UrlModeQuestionPost[] = [...kin, ...suggest]
+    .filter((item) => QUESTION_SOURCE_TAGS.has(String(item?.source || '')))
+    .map((item) => ({
+      title: String(item.title || ''),
+      url: String(item.url || ''),
+      content: String(item.content || ''),
+      subheadings: Array.isArray(item.subheadings) ? item.subheadings : [],
+      source: item.source as QuestionSourceTag,
+      pubDate: null,
+      originalLink: '',
+      hasBody: false as const,
+    }));
+
+  const kinCount = posts.filter((p) => p.source === 'naver-kin').length;
+  const suggestCount = posts.filter((p) => p.source === 'google-suggest').reduce((n, p) => n + p.subheadings.length, 0);
+  deps.onLog?.(`   🙋 질문 소재: 지식iN ${kinCount}건 · 자동완성 ${suggestCount}개 ("${topic}")`);
+  return posts;
+}
+
 /**
  * 작가 지시문에 싣는 "원문의 상위호환" 블록 (v3.8.596 규칙 · v3.8.633 날짜 경고).
  * 규칙 문장은 URL 생성기와 **같은 상수**를 쓴다 — 한쪽만 고치면 경로에 따라 결과가 조용히 달라진다.

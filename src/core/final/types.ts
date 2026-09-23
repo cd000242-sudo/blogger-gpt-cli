@@ -33,7 +33,11 @@ export interface FinalCrawledPost {
   subheadings: string[];
   date?: string;
   viewCount?: number;
-  source: 'naver' | 'rss' | 'tistory' | 'wordpress' | 'news' | 'cafe' | 'external';
+  /**
+   * 'naver-kin'·'google-suggest' 는 질문 소재(근거 아님). 키워드 글은 v3.8.374 부터 이 표시를 실어 왔는데
+   * (as any 로 넣어서) 타입만 몰랐다 — v3.8.750 URL 모드가 같은 재료를 실으면서 타입을 맞췄다.
+   */
+  source: 'naver' | 'rss' | 'tistory' | 'wordpress' | 'news' | 'cafe' | 'external' | 'naver-kin' | 'google-suggest';
 }
 
 export interface FinalTableData {

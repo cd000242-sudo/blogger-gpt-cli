@@ -24,7 +24,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { extractLivedSignals, buildLivedVoiceBlock } from '../src/core/final/lived-voice';
+import { extractLivedSignals, buildLivedVoiceBlock, describeMissingLivedMaterial } from '../src/core/final/lived-voice';
 
 const orchestration = fs.readFileSync(
   path.join(__dirname, '..', 'src/core/final/orchestration.ts'), 'utf-8',
@@ -101,7 +101,9 @@ describe('② 어떤 모드든 재료가 들어간다', () => {
 
   it('⭐ 재료가 0이면 왜 그런지 로그로 남긴다 (조용히 밋밋해지면 원인을 못 찾는다)', () => {
     expect(orchestration).toContain('겪은 사람 말투 재료 없음');
-    expect(orchestration).toContain('네이버 API 키를 넣으면');
+    // v3.8.750 — 까닭은 키 유무를 보고 고른다. 키가 없을 때만 "키를 넣으면" 이라고 한다(키가 있는데도 그렇게 떴었다)
+    expect(orchestration).toContain('describeMissingLivedMaterial(kinCount, livedReviews.length, hasNaverKeys)');
+    expect(describeMissingLivedMaterial(0, 0, false)).toContain('네이버 API 키를 넣으면');
   });
 });
 

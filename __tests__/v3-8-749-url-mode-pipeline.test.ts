@@ -127,9 +127,12 @@ describe('orchestration 배선', () => {
     expect(urlBlock).toMatch(/keyword = urlModeSources\.topic/);
   });
 
-  it('URL 원문이 근거 자료가 된다 — 검색·재수집을 다시 하지 않는다', () => {
+  it('URL 원문이 근거 자료가 된다 — 블로그·뉴스·웹을 다시 검색하거나 재수집하지 않는다', () => {
     const crawl = blockBetween(orch, 'let crawledPosts: FinalCrawledPost[] = [];', '🏛️ v3.8.730');
-    expect(crawl).toMatch(/if \(urlModeSources\) \{[\s\S]*crawledPosts = urlModeSources\.posts/);
+    // v3.8.750 — 원문 뒤에 질문 소재(지식iN·자동완성)만 더한다 (url-mode-question-sources.test.ts)
+    expect(crawl).toMatch(/if \(urlModeSources\) \{[\s\S]*crawledPosts = \[\.\.\.urlModeSources\.posts, \.\.\.questionPosts\]/);
+    const urlBranch = blockBetween(crawl, 'if (urlModeSources) {', '} else if (manualUrls.length > 0) {');
+    expect(urlBranch).not.toMatch(/crawlFromNaverAPI|crawlFromNaverNews|crawlFromNaverWeb|crawlSingleUrlFast/);
     expect(crawl).toMatch(/\} else if \(manualUrls\.length > 0\) \{/);
   });
 
