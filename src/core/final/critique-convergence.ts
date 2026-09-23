@@ -338,41 +338,44 @@ const CLASS_ORDER: Record<IssueClass, number> = { BLOCKING: 0, OPTIONAL: 1, NEED
 const headingsOf = (html: string): string[] => splitSections(html).filter((s) => s.index > 0).map((s) => s.heading.trim()).filter(Boolean);
 const normTitle = (t: string): string => String(t || '').replace(/\s+/g, '').toLowerCase();
 
-const AREAS = ['substance', 'answer', 'quality', 'cta', 'competitor', 'structure', 'style'];
-const SEVERITIES = ['high', 'medium', 'low'];
-const CLASSES: IssueClass[] = ['BLOCKING', 'OPTIONAL', 'NEEDS_NEW_EVIDENCE'];
-const STATES: LifecycleState[] = ['OPEN', 'RESOLVED', 'REGRESSED'];
+const AREAS: readonly string[] = ['substance', 'answer', 'quality', 'cta', 'competitor', 'structure', 'style'];
+const SEVERITIES: readonly string[] = ['high', 'medium', 'low'];
+const CLASSES: readonly string[] = ['BLOCKING', 'OPTIONAL', 'NEEDS_NEW_EVIDENCE'];
+const STATES: readonly string[] = ['OPEN', 'RESOLVED', 'REGRESSED'];
 const str = (v: unknown, n: number): string => String(v ?? '').slice(0, n);
 const int = (v: unknown): number => (Number.isInteger(v) ? Number(v) : 0);
+const pick = <T extends string>(v: unknown, allowed: readonly string[], fallback: T): T => (allowed.includes(String(v)) ? String(v) as T : fallback);
+type Loose = Record<string, unknown>;
+const isLoose = (v: unknown): v is Loose => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * 화면(렌더러)·파일에서 온 체인을 믿지 않고 다시 세운다 — 시스템 경계. 모양이 틀리면 null(체인 없음).
  */
 export function sanitizeChain(raw: unknown): CritiqueChain | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, any>;
+  if (!isLoose(raw)) return null;
+  const r = raw;
   if (r['version'] !== 1 || !Array.isArray(r['issues'])) return null;
-  const issues: ChainIssue[] = (r['issues'] as any[])
-    .filter((i) => i && typeof i === 'object' && typeof i.stableIssueId === 'string' && i.stableIssueId)
+  const issues: ChainIssue[] = (r['issues'] as unknown[])
+    .filter((i): i is Loose => isLoose(i) && typeof i['stableIssueId'] === 'string' && i['stableIssueId'] !== '')
     .slice(0, 200)
     .map((i) => ({
-      stableIssueId: str(i.stableIssueId, 400),
-      id: str(i.id, 120),
-      area: (AREAS.includes(i.area) ? i.area : 'structure') as ChainIssue['area'],
-      severity: (SEVERITIES.includes(i.severity) ? i.severity : 'medium') as ChainIssue['severity'],
-      origin: i.origin === 'ai' ? 'ai' : 'code',
-      title: str(i.title, 200),
-      detail: str(i.detail, 600),
-      evidence: str(i.evidence, 400),
-      fix: str(i.fix, 600),
-      sectionIndex: Number.isInteger(i.sectionIndex) ? i.sectionIndex : -1,
-      ...(i.aiType ? { aiType: str(i.aiType, 40) } : {}),
-      issueClass: CLASSES.includes(i.issueClass) ? i.issueClass : 'OPTIONAL',
-      state: STATES.includes(i.state) ? i.state : 'OPEN',
-      anchored: i.anchored === true,
-      firstCycle: int(i.firstCycle),
-      lastCycle: int(i.lastCycle),
-      note: str(i.note, 200),
+      stableIssueId: str(i['stableIssueId'], 400),
+      id: str(i['id'], 120),
+      area: pick<ChainIssue['area']>(i['area'], AREAS, 'structure'),
+      severity: pick<ChainIssue['severity']>(i['severity'], SEVERITIES, 'medium'),
+      origin: i['origin'] === 'ai' ? 'ai' as const : 'code' as const,
+      title: str(i['title'], 200),
+      detail: str(i['detail'], 600),
+      evidence: str(i['evidence'], 400),
+      fix: str(i['fix'], 600),
+      sectionIndex: Number.isInteger(i['sectionIndex']) ? Number(i['sectionIndex']) : -1,
+      ...(i['aiType'] ? { aiType: str(i['aiType'], 40) } : {}),
+      issueClass: pick<IssueClass>(i['issueClass'], CLASSES, 'OPTIONAL'),
+      state: pick<LifecycleState>(i['state'], STATES, 'OPEN'),
+      anchored: i['anchored'] === true,
+      firstCycle: int(i['firstCycle']),
+      lastCycle: int(i['lastCycle']),
+      note: str(i['note'], 200),
     }));
   return {
     version: 1,

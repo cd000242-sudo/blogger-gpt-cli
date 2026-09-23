@@ -179,12 +179,12 @@ export function parseBlockAnswers(raw: string): Map<string, string> | null {
     .map(([a, b]) => text.slice(a, b! + 1));
   for (const span of spans) {
     try {
-      const parsed = JSON.parse(span);
-      const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.blocks) ? parsed.blocks : null;
-      if (!list) continue;
-      return new Map(list
-        .filter((it: any) => it && typeof it.id === 'string' && typeof it.html === 'string')
-        .map((it: any) => [String(it.id).trim(), String(it.html)] as [string, string]));
+      const parsed: unknown = JSON.parse(span);
+      const list: unknown = Array.isArray(parsed) ? parsed : (parsed && typeof parsed === 'object' ? (parsed as { blocks?: unknown }).blocks : null);
+      if (!Array.isArray(list)) continue;
+      return new Map((list as unknown[])
+        .filter((it): it is { id: string; html: string } => !!it && typeof (it as { id?: unknown }).id === 'string' && typeof (it as { html?: unknown }).html === 'string')
+        .map((it) => [it.id.trim(), it.html] as [string, string]));
     } catch {
       /* 다음 후보 */
     }
@@ -298,8 +298,8 @@ async function editSection(input: {
     try {
       calls += 1;
       raw = await input.callModel(buildTargetedPrompt({ title: input.title, section: input.section, targets: pending, outline: input.outline, note }));
-    } catch (error: any) {
-      skipped.push(`${heading}: ${String(error?.message || error).slice(0, 100)}`);
+    } catch (error: unknown) {
+      skipped.push(`${heading}: ${String((error as Error)?.message || error).slice(0, 100)}`);
       break;
     }
     const answers = parseBlockAnswers(raw);
