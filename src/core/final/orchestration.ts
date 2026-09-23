@@ -3493,6 +3493,7 @@ ${quoted}
         const kinCount = (crawledPosts as any[]).filter((p: any) => p?.source === 'naver-kin').length;
         let hasNaverKeys: boolean | null = null;
         try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
           hasNaverKeys = (require('../naver-search-client').resolveAllNaverCredentials(payload) || []).length > 0;
         } catch { /* 키 유무를 모르면 키 이야기를 하지 않는다 */ }
         onLog?.(`[PROGRESS] 43% - ℹ️ 겪은 사람 말투 재료 없음 (지식인 ${kinCount}건 · 후기 ${livedReviews.length}건)`
