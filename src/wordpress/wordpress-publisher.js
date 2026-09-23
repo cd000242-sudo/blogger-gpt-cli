@@ -11,6 +11,7 @@ exports.publishToWordPress = publishToWordPress;
 const wordpress_api_1 = require("./wordpress-api");
 const publish_verifier_1 = require("../core/publish-verifier");
 const style_preservation_1 = require("../core/final/style-preservation");
+const skin_marker_1 = require("../core/final/skin-marker");
 const tag_hygiene_1 = require("../core/tag-hygiene");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
@@ -391,6 +392,8 @@ function applyWordPressInlineStyles(html, preserveOriginalStyles) {
             .replace(/&#128204;/g, '📌')
             .replace(/&#128640;/g, '🚀')
             .replace(/&#128161;/g, '💡');
+        if ((0, skin_marker_1.carriesOrbitSkin)(html))
+            return html;
         let styledHtml = markWordPressInfoBoxChildren(inlineWordPressInfoBoxStyles(html));
         const usesFinalPreviewSkin = /\b(?:bgpt-content|gradient-frame|white-paper)\b/i.test(styledHtml);
         const previewPrimary = readCssCustomProperty(styledHtml, '--rv-primary', '#059669');
@@ -425,15 +428,7 @@ function applyWordPressInlineStyles(html, preserveOriginalStyles) {
                 return match;
             });
         }
-        const keptSkinBlocks = [];
-        styledHtml = styledHtml.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (block, inner) => {
-            if (/\.bgpt-content\b/.test(inner))
-                keptSkinBlocks.push(block);
-            return '';
-        });
-        if (keptSkinBlocks.length > 0) {
-            console.log(`[WP-PUBLISH] 🖋️ 본문 스킨 <style> ${keptSkinBlocks.length}개 보관 — 퍼블리셔 CSS 뒤에 다시 싣습니다`);
-        }
+        styledHtml = styledHtml.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
         styledHtml = styledHtml.replace(/<(div|section|aside|figure|figcaption|span)\b([^>]*)>/gi, (match, tag, attrs = '') => {
             const className = getClassNameFromAttrs(attrs);
             let style = '';
@@ -1511,8 +1506,7 @@ function applyWordPressInlineStyles(html, preserveOriginalStyles) {
         catch (error) {
             console.warn(`[WP-PUBLISH] ⚠️ 인라인 style 접기 실패 (원본 유지): ${String(error?.message || error).slice(0, 80)}`);
         }
-        const skinCSS = keptSkinBlocks.join('\n');
-        const wrappedContent = `${themeFriendlyCSS}${foldedCSS}${skinCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
+        const wrappedContent = `${themeFriendlyCSS}${foldedCSS}<div class="wp-styled-content bgpt-wp-ready" data-bgpt-wp-ready="true" style="${containerStyle}">${styledHtml}</div>`;
         styledHtml = `<!-- wp:html -->
 ${wrappedContent}
 <!-- /wp:html -->`;
@@ -1604,120 +1598,6 @@ class WordPressPublisher {
                 };
             }
             console.log('[WP-PUBLISH] ✅ 연결 성공');
-            if (cssLength > 0 && !preserveOriginalStyles) {
-                console.log(`[WP-PUBLISH] ✅ CSS 발견됨 (${cssLength.toLocaleString()}자) - WordPress 핵 옵션 적용`);
-                const wordpressNuclearCSS = `
-          /* ========================================
-             WORDPRESS 핵 옵션 - 테마/플러그인 CSS 극복
-             ======================================== */
-
-          /* 핵 옵션 1: WordPress 컨테이너 완전 오버라이드 */
-          .wp-block-post-content .max-mode-article,
-          .entry-content .max-mode-article,
-          .post-content .max-mode-article,
-          .content-area .max-mode-article,
-          article .max-mode-article,
-          .wp-site-blocks .max-mode-article,
-          .wp-block-group .max-mode-article,
-          /* Gutenberg 블록 오버라이드 */
-          .wp-block-columns .max-mode-article,
-          .wp-block-media-text .max-mode-article,
-          /* 테마별 컨테이너 오버라이드 */
-          .site-content .max-mode-article,
-          .main-content .max-mode-article,
-          .primary .max-mode-article {
-            max-width: 100% !important;
-            width: 100% !important;
-            margin: 0 auto !important;
-            padding: 0 0px 72px 0px !important;
-            box-sizing: border-box !important;
-            display: block !important;
-            text-align: left !important;
-            overflow: visible !important;
-            /* WordPress 테마 극복 */
-            position: relative !important;
-            float: none !important;
-            clear: both !important;
-          }
-
-          /* 핵 옵션 2: WordPress 텍스트 요소 강제 적용 */
-          .wp-block-post-content .max-mode-article h1,
-          .wp-block-post-content .max-mode-article h2,
-          .wp-block-post-content .max-mode-article h3,
-          .wp-block-post-content .max-mode-article h4,
-          .wp-block-post-content .max-mode-article h5,
-          .wp-block-post-content .max-mode-article h6,
-          .wp-block-post-content .max-mode-article p,
-          .wp-block-post-content .max-mode-article span,
-          .wp-block-post-content .max-mode-article div,
-          .wp-block-post-content .max-mode-article li,
-          .entry-content .max-mode-article h1,
-          .entry-content .max-mode-article h2,
-          .entry-content .max-mode-article h3,
-          .entry-content .max-mode-article h4,
-          .entry-content .max-mode-article h5,
-          .entry-content .max-mode-article h6,
-          .entry-content .max-mode-article p,
-          .entry-content .max-mode-article span,
-          .entry-content .max-mode-article div,
-          .entry-content .max-mode-article li,
-          .post-content .max-mode-article h1,
-          .post-content .max-mode-article h2,
-          .post-content .max-mode-article h3,
-          .post-content .max-mode-article h4,
-          .post-content .max-mode-article h5,
-          .post-content .max-mode-article h6,
-          .post-content .max-mode-article p,
-          .post-content .max-mode-article span,
-          .post-content .max-mode-article div,
-          .post-content .max-mode-article li {
-            /* WordPress 텍스트 핵 */
-            display: block !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            color: inherit !important;
-            font-family: inherit !important;
-            line-height: 1.6 !important;
-            margin: inherit !important;
-            padding: inherit !important;
-            font-size: inherit !important;
-            font-weight: inherit !important;
-            text-align: inherit !important;
-            /* WordPress 테마 극복 */
-            -webkit-text-size-adjust: 100% !important;
-            -ms-text-size-adjust: 100% !important;
-            text-size-adjust: 100% !important;
-          }
-
-          /* 핵 옵션 3: Gutenberg 블록 CSS 오버라이드 */
-          .wp-block-group.has-background .max-mode-article,
-          .wp-block-cover .max-mode-article,
-          .wp-block-media-text .max-mode-article {
-            background: transparent !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-
-          /* 핵 옵션 4: WordPress 플러그인 CSS 극복 */
-          .max-mode-article[class*="wp-block"],
-          .max-mode-article[class*="elementor"],
-          .max-mode-article[class*="vc_"],
-          .max-mode-article[class*="av_"] {
-            all: revert !important;
-            margin: 0 auto !important;
-            padding: 0 0px 72px 0px !important;
-            max-width: 100% !important;
-          }
-        `;
-                optimizedContent = optimizedContent.replace(/(<style[^>]*>[\s\S]*?<\/style>)/i, (match) => {
-                    const nuclearCSS = wordpressNuclearCSS.replace(/^\s+|\s+$/gm, '');
-                    return match.replace('</style>', '\n' + nuclearCSS + '\n</style>');
-                });
-                console.log(`[WP-PUBLISH] 🛡️ WordPress 핵 옵션 적용 완료`);
-            }
-            else {
-                console.log(`[WP-PUBLISH] ⚠️ CSS가 없음 - 기본 텍스트 서식만 적용될 수 있음`);
-            }
             optimizedContent = await this.uploadInlineBase64Images(optimizedContent, options.title);
             let featuredMediaId;
             let featuredSourceUrl = '';
