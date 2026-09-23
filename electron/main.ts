@@ -4357,6 +4357,8 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
  * 블로그 본문에 넣으면 발행글이 더러워지고, 플랫폼을 옮기면 사라진다.
  */
 const critiqueHistoryPath = (): string => path.join(app.getPath('userData'), 'critique-history.json');
+/** v3.8.750 — 비평 버튼의 수렴 체인(OPEN·RESOLVED·REGRESSED). 글마다 하나, critique-convergence 가 읽고 쓴다 */
+const critiqueChainPath = (): string => path.join(app.getPath('userData'), 'critique-chains.json');
 
 /*
  * 📥 v3.8.711 — 고CPC 키워드 리포트 기능 삭제 (사장님: "고단가 CPC 그자리 없애버리고 다른거넣거나 비워두자").
@@ -5031,16 +5033,19 @@ ipcMain.handle('normalize-editor-paste', async (_evt, args: { text?: string }) =
 });
 
 // v3.8.693: resolved — 편집기가 기억한 "이미 고친 지적". 안 넘기면 같은 말이 또 나온다.
-ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html?: string; payload?: any; resolved?: string[] }) => {
+// v3.8.750: chain — 같은 글의 비평 체인. 있으면 AI 없이 이어서 잰다. fullRecritique 는 「전체 다시 비평」을 눌렀을 때만.
+ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html?: string; payload?: any; resolved?: string[]; chain?: unknown; fullRecritique?: boolean }) => {
   const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
   try {
     const html = String(args?.html || '');
     const title = String(args?.title || '').trim();
     if (!html.trim()) return { ok: false, error: '본문이 비어 있습니다.' };
     const { critiqueDraft } = require('../dist/core/final/editor-draft');
-    send('[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
+    const { canContinueChain } = require('../dist/core/final/critique-convergence');
+    const continuing = args?.fullRecritique !== true && canContinueChain(args?.chain, { title, html });
+    send(continuing ? '[PROGRESS] 25% - 🔁 지난 비평에 이어서 확인합니다 (AI 호출 0회)' : '[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
     let competitors: { title: string; summary: string }[] = [];
-    if (title) {
+    if (title && !continuing) {
       try {
         const { naverSearch } = require('../dist/core/naver-search-client');
         const found = await naverSearch('blog', { query: title, display: 5, sort: 'sim' }, { payload: args?.payload, timeoutMs: 8000 });
@@ -5057,6 +5062,7 @@ ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html
     const result = await critiqueDraft({
       title, html, competitors,
       resolved: Array.isArray(args?.resolved) ? args!.resolved!.map(String) : [],
+      chain: args?.chain, fullRecritique: args?.fullRecritique === true,
       callModel: (prompt: string) => { send('[PROGRESS] 65% - 🧐 편집장 관점으로 비평하는 중…'); return callEditorModel(args?.payload, prompt, send); },
       log: send,
     });
@@ -5069,7 +5075,7 @@ ipcMain.handle('critique-editor-html', async (_evt, args: { title?: string; html
   }
 });
 
-ipcMain.handle('improve-editor-html', async (_evt, args: { title?: string; html?: string; issues?: any[]; payload?: any }) => {
+ipcMain.handle('improve-editor-html', async (_evt, args: { title?: string; html?: string; issues?: any[]; payload?: any; mode?: string; chain?: unknown }) => {
   const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
   try {
     const html = String(args?.html || '');
@@ -5079,6 +5085,8 @@ ipcMain.handle('improve-editor-html', async (_evt, args: { title?: string; html?
     const { improveDraft } = require('../dist/core/final/editor-draft');
     const result = await improveDraft({
       title: String(args?.title || ''), html, issues,
+      // v3.8.750 — 비평 모달의 수정만 'critiqueTargeted'(지적된 문단만). 「이렇게 고쳐줘」는 mode 없이 온다
+      mode: args?.mode === 'critiqueTargeted' ? 'critiqueTargeted' : undefined, chain: args?.chain,
       callModel: (prompt: string) => callEditorModel(args?.payload, prompt, send, 180000),
       log: send,
     });
@@ -5123,6 +5131,8 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
   postId?: string;
   title?: string;
   payload?: any;
+  /** v3.8.750 — 사람이 「전체 다시 비평」을 눌렀을 때만 true */
+  fullRecritique?: boolean;
 }) => {
   const send = (line: string) => {
     try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ }
@@ -5147,6 +5157,28 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
     const title = String(args?.title || current.title || '').trim();
     if (!html.trim()) return { ok: false, error: '본문을 불러오지 못했습니다.' };
 
+    /**
+     * v3.8.750 — 두 번째 비평부터는 **이어서 확인**한다 (AI 호출 0회).
+     * 지난 BLOCKING 이 풀렸는가 · 수정이 새 BLOCKING 을 만들었는가 · BLOCKING 이 남았는가만 코드로 잰다.
+     * 새 선택 항목을 찾으러 AI 비평을 다시 돌리지 않는다 — 「전체 다시 비평」을 눌렀을 때만(fullRecritique).
+     */
+    const convergence = require('../dist/core/final/critique-convergence');
+    const chainKey = `${String(args?.platform || 'wordpress')}:${postId}`;
+    const chainFile = convergence.loadChainFile(critiqueChainPath());
+    const prevChain = convergence.chainOf(chainFile, chainKey);
+    if (!args?.fullRecritique && convergence.canContinueChain(prevChain, { title, html })) {
+      send('[PROGRESS] 60% - 🔁 지난 비평에 이어서 확인합니다 — 반드시 고칠 것만 다시 잽니다 (AI 호출 0회)');
+      const review = convergence.recheckChain({ title, html, chain: prevChain });
+      convergence.saveChainFile(critiqueChainPath(), convergence.withChain(chainFile, chainKey, review.chain));
+      send(`[PROGRESS] 100% - 🩺 ${review.convergence.headline}`);
+      return {
+        ok: true, title, url: current.url || '', score: review.score, summary: review.summary,
+        issues: review.issues, resolvedIssues: review.resolvedIssues, convergence: review.convergence,
+        sections: critique.splitSections(html).map((s: any) => ({ index: s.index, heading: s.heading, chars: String(s.html || '').replace(/<[^>]+>/g, '').trim().length })),
+        competitorCount: 0, roundCount: review.chain.critiqueRound, resolvedCount: review.resolvedIssues.length, aiSkipped: true,
+      };
+    }
+
     // ① 경쟁글 — 없으면 없는 대로 간다. 검색이 막혔다고 비평을 멈추지 않는다.
     send('[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
     let competitors: { title: string; summary: string }[] = [];
@@ -5170,9 +5202,9 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
       send(`   ℹ️ 경쟁글 조회 건너뜀: ${String(searchError?.message || searchError).slice(0, 60)}`);
     }
 
-    // ② 코드 진단 — AI 호출 0회
+    // ② 코드 진단 — AI 호출 0회 (v3.8.750: 누출 문장은 문장마다 한 건 — buttonDiagnose)
     send('[PROGRESS] 45% - 📏 게이트로 본문을 재는 중…');
-    const codeIssues = critique.diagnosePost({ title, html, competitors });
+    const codeIssues = convergence.buttonDiagnose({ title, html, competitors });
 
     /**
      * v3.8.622 — 지난 회차를 꺼낸다. 없으면 없는 대로 간다(첫 비평).
@@ -5254,9 +5286,18 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
      * v3.8.622 — 지적마다 **왜 지금 나왔는지**를 붙인다.
      * 처음 나온 것 · 지난번에도 나왔는데 안 고른 것 · 고쳤는데 또 나온 것 ·
      * 직전 개선으로 다시 쓴 구간에서 새로 생긴 것.
+     *
+     * v3.8.750 — 그 위에 BLOCKING / OPTIONAL / NEEDS_NEW_EVIDENCE 를 가르고 체인을 세운다.
+     * 「반드시」는 발행을 막는 결함만이다. 같은 글의 앞 체인이 있으면 해결 기록을 이어받는다.
      */
-    const issues = history.annotateIssues(rawIssues, postHistory);
-    const score = critique.scoreIssues(issues);
+    const opened = convergence.openChain({ title, html, issues: history.annotateIssues(rawIssues, postHistory), previous: prevChain });
+    const issues = opened.issues;
+    const score = opened.score;   // v3.8.750: 발행을 막는 결함만으로 매긴 점수 — 선택 개선은 깎지 않는다
+    try {
+      convergence.saveChainFile(critiqueChainPath(), convergence.withChain(chainFile, chainKey, opened.chain));
+    } catch (chainError: any) {
+      send(`   ℹ️ 비평 체인 저장 건너뜀: ${String(chainError?.message || chainError).slice(0, 60)}`);
+    }
 
     // 이번 회차를 남긴다. 기록에 실패해도 비평 결과는 그대로 보여준다.
     try {
@@ -5282,6 +5323,8 @@ ipcMain.handle('critique-published-post', async (_evt, args: {
       roundCount: postHistory.rounds.length + 1,
       resolvedCount: alreadyFixed.length,
       aiSkipped: !decision.call,
+      resolvedIssues: opened.resolvedIssues,
+      convergence: opened.convergence,
     };
   } catch (error: any) {
     const message = error?.message || String(error);
@@ -5328,9 +5371,13 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     const previousHtml = String(current.content || '');
     const title = String(args?.title || current.title || '').trim();
 
+    // v3.8.750 — 비평 버튼의 수정은 지적된 문단만 고친다(critiqueTargeted). 이 채널은 비평 화면(글목록·비서)만 쓴다.
+    const convergence = require('../dist/core/final/critique-convergence');
+    const chainKey = `${String(args?.platform || 'wordpress')}:${postId}`;
     const { improveDraft } = require('../dist/core/final/editor-draft');
     const improvement = await improveDraft({
       title, html: previousHtml, issues: selected,
+      mode: 'critiqueTargeted', chain: convergence.chainOf(convergence.loadChainFile(critiqueChainPath()), chainKey),
       callModel: (prompt: string) => callEditorModel(args?.payload, prompt, send, 180000),
       log: send,
     });
@@ -5367,6 +5414,10 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
     } catch (historyError: any) {
       send(`   ℹ️ 개선 이력 저장 건너뜀: ${String(historyError?.message || historyError).slice(0, 60)}`);
     }
+    // v3.8.750 — 발행이 된 뒤에만 체인을 넘긴다. 다음 비평은 이 체인으로 AI 없이 이어서 잰다.
+    if (improvement.chain) {
+      convergence.saveChainFile(critiqueChainPath(), convergence.withChain(convergence.loadChainFile(critiqueChainPath()), chainKey, improvement.chain));
+    }
 
     return {
       ok: true,
@@ -5378,6 +5429,9 @@ ipcMain.handle('apply-post-improvement', async (_evt, args: {
       before: (String(previousHtml || '').replace(/<[^>]+>/g, '').trim().length),
       url: current.url || '',
       html: nextHtml,
+      regressions: improvement.regressions || [],
+      preservation: improvement.preservation || null,
+      convergence: improvement.convergence || null,
     };
   } catch (error: any) {
     const message = error?.message || String(error);

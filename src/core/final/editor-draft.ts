@@ -11,10 +11,12 @@
 import {
   diagnosePost, shouldCallAiCritique, buildCritiquePrompt, parseCritiqueIssues, splitSections,
   groupIssuesBySection, buildSectionRevisionPrompt, acceptRevisedSection, isCuttingIssue, applySectionRevisions,
-  scoreIssues, summarizeCritique, issueKey, rewriteAbility, annotateFixability, dropResolvedLookalikes, evidenceProbe,
+  summarizeCritique, issueKey, rewriteAbility, annotateFixability, dropResolvedLookalikes, evidenceProbe,
 } from './post-critique';
 import type { CritiqueIssue, CompetitorPost, PostSection } from './post-critique';
 import { verifySelectedIssues, type SectionChange } from './revision-verification';
+import { buttonDiagnose, canContinueChain, openChain, recheckChain, type CritiqueChain, type ConvergenceView, type DisplayIssue } from './critique-convergence';
+import { improveTargeted } from './critique-targeted-edit';
 
 /* ────────────────────────────────────────────────────────────────
  * ① 붙여넣은 글을 앱 서식으로
@@ -127,6 +129,11 @@ export interface DraftCritique {
   aiSkipped: boolean;
   roundCount: number;
   resolvedCount: number;
+  /** v3.8.750 — 수렴: 끝났는가 · 반드시 고칠 것이 몇 건 남았는가 (critique-convergence) */
+  convergence?: ConvergenceView;
+  /** v3.8.750 — 편집기가 들고 있다가 다음 비평·수정에 그대로 돌려준다 */
+  chain?: CritiqueChain;
+  resolvedIssues?: DisplayIssue[];
 }
 
 export async function critiqueDraft(input: {
@@ -147,12 +154,30 @@ export async function critiqueDraft(input: {
    * 프롬프트에 넣어 준다 — 그 통로를 편집기도 쓰게 한다.
    */
   resolved?: string[];
+  /**
+   * v3.8.750 — 같은 글의 지난 비평·수정 기록(체인). 있으면 **AI 를 부르지 않고** 이어서 잰다:
+   * 지난 BLOCKING 이 풀렸는가 · 수정이 새 BLOCKING 을 만들었는가 · BLOCKING 이 남았는가.
+   */
+  chain?: unknown;
+  /** v3.8.750 — 사람이 「전체 다시 비평」을 눌렀을 때만 true — 체인이 있어도 AI 비평을 다시 돈다 */
+  fullRecritique?: boolean;
   log?: (line: string) => void;
 }): Promise<DraftCritique> {
   const title = String(input.title || '').trim();
   const html = String(input.html || '');
   const competitors = input.competitors || [];
-  const codeIssues = diagnosePost({ title, html, competitors });
+  const sectionRows = () => splitSections(html).map((s) => ({ index: s.index, heading: s.heading, chars: String(s.html || '').replace(/<[^>]+>/g, '').trim().length }));
+  if (!input.fullRecritique && canContinueChain(input.chain, { title, html })) {
+    const review = recheckChain({ title, html, chain: input.chain });
+    input.log?.(`   🔁 지난 비평에 이어서 확인합니다 — AI 비평은 부르지 않습니다 (호출 0회): ${review.convergence.headline}`);
+    return {
+      ok: true, title, score: review.score, summary: review.summary, issues: review.issues, sections: sectionRows(),
+      competitorCount: 0, aiSkipped: true, roundCount: review.chain.critiqueRound, resolvedCount: review.resolvedIssues.length,
+      convergence: review.convergence, chain: review.chain, resolvedIssues: review.resolvedIssues,
+    };
+  }
+  // v3.8.750 — 누출 문장은 문장마다 한 건씩 센다 (buttonDiagnose). 나머지는 diagnosePost 그대로다.
+  const codeIssues = buttonDiagnose({ title, html, competitors });
   let aiIssues: CritiqueIssue[] = [];
   const decision = shouldCallAiCritique(codeIssues);
   if (decision.call && input.callModel) {
@@ -177,18 +202,23 @@ export async function critiqueDraft(input: {
     input.log?.(`   ✅ ${decision.reason}`);
   }
   // v3.8.729 — 수정 버튼으로 못 고치는 지적에는 그 이유(어느 버튼으로 고치는지)를 붙여 보낸다
-  const issues = annotateFixability([...codeIssues, ...aiIssues]);
+  // v3.8.750 — 그 위에 BLOCKING / OPTIONAL / NEEDS_NEW_EVIDENCE 를 가르고 체인을 세운다
+  const opened = openChain({ title, html, issues: annotateFixability([...codeIssues, ...aiIssues]), previous: input.chain });
+  const issues = opened.issues;
   return {
     ok: true,
     title,
-    score: scoreIssues(issues),
+    score: opened.score,
     summary: summarizeCritique(issues, { aiSkipped: !decision.call || !input.callModel }),
     issues,
-    sections: splitSections(html).map((s) => ({ index: s.index, heading: s.heading, chars: String(s.html || '').replace(/<[^>]+>/g, '').trim().length })),
+    sections: sectionRows(),
     competitorCount: competitors.length,
     aiSkipped: !decision.call || !input.callModel,
-    roundCount: 1,
+    roundCount: opened.chain.critiqueRound,
     resolvedCount: 0,
+    convergence: opened.convergence,
+    chain: opened.chain,
+    resolvedIssues: opened.resolvedIssues,
   };
 }
 
@@ -284,7 +314,17 @@ export async function improveDraft(input: {
    * 끄면 못 재는 지적은 stillPresent 로 남긴다 — 모르는 것을 "고쳤다"고 하지 않는다.
    */
   verify?: boolean;
+  /**
+   * v3.8.750 — 'critiqueTargeted': 「비평 개선」 버튼의 수정. **지적된 문단만** 고치고, 새 BLOCKING 이 생기면 되돌린다
+   * (critique-targeted-edit). 버튼 경로만 이 값을 넘긴다 — 발행 전 자가 수정·자동 품질 루프는 넘기지 않으므로 아래 예전 경로 그대로다.
+   */
+  mode?: 'critiqueTargeted';
+  /** v3.8.750 — critiqueTargeted 에서 이어 쓸 비평 체인 */
+  chain?: unknown;
 }): Promise<DraftImprovement> {
+  if (input.mode === 'critiqueTargeted' && !(input.issues || []).some((issue) => String(issue?.id || '').startsWith('user-request-'))) {
+    return improveTargeted(input);
+  }
   const title = String(input.title || '').trim();
   const previousHtml = String(input.html || '');
   const sections = splitSections(previousHtml);

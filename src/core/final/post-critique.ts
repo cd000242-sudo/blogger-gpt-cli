@@ -50,6 +50,13 @@ export interface CritiqueIssue {
   sectionIndex: number;
   /** 코드가 찾았는가(code) AI 가 찾았는가(ai) */
   origin: 'code' | 'ai';
+  /**
+   * v3.8.750 — AI 가 "발행을 막아야 하는 결함"이라고 답했는가 (버튼 비평만 묻는다).
+   * 심각도(high/medium/low)와 별개다. 최종 분류는 critique-convergence.classifyIssue 가 근거 문장까지 보고 정한다.
+   */
+  blocking?: boolean;
+  /** v3.8.750 — AI 가 붙인 결함 종류 (fact-error · unsupported-claim · needs-evidence · style …) */
+  aiType?: string;
 }
 
 export interface PostSection {
@@ -642,8 +649,13 @@ export function summarizeCritique(issues: CritiqueIssue[], opts: { aiSkipped?: b
       ? '✅ 코드 진단 0건 — 게이트를 전부 통과해 AI 비평은 부르지 않았습니다 (API 호출 0회).'
       : '✅ 코드 진단·비평 모두 고칠 점을 찾지 못했습니다.';
   }
-  const high = issues.filter((i) => i.severity === 'high').length;
-  return `총 ${issues.length}건 (반드시 고칠 것 ${high}건) · 점수 ${scoreIssues(issues)}점`;
+  // v3.8.750 — 버튼 비평은 지적마다 blocking 이 붙어 온다. 「반드시」는 심각도 high 가 아니라 blocking 만 센다.
+  const graded = issues.some((i) => typeof i.blocking === 'boolean');
+  const high = graded
+    ? issues.filter((i) => i.blocking === true).length
+    : issues.filter((i) => i.severity === 'high').length;
+  // 점수도 같다 — 버튼 비평의 점수는 발행을 막는 결함만으로 잰다 (critique-convergence 와 같은 값)
+  return `총 ${issues.length}건 (반드시 고칠 것 ${high}건) · 점수 ${scoreIssues(graded ? issues.filter((i) => i.blocking === true) : issues)}점`;
 }
 
 /**
@@ -720,9 +732,17 @@ export function buildCritiquePrompt(input: {
     '   · 전환 — 읽고 나서 할 행동이 분명한가',
     '3. 문장이 예쁜지 미운지는 보지 마세요. **정보가 있는가**만 보세요.',
     '4. 각 문제는 반드시 **한 구간**에 붙이세요(글 전체 문제면 -1).',
+    // v3.8.750 — 심각도와 별개로 "발행을 막는가"를 묻는다. 선택 개선이 「반드시」로 떠서 끝없이 고치던 것을 끊는다.
+    '5. 각 문제에 blocking 과 type 을 붙이세요. **발행을 막아야 하는 결함만** blocking:true 입니다:',
+    '   fact-error(사실 오류) · unsupported-claim(근거 없는 숫자·날짜·직접 인용) · title-contradiction(제목과 본문이 정면으로 부딪힘) ·',
+    '   entity-mixup(다른 인물·지역·상품이 섞임) · answer-missing(핵심 답이 없음) · misleading-action(독자를 잘못된 행동으로 이끎) ·',
+    '   title-promise(제목이 약속한 것을 안 다룸) · empty-section(핵심 절이 비어 있음) · artifact(치환 찌꺼기) · process-leak(작성 과정·프롬프트가 새어 나옴) · broken-title(잘린 제목)',
+    '   표현·리듬·약한 반복·어미 취향·도입부 세기·"사실은 맞지만 더 구체적이면 좋겠다"·스타일은 blocking:false, type:"style" 입니다.',
+    '   새 자료·근거·수치를 더 찾아 넣어야만 풀리는 지적은 blocking:false, type:"needs-evidence" 입니다.',
+    '6. blocking:true 인 항목은 evidence 에 본문 문장을 **글자 그대로** 옮기세요. 그대로 옮길 수 없으면 blocking:false 로 두세요.',
     '',
     '# 출력 형식 — JSON 배열만. 설명·코드블록 금지.',
-    '[{"severity":"high|medium|low","title":"한 줄 문제","detail":"왜 문제인지","evidence":"본문에서 그대로 인용한 문장","fix":"어떻게 고칠지","sectionIndex":0}]',
+    '[{"severity":"high|medium|low","blocking":false,"type":"style","title":"한 줄 문제","detail":"왜 문제인지","evidence":"본문에서 그대로 인용한 문장","fix":"어떻게 고칠지","sectionIndex":0}]',
     '문제를 못 찾으면 [] 만 출력하세요. 없는 문제를 지어내지 마세요.',
   ].join('\n');
 }
@@ -758,6 +778,9 @@ export function parseCritiqueIssues(raw: string, sectionCount: number): Critique
         fix: String(item.fix || '').trim().slice(0, 500),
         sectionIndex: Number.isInteger(index) && index >= 0 && index < sectionCount ? index : -1,
         origin: 'ai',
+        // v3.8.750 — 버튼 비평의 발행 차단 여부. 근거 문장 확인은 critique-convergence 가 한다.
+        blocking: item.blocking === true,
+        aiType: String(item.type || '').trim().toLowerCase().slice(0, 40),
       };
     });
 }
@@ -1048,6 +1071,27 @@ export interface RewriteAbility {
   fixable: boolean;
   /** 못 고치면 **무엇으로** 고치는지 — 화면이 그대로 보여준다 */
   hint: string;
+  /** v3.8.750 — 못 고치는 까닭이 "새 근거가 있어야 함"이면 NEEDS_NEW_EVIDENCE (버튼 수정 모드에서만 붙는다) */
+  reason?: 'NEEDS_NEW_EVIDENCE';
+}
+
+/**
+ * v3.8.750 — **새 근거가 있어야 풀리는** 지적. 문장만 고쳐서는 지어내게 된다.
+ *
+ * 감사(2026-09-23): 5543 글은 사실 밀도·출처·근거 조항 지적을 매번 「반드시」로 받아 고쳤고,
+ * 편집기는 근거 없이 채우다 "이 구간의 자료만으로 확인할 수 없습니다" 같은 문장을 새로 만들었다.
+ * 이 지적들은 편집기로 보내지 않고 "근거를 추가해 다시 생성해야 하는 항목"으로 안내한다.
+ */
+const NEEDS_EVIDENCE_ID = /^(?:substance-facts|quality-(?:sources|sourceSuspicion|length)|competitor-gap|audit-no-legal-basis(?:-\d+)?|audit-thin-section(?:-\d+)?)$/;
+const NEEDS_EVIDENCE_WORDS = /(?:근거|출처|자료|사례|통계|수치|데이터|조항|판례)[^.\n]{0,14}(?:추가|보강|보충|제시|채워|찾아)|경쟁\s*글|상위\s*글/;
+export const NEEDS_NEW_EVIDENCE_HINT = '근거를 추가해 다시 생성해야 하는 항목입니다 — 문장만 고쳐서는 풀리지 않고 지어내게 됩니다. [글 다시 생성]으로 근거를 모아 다시 쓰세요.';
+
+export function needsNewEvidence(issue: Pick<CritiqueIssue, 'id' | 'title' | 'fix'> & Partial<Pick<CritiqueIssue, 'origin' | 'blocking' | 'aiType'>>): boolean {
+  if (NEEDS_EVIDENCE_ID.test(String(issue?.id || ''))) return true;
+  if (issue?.origin !== 'ai') return false;
+  if (String(issue?.aiType || '').toLowerCase() === 'needs-evidence') return true;
+  if (issue?.blocking === true) return false;
+  return NEEDS_EVIDENCE_WORDS.test(`${issue?.title || ''} ${issue?.fix || ''}`);
 }
 
 /**
@@ -1056,20 +1100,36 @@ export interface RewriteAbility {
  * 다시 쓰기 규칙이 "새 이미지를 넣지 마세요 · 링크를 지키세요" 인데 지적은 "이미지가 0장"·"링크가 0개" 다.
  * 이런 것은 아무리 시켜도 안 풀리고 API 비용만 나간다. 도구가 따로 있으니 그쪽을 가리킨다.
  */
-export function rewriteAbility(issue: Pick<CritiqueIssue, 'id' | 'title'>): RewriteAbility {
+export function rewriteAbility(
+  issue: Pick<CritiqueIssue, 'id' | 'title'> & Partial<Pick<CritiqueIssue, 'fix' | 'origin' | 'blocking' | 'aiType'>>,
+  /**
+   * v3.8.750 — targeted: 「비평 개선」 버튼의 수정(지적된 문단만 고침). 기본값(false)은 예전 판정 그대로다 —
+   * 발행 전 자가 수정·자동 품질 루프는 이 옵션을 넘기지 않는다.
+   */
+  opts: { targeted?: boolean } = {},
+): RewriteAbility {
   const id = String(issue?.id || '');
   if (id === 'structure-noimage') return { fixable: false, hint: '글을 다시 써서는 그림이 생기지 않습니다 — [🖼️ 이미지] 또는 [🖼️ 썸네일 넣기] 버튼으로 넣으세요.' };
   if (id === 'cta-none') return { fixable: false, hint: '링크는 지어 넣지 않습니다 — [🔗 CTA 다시 생성] 버튼으로 목적지를 찾아 넣으세요.' };
   if (id === 'quality-internalLinks') return { fixable: false, hint: '내부 링크는 발행할 때 자동으로 붙습니다 — 본문 수정으로는 채워지지 않습니다.' };
   if (id === 'quality-imageAlt') return { fixable: false, hint: '이미지 설명(alt)은 본문이 아니라 이미지 속성입니다 — 발행 시 소제목으로 자동 채워집니다.' };
   if (/^audit-broken-title/.test(id)) return { fixable: false, hint: '제목의 문제입니다 — 위 제목 칸에서 직접 고치세요.' };
+  if (opts.targeted) {
+    if (needsNewEvidence({ fix: '', ...issue })) return { fixable: false, hint: NEEDS_NEW_EVIDENCE_HINT, reason: 'NEEDS_NEW_EVIDENCE' };
+    if (/^audit-title-promise-unkept/.test(id)) {
+      return { fixable: false, hint: '제목이 약속한 조각을 맡은 소제목이 없습니다 — 문단을 고쳐서는 절이 생기지 않습니다. 제목 칸에서 그 약속을 빼거나, 근거를 모아 글을 다시 생성하세요.' };
+    }
+  }
   return { fixable: true, hint: '' };
 }
 
 /** 지적 목록에 fixable·fixHint 를 붙인다 — 화면은 이 값으로 체크박스를 잠근다 */
-export function annotateFixability<T extends Pick<CritiqueIssue, 'id' | 'title'>>(issues: T[]): (T & { fixable: boolean; fixHint: string })[] {
+export function annotateFixability<T extends Pick<CritiqueIssue, 'id' | 'title'>>(
+  issues: T[],
+  opts: { targeted?: boolean } = {},
+): (T & { fixable: boolean; fixHint: string })[] {
   return (issues || []).map((issue) => {
-    const ability = rewriteAbility(issue);
+    const ability = rewriteAbility(issue, opts);
     return { ...issue, fixable: ability.fixable, fixHint: ability.hint };
   });
 }

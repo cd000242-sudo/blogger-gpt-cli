@@ -25,6 +25,7 @@
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { issueKey } from './post-critique';
 
 export type IssueStatus = 'new' | 'again' | 'regressed' | 'side-effect';
 
@@ -79,6 +80,11 @@ const MAX_ROUNDS = 12;
  */
 export function stableIssueId(issue: HistoryIssueLike): string {
   const rawId = String(issue?.id || '').trim();
+  /**
+   * v3.8.750 — 하네스 지적(audit-<종류>-<순번>)의 순번은 **자리 번호**다. 앞 지적 하나가 사라지면 밀려서
+   * 같은 지적이 "새 지적"으로 기록됐다(5515: audit-cross-section-echo-7 → -5). 순번을 뗀 issueKey 로 잰다.
+   */
+  if (/^audit-[a-z-]+-\d+$/.test(rawId)) return issueKey({ id: rawId, title: String(issue?.title || ''), evidence: String(issue?.evidence || '') });
   if (rawId && !/^ai-\d+$/.test(rawId)) return rawId;
 
   const title = String(issue?.title || '').trim().toLowerCase().replace(/\s+/g, ' ');

@@ -26,6 +26,17 @@ const STATUS = {
   'side-effect': { label: '개선이 남긴 것', bg: 'rgba(168,85,247,0.18)', fg: '#e9d5ff' },
 };
 
+/**
+ * 🧭 v3.8.750 — 수렴. 지적마다 blocking(발행을 막는가)이 붙어 온다. 심각도와 별개다.
+ * 「반드시」는 발행을 막는 결함에만 붙는다 — 선택 개선이 「반드시」로 떠서 끝없이 고치던 것을 끊는다.
+ */
+const EVIDENCE_TONE = { label: '근거 필요', bg: 'rgba(56,189,248,0.07)', border: 'rgba(56,189,248,0.28)', fg: '#7dd3fc' };
+const LIFECYCLE = {
+  OPEN: { label: '남음', bg: 'rgba(239,68,68,0.16)', fg: '#fca5a5' },
+  REGRESSED: { label: '수정 뒤 다시 생김', bg: 'rgba(168,85,247,0.2)', fg: '#e9d5ff' },
+  RESOLVED: { label: '해결됨', bg: 'rgba(34,197,94,0.16)', fg: '#86efac' },
+};
+
 const AREA_LABEL = {
   substance: '알맹이',
   answer: '검색 의도',
@@ -58,8 +69,15 @@ function sectionLabel(issue, sections) {
 }
 
 function issueCard(issue, index, sections) {
-  const tone = SEVERITY[issue.severity] || SEVERITY.low;
-  const status = STATUS[issue.status];
+  // v3.8.750 — 수렴 비평이면 「반드시」는 blocking 에만. 선택 개선은 심각도가 high 여도 '권장' 이하로 보인다.
+  const graded = typeof issue.blocking === 'boolean';
+  const tone = !graded ? (SEVERITY[issue.severity] || SEVERITY.low)
+    : issue.blocking ? SEVERITY.high
+      : issue.issueClass === 'NEEDS_NEW_EVIDENCE' ? EVIDENCE_TONE
+        : issue.severity === 'low' ? SEVERITY.low : SEVERITY.medium;
+  const status = graded ? null : STATUS[issue.status];
+  const lifecycle = graded && issue.blocking ? LIFECYCLE[issue.state] : null;
+  const note = graded ? issue.lifecycleNote : issue.statusNote;
   /**
    * 🚫 v3.8.729 — **수정 버튼으로 못 고치는 지적은 잠근다.**
    * 사장님: "수정을 시켰는데도 똑같은 지적이 또 나와 … API 비용이 들기 때문에 이러면 절대 안 되는데"
@@ -68,7 +86,8 @@ function issueCard(issue, index, sections) {
    */
   const locked = issue.fixable === false;
   // 반드시 고칠 것만 미리 체크해 둔다 — 참고 항목까지 켜두면 사장님이 다 끄게 된다.
-  const checked = !locked && issue.severity === 'high' ? 'checked' : '';
+  // v3.8.750: 수렴 비평이면 autoSelect(발행을 막고 수정 버튼으로 고칠 수 있는 것)만. 선택 개선은 미리 고르지 않는다.
+  const checked = !locked && (graded ? issue.autoSelect === true : issue.severity === 'high') ? 'checked' : '';
   return `
     <label style="display:flex;gap:12px;align-items:flex-start;padding:13px 14px;background:${tone.bg};border:1px solid ${tone.border};border-radius:11px;margin-bottom:9px;cursor:${locked ? 'default' : 'pointer'};${locked ? 'opacity:0.72;' : ''}">
       <input type="checkbox" class="pcIssue" data-index="${index}" ${checked} ${locked ? 'disabled' : ''}
@@ -80,8 +99,9 @@ function issueCard(issue, index, sections) {
           <span style="color:#64748b;font-size:11px;">${esc(sectionLabel(issue, sections))}</span>
           ${issue.origin === 'ai' ? '<span style="color:#64748b;font-size:11px;">· AI 비평</span>' : ''}
           ${status ? `<span style="padding:2px 8px;border-radius:999px;background:${status.bg};color:${status.fg};font-size:10.5px;font-weight:800;">${status.label}</span>` : ''}
+          ${lifecycle ? `<span style="padding:2px 8px;border-radius:999px;background:${lifecycle.bg};color:${lifecycle.fg};font-size:10.5px;font-weight:800;">${lifecycle.label}</span>` : ''}
         </div>
-        ${issue.statusNote ? `<div style="color:#7c8aa5;font-size:11px;line-height:1.5;margin-bottom:5px;">🕰️ ${esc(issue.statusNote)}</div>` : ''}
+        ${note ? `<div style="color:#7c8aa5;font-size:11px;line-height:1.5;margin-bottom:5px;">🕰️ ${esc(note)}</div>` : ''}
         <div style="font-weight:800;color:#f1f5f9;font-size:13.5px;line-height:1.45;">${esc(issue.title)}</div>
         ${issue.detail ? `<div style="color:#cbd5f5;font-size:12px;line-height:1.6;margin-top:5px;">${esc(issue.detail)}</div>` : ''}
         ${issue.evidence ? `<div style="margin-top:7px;padding:8px 11px;background:rgba(15,23,42,0.5);border-radius:6px;color:#94a3b8;font-size:11.5px;line-height:1.55;">"${esc(issue.evidence)}"</div>` : ''}
@@ -90,6 +110,69 @@ function issueCard(issue, index, sections) {
       </div>
     </label>
   `;
+}
+
+/**
+ * 🧭 v3.8.750 — 끝났는가. 반드시 고칠 것이 0 이면 "발행 가능" 이라고 **먼저** 말한다.
+ * 이어서 확인(AI 호출 0회)이었는지, 새로 보였지만 올리지 않은 선택 항목이 몇 건인지도 숨기지 않는다.
+ */
+function convergenceBanner(conv) {
+  if (!conv) return '';
+  const ok = conv.converged === true;
+  const tone = ok
+    ? 'background:rgba(34,197,94,0.10);border:1px solid rgba(34,197,94,0.35);color:#bbf7d0;'
+    : 'background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.32);color:#fecaca;';
+  const how = conv.fullCritique
+    ? '전체 비평(코드 진단 + AI 비평)'
+    : `이어서 확인 — 지난 반드시 고칠 것이 풀렸는지만 다시 쟀습니다 (AI 호출 0회)${conv.newOptionalIgnored ? ` · 새로 보인 선택 항목 ${conv.newOptionalIgnored}건은 목록에 올리지 않았습니다` : ''}`;
+  return `
+    <div style="padding:14px 16px;border-radius:12px;margin-bottom:14px;${tone}">
+      <div style="font-weight:900;font-size:14px;">${ok ? '✅' : '🔴'} ${esc(conv.headline || '')}</div>
+      <div style="color:#cbd5e1;font-size:12px;line-height:1.6;margin-top:6px;">${esc(conv.message || '')}</div>
+      <div style="color:#7c8aa5;font-size:11px;line-height:1.5;margin-top:6px;">${esc(how)}${conv.revisionCycle ? ` · 버튼 수정 ${conv.revisionCycle}회` : ''}</div>
+    </div>`;
+}
+
+function resolvedList(resolved) {
+  if (!Array.isArray(resolved) || resolved.length === 0) return '';
+  return `
+    <div style="margin:4px 0 14px;padding:11px 14px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:10px;">
+      <div style="color:#86efac;font-size:12.5px;font-weight:800;">✅ 해결된 반드시 고칠 것 ${resolved.length}건</div>
+      <div style="color:#94a3b8;font-size:11.5px;line-height:1.7;margin-top:5px;">${resolved.map((r) => `· ${esc(r.title)}`).join('<br>')}</div>
+    </div>`;
+}
+
+/** 반드시 / 선택 / 근거 필요 — 섞어 두면 선택 개선까지 「반드시」처럼 읽힌다 */
+function groupedIssues(critique, issues, sections) {
+  const indexed = issues.map((issue, i) => ({ issue, i }));
+  const group = (title, hint, list) => (list.length ? `
+    <div style="margin:4px 0 14px;">
+      <div style="color:#e2e8f0;font-size:13px;font-weight:900;margin-bottom:4px;">${title} ${list.length}건</div>
+      <div style="color:#7c8aa5;font-size:11.5px;line-height:1.55;margin-bottom:9px;">${hint}</div>
+      ${list.map(({ issue, i }) => issueCard(issue, i, sections)).join('')}
+    </div>` : '');
+  return `
+    ${convergenceBanner(critique?.convergence)}
+    ${group('🔴 반드시 고칠 것', '발행 전에 고쳐야 하는 결함입니다. 고르면 <b style="color:#cbd5f5;">지적된 문단만</b> 고칩니다.', indexed.filter((x) => x.issue.blocking))}
+    ${resolvedList(critique?.resolvedIssues)}
+    ${group('🟡 선택 개선', '발행을 막지 않습니다. 원하는 것만 직접 골라 고칠 수 있습니다 — 미리 고르지 않았습니다.', indexed.filter((x) => !x.issue.blocking && x.issue.issueClass !== 'NEEDS_NEW_EVIDENCE'))}
+    ${group('📚 근거가 필요한 항목', '근거를 추가해 다시 생성해야 하는 항목입니다. 문장만 고치면 지어내게 되므로 수정 버튼으로 보내지 않습니다.', indexed.filter((x) => x.issue.issueClass === 'NEEDS_NEW_EVIDENCE'))}`;
+}
+
+/**
+ * 🎯 v3.8.750 — 지적된 문단만 고친 결과: 몇 문단을 고쳤고 나머지는 그대로인가, 새 결함 때문에 되돌린 구간은 어디인가.
+ */
+function targetedSummary(res) {
+  const p = res?.preservation;
+  const regressions = Array.isArray(res?.regressions) ? res.regressions : [];
+  const kept = p ? `지적된 문단 ${p.blocksChanged}개만 고쳤습니다 · 나머지 문단 ${p.untouchedKept}/${p.untouchedTotal}개 그대로` : '';
+  const back = regressions.length ? `
+    <div style="margin-top:10px;padding:11px 14px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.3);border-radius:10px;">
+      <div style="color:#e9d5ff;font-size:12.5px;font-weight:800;">↩️ 새 결함을 만들어 되돌린 구간 ${regressions.length}곳</div>
+      <div style="color:#cbd5e1;font-size:11.5px;line-height:1.7;margin-top:5px;">${regressions.map((r) => `· ${esc(r.heading)} — ${esc((r.titles || []).join(' · '))}`).join('<br>')}</div>
+      <div style="color:#94a3b8;font-size:11px;margin-top:5px;">고친 결과가 새 「반드시 고칠 것」을 만들어 그 구간은 원문을 그대로 뒀습니다.</div>
+    </div>` : '';
+  return `${convergenceBanner(res?.convergence)}${kept ? `<div style="color:#94a3b8;font-size:12px;margin:-4px 0 12px;">🎯 ${kept}</div>` : ''}${back}`;
 }
 
 /**
@@ -158,13 +241,16 @@ function resultView(res, picked, editorMode = false) {
           : '주소와 제목은 그대로라 검색 색인이 유지됩니다.'}
       </div>
     </div>
+    ${res?.convergence ? targetedSummary(res) : ''}
     ${rows}
     ${stillRows}
     ${skippedRows}
     <div style="margin-top:16px;padding:12px 14px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:10px;color:#a5b4fc;font-size:11.5px;line-height:1.65;">
-      🕰️ 이번에 고친 항목은 기록해 뒀습니다. 다시 비평하면 각 지적 옆에
+      ${res?.convergence
+        ? '🕰️ 「다시 확인」은 AI 를 부르지 않고 <b>반드시 고칠 것만</b> 다시 잽니다 — 새 선택 항목을 찾지 않습니다. 글 전체를 다시 보려면 「전체 다시 비평」을 누르세요.'
+        : `🕰️ 이번에 고친 항목은 기록해 뒀습니다. 다시 비평하면 각 지적 옆에
       <b>새 지적 / 지난번에도 / 고쳤는데 또 / 개선이 남긴 것</b> 중 하나가 붙어,
-      그게 왜 지금 나왔는지 알 수 있습니다.
+      그게 왜 지금 나왔는지 알 수 있습니다.`}
     </div>
   `;
 }
@@ -204,6 +290,20 @@ export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
   overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483630;background:rgba(2,6,23,0.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;';
 
   const clean = issues.length === 0;
+  /**
+   * 🩺 v3.8.750 — 「전체 다시 비평」은 **사람이 눌렀을 때만** AI 비평을 다시 돈다.
+   * 그냥 다시 비평(다시 확인)은 반드시 고칠 것만 코드로 다시 잰다 — 새 선택 항목을 찾지 않는다.
+   */
+  const canFull = !!critique?.convergence && (typeof opts?.onFullRecritique === 'function' || typeof onRecritique === 'function');
+  const fullButton = canFull
+    ? '<button id="pcFull" title="AI 비평을 처음부터 다시 돌립니다 (API 호출)" style="padding:10px 14px;background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">🔄 전체 다시 비평</button>'
+    : '';
+  const runFull = async () => {
+    overlay.remove();
+    try {
+      await (typeof opts?.onFullRecritique === 'function' ? opts.onFullRecritique() : onRecritique({ full: true }));
+    } catch { /* 실패는 호출한 쪽이 알린다 */ }
+  };
   overlay.innerHTML = `
     <div style="width:min(760px,100%);max-height:88vh;display:flex;flex-direction:column;background:#0f172a;border:1px solid #334155;border-radius:18px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,0.55);">
       <div style="padding:20px 24px;border-bottom:1px solid #1e293b;">
@@ -222,15 +322,20 @@ export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
 
       <div id="pcBody" style="flex:1;overflow-y:auto;padding:18px 24px;">
         ${clean
-          ? `<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">${critique?.aiSkipped
+          ? (critique?.convergence
+            ? `${convergenceBanner(critique.convergence)}${resolvedList(critique?.resolvedIssues)}`
+            : `<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">${critique?.aiSkipped
               ? '게이트 진단을 전부 통과해 AI 비평은 부르지 않았습니다 — API 호출 0회.'
-              : '게이트 진단과 AI 비평 모두 통과했습니다.'}</div></div>`
-          : `<div style="color:#94a3b8;font-size:12px;margin-bottom:12px;">고칠 항목만 체크하세요. <b style="color:#e2e8f0;">체크한 지적이 붙은 구간만</b> 다시 씁니다 — 나머지 구간·이미지·링크는 그대로 둡니다.</div>
+              : '게이트 진단과 AI 비평 모두 통과했습니다.'}</div></div>`)
+          : critique?.convergence
+            ? groupedIssues(critique, issues, sections)
+            : `<div style="color:#94a3b8;font-size:12px;margin-bottom:12px;">고칠 항목만 체크하세요. <b style="color:#e2e8f0;">체크한 지적이 붙은 구간만</b> 다시 씁니다 — 나머지 구간·이미지·링크는 그대로 둡니다.</div>
              ${issues.map((issue, i) => issueCard(issue, i, sections)).join('')}`}
       </div>
 
       <div id="pcFooter" style="padding:16px 24px;border-top:1px solid #1e293b;display:flex;gap:10px;align-items:center;">
         <div id="pcHint" style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">${editorMode ? '고른 항목만 고쳐 편집기에 다시 싣습니다. 발행은 저장 버튼으로 직접 하세요.' : '주소(URL)와 제목은 그대로라 검색 색인이 유지됩니다.'}</div>
+        ${fullButton}
         <button id="pcCancel" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">닫기</button>
         ${clean ? '' : `<button id="pcApply" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">✍️ 선택한 항목 ${applyVerb}</button>`}
       </div>
@@ -242,6 +347,7 @@ export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
   const close = () => overlay.remove();
   overlay.querySelector('#pcCancel')?.addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#pcFull')?.addEventListener('click', runFull);
 
   const applyBtn = overlay.querySelector('#pcApply');
   const hint = overlay.querySelector('#pcHint');
@@ -268,7 +374,11 @@ export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
     applyBtn.disabled = true;
     applyBtn.style.opacity = '0.6';
     applyBtn.textContent = '✍️ 고쳐 쓰는 중… (몇 분 걸립니다)';
-    if (hint) hint.textContent = '문제 구간만 다시 씁니다. 규칙을 어긴 구간은 원본을 그대로 둡니다.';
+    if (hint) {
+      hint.textContent = critique?.convergence
+        ? '지적된 문단만 고칩니다. 규칙을 어기거나 새 결함을 만든 문단은 원문을 그대로 둡니다.'
+        : '문제 구간만 다시 씁니다. 규칙을 어긴 구간은 원본을 그대로 둡니다.';
+    }
 
     try {
       const res = await onApply(picked);
@@ -280,9 +390,11 @@ export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
       if (footer) {
         footer.innerHTML = `
           <div style="flex:1;color:#64748b;font-size:11.5px;line-height:1.5;">${editorMode ? '편집기에 반영했습니다. 확인 뒤 저장 버튼으로 발행하세요.' : '고친 내용은 이미 블로그에 반영됐습니다.'}</div>
-          ${onRecritique ? '<button id="pcAgain" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">🩺 다시 비평</button>' : ''}
+          ${canFull ? fullButton : ''}
+          ${onRecritique ? `<button id="pcAgain" style="padding:10px 18px;background:#1e293b;color:#cbd5f5;border:1px solid #334155;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">${res?.convergence ? '🩺 다시 확인 (AI 0회)' : '🩺 다시 비평'}</button>` : ''}
           <button id="pcDone" style="padding:10px 20px;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">닫기</button>`;
         footer.querySelector('#pcDone')?.addEventListener('click', close);
+        footer.querySelector('#pcFull')?.addEventListener('click', runFull);
         footer.querySelector('#pcAgain')?.addEventListener('click', async () => {
           close();
           try { await onRecritique(); } catch { /* 실패는 호출한 쪽이 알린다 */ }

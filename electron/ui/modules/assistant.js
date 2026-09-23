@@ -165,24 +165,29 @@ async function runCritiqueLatest() {
     }
 
     // 심각한 것부터 — 사장님이 위에서부터 읽는다
+    // v3.8.750 — 수렴 비평이면 「반드시 고칠 것」(발행을 막는 결함)이 먼저고, 고치기도 그것만 보낸다.
+    const conv = res.convergence;
     const rank = { high: 0, medium: 1, low: 2 };
-    const sorted = [...issues].sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
-    thinking.innerHTML = '<b>' + esc(String(latest.title).slice(0, 40)) + '</b> — 점수 ' + esc(String(res.score ?? '')) + '점 · 지적 ' + issues.length + '건<br><br>'
+    const sorted = [...issues].sort((a, b) => (conv ? Number(!a.blocking) - Number(!b.blocking) : 0) || (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
+    const fixables = conv ? sorted.filter((i) => i.autoSelect) : sorted;
+    thinking.innerHTML = '<b>' + esc(String(latest.title).slice(0, 40)) + '</b> — 점수 ' + esc(String(res.score ?? '')) + '점 · 지적 ' + issues.length + '건'
+      + (conv ? '<br>' + (conv.converged ? '✅ ' : '🔴 ') + esc(conv.headline || '') : '') + '<br><br>'
       + sorted.slice(0, 6).map((i) => {
-        const mark = i.severity === 'high' ? '🔴' : (i.severity === 'medium' ? '🟡' : '⚪');
+        const mark = conv ? (i.blocking ? '🔴' : '⚪') : (i.severity === 'high' ? '🔴' : (i.severity === 'medium' ? '🟡' : '⚪'));
         const evidence = String(i.evidence || '').slice(0, 70);
         return mark + ' <b>' + esc(i.title || '') + '</b>'
           + (evidence ? '<br><span style="color:#94a3b8;">' + esc(evidence) + '</span>' : '');
       }).join('<br>');
 
-    // 고치는 것은 누른 뒤에만
+    // 고치는 것은 누른 뒤에만 — 고칠 「반드시」가 없으면 버튼도 없다 (선택 개선은 발행을 막지 않는다)
+    if (!fixables.length) return;
     const wrap = document.createElement('div');
     wrap.className = 'as-actions';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'as-act';
-    btn.textContent = `🛠 이대로 고치기 (${sorted.length}건)`;
-    btn.addEventListener('click', () => applyCritiqueFixes(latest, sorted, btn));
+    btn.textContent = `🛠 이대로 고치기 (${fixables.length}건)`;
+    btn.addEventListener('click', () => applyCritiqueFixes(latest, fixables, btn));
     wrap.appendChild(btn);
     thinking.appendChild(wrap);
   } catch (err) {

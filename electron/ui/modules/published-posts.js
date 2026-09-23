@@ -454,7 +454,8 @@ function renderList() {
  *
  * 두 단계다 — ① 비평(블로그를 건드리지 않음) → ② 사장님이 고른 항목만 수정발행.
  */
-async function critiquePostAt(index) {
+// v3.8.750: opts.full — 「전체 다시 비평」. 없으면 같은 글의 체인으로 AI 없이 이어서 잰다(main 이 판단).
+async function critiquePostAt(index, opts = {}) {
   const platform = getPlatform(state.active);
   const item = activeState().items[index];
   if (!item) return;
@@ -477,6 +478,7 @@ async function critiquePostAt(index) {
       platform: platform.key,
       postId,
       title: item.title || '',
+      fullRecritique: opts?.full === true,
       ...(payload ? { payload } : {}),
     });
     if (!critique?.ok) throw new Error(critique?.error || '알 수 없는 오류');
@@ -504,7 +506,7 @@ async function critiquePostAt(index) {
       }
       // v3.8.622 — 결과를 돌려줘야 모달이 "무엇이 어떻게 바뀌었는지" 화면을 그린다
       return res;
-    }, () => critiquePostAt(index));
+    }, () => critiquePostAt(index), { onFullRecritique: () => critiquePostAt(index, { full: true }) });
   } catch (err) {
     const message = err?.message || String(err);
     if (statusEl) statusEl.textContent = `❌ 비평 실패: ${message}`;

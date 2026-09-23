@@ -545,16 +545,21 @@ ${err?.message || err}
        * session 에 쌓아 두므로 편집기를 닫을 때까지 유지된다.
        */
       session.resolvedIssues = Array.isArray(session.resolvedIssues) ? session.resolvedIssues : [];
+      // v3.8.750: 체인이 있으면 AI 없이 이어서 잰다. 전체 비평은 「전체 다시 비평」을 눌렀을 때만.
+      const fullRecritique = session.forceFullCritique === true;
+      session.forceFullCritique = false;
       const critique = await window.electronAPI.invoke('critique-editor-html', {
-        title, html: serializeEditor(), payload, resolved: session.resolvedIssues,
+        title, html: serializeEditor(), payload, resolved: session.resolvedIssues, chain: session.critiqueChain || null, fullRecritique,
       });
       if (!critique?.ok) throw new Error(critique?.error || '알 수 없는 오류');
-      setStatus(`🩺 비평 완료 — ${critique.summary}`);
+      session.critiqueChain = critique.chain || null;
+      setStatus(`🩺 비평 완료 — ${critique.convergence?.headline || critique.summary}`);
       const { showCritiqueModal } = await import('./post-critique-modal.js');
       showCritiqueModal(critique, async (issues) => {
-        setStatus(`✍️ 고른 ${issues.length}건을 반영해 고쳐 쓰는 중… (몇 분 걸립니다)`);
-        const res = await window.electronAPI.invoke('improve-editor-html', { title, html: serializeEditor(), issues, payload });
+        setStatus(`✍️ 고른 ${issues.length}건 — 지적된 문단만 고치는 중… (몇 분 걸립니다)`);
+        const res = await window.electronAPI.invoke('improve-editor-html', { title, html: serializeEditor(), issues, payload, mode: 'critiqueTargeted', chain: session.critiqueChain || null });
         if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
+        if (res.chain) session.critiqueChain = res.chain;
         if (res.html && res.revised > 0) {
           pushUndo('비평 개선');
           applyRevisedHtml(res.html);
@@ -579,7 +584,7 @@ ${err?.message || err}
         }
         // v3.8.693: mode 를 붙여 모달이 "수정발행" 이 아니라 "수정" 이라고 말하게 한다
         return { ...res, url: '', mode: 'editor' };
-      }, () => modalRefs.critiqueBtn.click(), { mode: 'editor' });
+      }, (o) => { session.forceFullCritique = o?.full === true; modalRefs.critiqueBtn.click(); }, { mode: 'editor' });
     } catch (err) {
       setStatus(`❌ 비평 실패: ${err?.message || err}`);
       window.notifyUser?.(`비평하지 못했습니다.\n${err?.message || err}\n글은 그대로 있습니다.`, 'error');
@@ -860,6 +865,7 @@ ${err?.message || err}
     clearUndo();
     applyRevisedHtml(session.originalHtml);
     session.resolvedIssues = [];
+    session.critiqueChain = null;   // v3.8.750: 원본으로 돌아가면 비평 체인도 처음부터
     modalRefs.titleInput.value = session.originalTitle || '';
     setStatus('원본으로 되돌렸습니다.');
   });
@@ -1095,6 +1101,7 @@ function undoOnce() {
   const last = undoStack.pop();
   applyRevisedHtml(last.html);
   session.resolvedIssues = [];
+  session.critiqueChain = null;   // v3.8.750: 되돌린 본문은 체인이 기록한 본문이 아니다
   // 되돌린 뒤에도 썸네일 블록 보호는 다시 걸어 준다 (innerHTML 로 갈아 끼우면 표시가 날아간다)
   try { protectSeparators(doc); } catch { /* 보호 실패가 되돌리기를 막을 이유는 없다 */ }
   refreshUndoButton();
