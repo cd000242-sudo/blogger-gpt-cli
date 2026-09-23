@@ -16,7 +16,7 @@ import { makeNanoBananaProThumbnail } from '../../thumbnail';
 import { dispatchH2ImageGeneration, dispatchThumbnailGeneration } from '../imageDispatcher';
 import { runImageGenerationQueued } from '../image-generation-queue';
 import '../content-modes/register-all'; // 5개 모드 플러그인 자동 등록
-import { generateContentFromUrl, generateContentFromUrls } from '../url-content-generator';
+import { deepCrawlUrl, EMPTY_BODY_THRESHOLD } from '../url-content-generator';
 import { validateCtaUrl, validateCtaUrlFormat } from '../../cta/validate-cta-url';
 // v3.8.570: 버튼·훅을 같은 자리에서 만들고, 제목을 되풀이하는 훅은 나가기 전에 걸러 낸다
 import { buildCtaCopy, hookEchoesTitle, siteNameFromUrl, ctaSiteNames } from '../../cta/cta-copy';
@@ -69,7 +69,9 @@ import { SHOPPING_CONVERSION_MODE_SECTIONS, PARAPHRASING_PROFESSIONAL_MODE_SECTI
 import { fetchFactContext, type FactCheckMode } from '../perplexityFactCheck';
 import { searchCoupangProducts, createCoupangDeeplink, formatProductsForPrompt, renderCoupangProductBlock, renderCoupangDisclosureBanner, enforceCoupangCompliance } from '../coupang-partners';
 import { uploadBase64ToImageHost } from './image-helpers';
-import { resolveUrlModeKeyword } from './url-mode';
+import { collectUrlModeSources, buildUrlUpgradeWriterBlock, type UrlModeSources } from './url-mode';
+import { recoverTopicFromContent, describeCrawlFailure } from './url-topic-recovery';
+import { parseNaverBlogUrl } from './naver-blog-source';
 import { crawlSingleUrlFast } from './crawlers';
 import { callGeminiWithRetry } from './gemini-engine';
 import { FinalCrawledPost, FinalTableData, FinalCTAData } from './types';
@@ -1095,103 +1097,47 @@ export async function generateUltimateMaxModeArticleFinal(
     }
 
     // 🔥 URL 전용 모드: URL만 있고 키워드가 없거나 URL 기반 생성 요청 시
-    // 완전히 새로운 콘텐츠를 AI가 생성 (중복 문서 방지)
     //   ⚠️ 제휴 링크만 넣은 경우에는 켜지지 않는다(위에서 manualUrls 에서 빠졌다).
     const urlOnlyMode = (manualUrls.length > 0) && (!keyword || keyword.trim() === '' || payload.urlBasedGeneration === true);
 
+    /**
+     * 🔗 v3.8.749 — URL 로 만든 글도 키워드 글과 **같은 파이프라인**을 탄다.
+     *
+     * 사장님: "URL로 글생성하면 이미지와 표 CTA 등 삽입이 안되고 소제목과 본문만 나오는 버그가 있어"
+     *
+     * 예전엔 여기서 url-content-generator 로 h2·h3·p 만 만들고 썸네일을 붙여 **바로 반환**했다.
+     * 소제목 이미지·표·CTA·FAQ·요약·스킨·Final Judge 를 한 번도 타지 않았다(가장 오래된 커밋부터).
+     * 그 생성기가 실패하면 "기존 방식으로 전환"이 **빈 키워드**로 아래를 돌렸다.
+     *
+     * 이제 URL 은 근거 자료가 되고, 주제는 원문에서 뽑아 메인 키워드로 쓴다. 나머지는 키워드 글과 같다.
+     * 본문을 하나도 못 읽으면 여기서 멈춘다 — 제목 한 줄로 글을 지어내지 않는다(v3.8.627).
+     */
+    let urlModeSources: UrlModeSources | null = null;
     if (urlOnlyMode) {
-      onLog?.('[PROGRESS] 2% - 🔗 URL 기반 완전 새로운 콘텐츠 생성 모드');
-      onLog?.(`   📋 ${manualUrls.length}개 URL을 참고하여 완전히 새로운 글 작성`);
-      onLog?.('   ⚠️ 원본 복사 없이 AI가 100% 새롭게 작성합니다 (중복 문서 방지)');
-
-      const urlModeKeyword = resolveUrlModeKeyword(payload.urlBasedGeneration, keyword);
+      onLog?.('[PROGRESS] 2% - 🔗 URL 기반 생성 — 키워드 글과 같은 파이프라인 (소제목 이미지·표·CTA·FAQ·스킨 동일)');
+      onLog?.(`   📋 원문 ${manualUrls.length}개를 읽어 근거 자료로 씁니다 (원문 문장은 복사하지 않습니다)`);
       if (payload.urlBasedGeneration === true && keyword && keyword.trim()) {
         onLog?.(`   ℹ️ URL 모드 — 전달된 키워드("${keyword.slice(0, 30)}")는 무시하고 URL 본문에서 주제를 추출합니다`);
       }
-
-      try {
-        // URL 콘텐츠 생성기 사용
-        const firstUrl = manualUrls[0];
-        if (!firstUrl) {
-          throw new Error('URL이 유효하지 않습니다.');
-        }
-        const urlResult = manualUrls.length === 1
-          ? await generateContentFromUrl(firstUrl, urlModeKeyword || undefined, onLog)
-          : await generateContentFromUrls(manualUrls, urlModeKeyword || undefined, onLog);
-
-        // 썸네일 생성 — 🎯 사용자 선택 엔진 사용 (dispatcher 경유)
-        // v3.8.359: h2ImageMode와 썸네일 소스 분리 — 사용자가 명시한 썸네일 소스가 있으면 h2ImageMode='none'이어도 존중
-        let thumbnailUrl = '';
-        const explicitUrlThumb = String(payload.thumbnailSource || payload.thumbnailType || payload.thumbnailMode || '').trim().toLowerCase();
-        const urlThumbnailSource = explicitUrlThumb && explicitUrlThumb !== 'none' && explicitUrlThumb !== 'skip'
-          ? explicitUrlThumb
-          : (h2ImageMode === 'none' ? 'none' : (explicitUrlThumb || 'nanobanana2'));
-        const urlThumbnailDisabled = urlThumbnailSource === 'none' || urlThumbnailSource === 'skip';
-        const preGeneratedThumbnail = String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim();
-        if (!skipImages && preGeneratedThumbnail) {
-          thumbnailUrl = preGeneratedThumbnail.startsWith('data:')
-            ? (await uploadBase64ToImageHost(preGeneratedThumbnail, 'folder-thumbnail') || '')
-            : preGeneratedThumbnail;
-          if (thumbnailUrl) {
-            emitGeneratedImage('thumbnail', `썸네일: ${urlResult.title}`, preGeneratedThumbnail, { queueImageToken });
-            onLog?.('[PROGRESS] 92% - 📁 내 폴더 썸네일 사용 (새 이미지 생성 생략)');
-          }
-        }
-        if (!thumbnailUrl && !skipImages && !urlThumbnailDisabled) {
-          onLog?.(`[PROGRESS] 92% - 🖼️ 썸네일 생성 중 (${urlThumbnailSource})...`);
-          try {
-            const urlThumbExtra: { gptImageQuality?: 'low' | 'medium' | 'high'; leonardoModel?: string; allowFreeTrialPublishing?: boolean; thumbnailNoText?: boolean } = {
-              allowFreeTrialPublishing: true,
-              thumbnailNoText: payload.thumbnailNoText === true,
-            };
-            if (payload.gptImageQuality === 'low' || payload.gptImageQuality === 'medium' || payload.gptImageQuality === 'high') {
-              urlThumbExtra.gptImageQuality = payload.gptImageQuality;
-            }
-            const urlLeonardoModel = payload.leonardoModel || payload.leonardoModelPreference || payload.imageSettings?.leonardoModel;
-            if (typeof urlLeonardoModel === 'string' && urlLeonardoModel.trim()) {
-              urlThumbExtra.leonardoModel = urlLeonardoModel.trim();
-            }
-            const thumbResult = await dispatchThumbnailGeneration(
-              urlThumbnailSource,
-              urlResult.title,
-              urlModeKeyword || urlResult.title,
-              (msg) => onLog?.(`   ${msg}`),
-              urlThumbExtra,
-            );
-            if (thumbResult.ok && thumbResult.dataUrl) {
-              thumbnailUrl = thumbResult.dataUrl;
-              emitGeneratedImage('thumbnail', `썸네일: ${urlResult.title}`, thumbResult.dataUrl, { queueImageToken });
-              onLog?.(`   ✅ ${thumbResult.source} 썸네일 완료`);
-            } else {
-              onLog?.(`   ⚠️ 썸네일 생성 실패: ${thumbResult.error || '알 수 없음'}`);
-            }
-          } catch (thumbErr: any) {
-            onLog?.(`   ⚠️ 썸네일 생성 실패: ${thumbErr.message}`);
-          }
-        }
-
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        onLog?.(`[PROGRESS] 100% - ✅ URL 기반 콘텐츠 생성 완료! (${duration}초)`);
-        onLog?.(`   📝 제목: "${urlResult.title}"`);
-        onLog?.(`   📊 H2: ${urlResult.h2Sections.length}개`);
-        onLog?.(`   🏷️ 태그: ${urlResult.tags.length}개`);
-        onLog?.(`   📄 글자수: ${urlResult.html.length}자`);
-
-        return {
-          html: urlResult.html,
-          title: urlResult.title,
-          labels: urlResult.tags,
-          thumbnail: thumbnailUrl,
-        };
-      } catch (urlGenError: any) {
-        onLog?.(`⚠️ URL 기반 생성 실패, 기존 방식으로 전환: ${urlGenError.message}`);
-        // 실패 시 기존 방식으로 폴백
-      }
+      urlModeSources = await collectUrlModeSources(manualUrls, {
+        deepCrawl: deepCrawlUrl,
+        fallbackCrawl: crawlSingleUrlFast,
+        recoverTopic: (text) => recoverTopicFromContent(text, (prompt) => callGeminiWithRetry(prompt)),
+        describeFailure: (url) => describeCrawlFailure(url, !!parseNaverBlogUrl(url)),
+        minBodyChars: EMPTY_BODY_THRESHOLD,
+        onLog: (msg) => onLog?.(msg),
+      });
+      keyword = urlModeSources.topic;
+      (payload as any).topic = keyword;
+      onLog?.(`[PROGRESS] 5% - 🔗 URL 글 주제: "${keyword}" · 원문 ${urlModeSources.posts.length}건을 근거로 씁니다`);
     }
 
     let crawledPosts: FinalCrawledPost[] = [];
 
-    if (manualUrls.length > 0) {
+    if (urlModeSources) {
+      // 🔗 v3.8.749 URL 모드 — 위에서 읽은 원문이 곧 근거 자료다 (다시 읽거나 검색하지 않는다)
+      crawledPosts = urlModeSources.posts;
+    } else if (manualUrls.length > 0) {
       // 🔗 URL 직접 크롤링 모드 (사용자가 참고 URL 입력한 경우 → 유지!)
       onLog?.('[PROGRESS] 5% - 🔗 URL 직접 크롤링 중...');
       onLog?.(`   📋 ${manualUrls.length}개 URL 크롤링`);
@@ -3450,6 +3396,19 @@ ${quoted}
       } else {
         // 경험 메모가 없을 때만 "겪은 척 쓰지 마라" 가드를 붙인다
         scopedSectionBlock += NO_EXPERIENCE_GUARD;
+      }
+
+      /**
+       * 🔗 v3.8.749 — URL 로 만든 글: "원문을 덮고 더 채운다"(v3.8.596) 규칙과 원문 날짜 경고(v3.8.633).
+       * URL 생성기와 **같은 상수**를 쓴다. 원문 본문은 근거 자료로 이미 들어가 있어 다시 싣지 않는다.
+       * 작성자 요청사항보다 앞에 둔다 — 요청사항이 마지막 말을 해야 한다.
+       */
+      if (urlModeSources) {
+        const urlUpgradeBlock = buildUrlUpgradeWriterBlock(urlModeSources.upgradeSources);
+        if (urlUpgradeBlock) {
+          scopedSectionBlock += urlUpgradeBlock;
+          onLog?.('[PROGRESS] 43% - 🔗 URL 원문의 상위호환 규칙(다룬 항목 빠짐없이 · 빠진 것 채우기)을 본문 지시에 반영');
+        }
       }
 
       /**
