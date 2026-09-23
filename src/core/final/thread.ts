@@ -98,6 +98,16 @@ function regionsIn(s: string): string[] {
 }
 
 /**
+ * v3.8.750 — 질문 낱말이 키워드 낱말의 **조각**일 때(「카드」⊂「카드수수료」) 같은 대상으로 볼 만한가.
+ * 짧은 앞머리는 꾸밈말일 뿐 다른 대상이다 — 「카드」(카드값·미납)는 「카드수수료」(가맹점 수수료)가 아니다.
+ * 실측(5865): 「카드 미납 질문」이 이 조각 하나로 통과해 도입·H2·FAQ 를 미납이 차지했다.
+ * 3글자 이상이거나 그 낱말의 60% 이상이면 같은 대상으로 본다(「도약계좌」⊂「청년도약계좌」, 「환급」⊂「환급금」).
+ */
+function isSubstantialFragment(fragment: string, word: string): boolean {
+  return fragment.length >= 3 || fragment.length * 5 >= word.length * 3;
+}
+
+/**
  * 지식iN 질문을 **키워드 실체**에 대고 거른다 — AI 호출 0, 같은 입력이면 같은 답.
  *
  * 우선순위: 키워드 > 제목 > 패킷 > 관련 검색어 > 질문. 질문은 위의 것들과 겹칠 때만 산다.
@@ -127,8 +137,14 @@ export function filterThreadQuestions(questions: unknown, ctx: ThreadRelevanceCo
   for (const q of qs) {
     const tokens = qTokens(q);
     if (tokens.length === 0) { drop(q, 'GENERIC_ONLY', '뼈대 낱말만 있어 무엇을 묻는지 알 수 없음'); continue; }
-    const overlap = tokens.filter((t) => entity.has(t) || [...entity].some((e) => e.length >= 2 && (t.includes(e) || e.includes(t))));
-    if (overlap.length === 0) { drop(q, 'NO_ENTITY_OVERLAP', `키워드·제목·관련 검색어 낱말과 겹침 0 (질문 낱말: ${tokens.slice(0, 5).join('·')})`); continue; }
+    const overlap = tokens.filter((t) => entity.has(t) || [...entity].some((e) => e.length >= 2 && (t.includes(e) || (e.includes(t) && isSubstantialFragment(t, e)))));
+    if (overlap.length === 0) {
+      const fragments = tokens.flatMap((t) => [...entity].filter((e) => e.length > t.length && e.includes(t)).map((e) => `「${t}」⊂「${e}」`));
+      drop(q, 'NO_ENTITY_OVERLAP', fragments.length
+        ? `키워드 낱말의 짧은 조각만 겹침 — ${fragments.slice(0, 3).join(', ')} (질문 낱말: ${tokens.slice(0, 5).join('·')})`
+        : `키워드·제목·관련 검색어 낱말과 겹침 0 (질문 낱말: ${tokens.slice(0, 5).join('·')})`);
+      continue;
+    }
 
     const qRegions = regionsIn(q);
     if (kwRegions.length > 0 && qRegions.length > 0 && !qRegions.some((r) => kwRegions.includes(r))) {
