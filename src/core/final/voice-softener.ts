@@ -102,22 +102,31 @@ function isProtected(sentence: string): boolean {
   return PROTECTED_WORDS.some((w) => sentence.includes(w));
 }
 
-/** 한 문장을 부드럽게 — 바꿀 수 없으면 원문 그대로 */
-export function softenSentence(sentence: string): string {
+/**
+ * 한 문장을 부드럽게 바꾸고 **어떤 꼬리로 바꿨는지**도 돌려준다.
+ * tail 은 규칙 표의 꼬리(「때문이거든요.」「되죠.」…) — 글 전체 반복 상한을 세는 열쇠다.
+ * 「…입니다 → 이죠/죠」는 앞 낱말이 매번 달라 반복으로 치지 않는다(tail null).
+ */
+function softenSentenceWithTail(sentence: string): { text: string; tail: string | null } {
   const trimmed = sentence.trim();
-  if (!trimmed || isProtected(trimmed)) return sentence;
+  if (!trimmed || isProtected(trimmed)) return { text: sentence, tail: null };
   /**
    * 규칙 표를 **먼저** 본다. 「…때문입니다」는 「…때문이거든요」가 되어야 하는데,
    * 「입니다」 처리가 앞서면 「때문이죠」로 끝나 거든요가 한 번도 안 나온다(실측).
    */
   for (const rule of SOFTEN_RULES) {
     if (rule.from.test(trimmed)) {
-      return sentence.replace(trimmed, trimmed.replace(rule.from, rule.to));
+      return { text: sentence.replace(trimmed, trimmed.replace(rule.from, rule.to)), tail: rule.to.replace(/^\$1/, '') };
     }
   }
   const imnida = softenImnida(trimmed);
-  if (imnida) return sentence.replace(trimmed, imnida);
-  return sentence;
+  if (imnida) return { text: sentence.replace(trimmed, imnida), tail: null };
+  return { text: sentence, tail: null };
+}
+
+/** 한 문장을 부드럽게 — 바꿀 수 없으면 원문 그대로 */
+export function softenSentence(sentence: string): string {
+  return softenSentenceWithTail(sentence).text;
 }
 
 /**
@@ -149,10 +158,15 @@ const SKIP_TAGS = /^(h[1-6]|th|td|a|script|style|summary|code|pre)$/i;
  * HTML 안의 **글자만** 골라 말투를 섞는다. 태그·속성은 한 글자도 건드리지 않는다.
  *
  * 소제목·표·링크는 건너뛴다. 본문 문단(p, li)만 대상이다.
+ *
+ * v3.8.750 — 같은 꼬리는 **글 전체에서 maxSameTail 번까지만** 쓴다. 문단 상한만 있을 때
+ * 판단+이유로 끝나는 문단이 많은 글에 「때문이거든요.」가 7번 붙었다(라이브 URL 글). 같은 소리가
+ * 줄줄이 나면 v3.8.720 이 없애려던 "기계가 읽는 소리"가 꼬리만 바뀌어 돌아온다. 넘치면 원문 그대로 둔다.
  */
-export function softenHtmlVoice(html: string, maxPerParagraph = 2): { html: string; changed: number } {
+export function softenHtmlVoice(html: string, maxPerParagraph = 2, maxSameTail = 2): { html: string; changed: number } {
   const source = String(html || '');
   let changed = 0;
+  const tailUses = new Map<string, number>();
 
   const out = source.replace(
     /<(p|li)(\b[^>]*)>([\s\S]*?)<\/\1>/gi,
@@ -181,8 +195,14 @@ export function softenHtmlVoice(html: string, maxPerParagraph = 2): { html: stri
           const isParagraphHead = globalSentence === 0;
           globalSentence += 1;
           if (isParagraphHead || localChanged >= maxPerParagraph) return sentence;
-          const softened = softenSentence(sentence);
-          if (softened !== sentence) localChanged += 1;
+          const { text: softened, tail } = softenSentenceWithTail(sentence);
+          if (softened === sentence) return sentence;
+          if (tail) {
+            const used = tailUses.get(tail) || 0;
+            if (used >= maxSameTail) return sentence;
+            tailUses.set(tail, used + 1);
+          }
+          localChanged += 1;
           return softened;
         });
         segments[i] = next.join(' ');
