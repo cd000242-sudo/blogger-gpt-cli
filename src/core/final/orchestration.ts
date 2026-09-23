@@ -82,6 +82,7 @@ import {
   generateCTAsFinal, generateVenueCtasFinal, generateSummaryTableFinal, generateHashtagsFinal,
   detectKeywordScope,
   generateIntentAwareFallbackH2Titles,
+  collapseRepeatedYear,
 } from './generation';
 
 function normalizeFolderHeadingKey(value: unknown): string {
@@ -1722,6 +1723,8 @@ export async function generateUltimateMaxModeArticleFinal(
         t = repairTitleYear(t);
         // v3.8.594: 연도는 맨 앞에. 단 "키워드 맨 앞" 옵션이 켜져 있으면 그 옵션이 이긴다.
         if (!payload.keywordFront) t = frontTitleYear(t);
+        // v3.8.750: 연도를 품은 키워드 + "2026년 {키워드}" 틀 → "2026년 2026 …"(5865). 옮긴 뒤라 붙은 것까지 본다
+        t = collapseRepeatedYear(t);
         return t;
       };
       makeTitleRef = makeTitle;
@@ -4050,6 +4053,14 @@ ${quoted}
       }
     }
     void titleRevisedByCritic;
+
+    /**
+     * 📅 v3.8.750 — 제목의 마지막 손질: 바로 옆에 붙은 같은 연도를 한 번으로 (POST-PUBLISH AUDIT 5865).
+     * 사실 관문의 값 걷어냄 · 근거 미확인 값 도려냄 · 키워드 맨 앞 재조립은 연도끼리 붙게 만들 수 있다
+     * ("2026년 7월 2026 …" 에서 7월을 도려내면 "2026년 2026 …"). 제목이 더 바뀌지 않는 이 자리에서 한 번 더 본다.
+     * 사람이 정한 제목(custom)은 그대로 둔다.
+     */
+    if (!(payload.titleMode === 'custom' && fixedTitle)) h1 = collapseRepeatedYear(String(h1 || ''));
 
     const sections = allSectionsObj.sections;
     /**
