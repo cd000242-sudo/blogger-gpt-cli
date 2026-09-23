@@ -4828,6 +4828,7 @@ electron_1.ipcMain.handle('critique-editor-html', async (_evt, args) => {
         if (!html.trim())
             return { ok: false, error: '본문이 비어 있습니다.' };
         const { critiqueDraft } = require('../dist/core/final/editor-draft');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { canContinueChain } = require('../dist/core/final/critique-convergence');
         const continuing = args?.fullRecritique !== true && canContinueChain(args?.chain, { title, html });
         send(continuing ? '[PROGRESS] 25% - 🔁 지난 비평에 이어서 확인합니다 (AI 호출 0회)' : '[PROGRESS] 25% - 🔍 같은 키워드 상위 글을 확인하는 중…');
@@ -4958,6 +4959,7 @@ electron_1.ipcMain.handle('critique-published-post', async (_evt, args) => {
          * 지난 BLOCKING 이 풀렸는가 · 수정이 새 BLOCKING 을 만들었는가 · BLOCKING 이 남았는가만 코드로 잰다.
          * 새 선택 항목을 찾으러 AI 비평을 다시 돌리지 않는다 — 「전체 다시 비평」을 눌렀을 때만(fullRecritique).
          */
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const convergence = require('../dist/core/final/critique-convergence');
         const chainKey = `${String(args?.platform || 'wordpress')}:${postId}`;
         const chainFile = convergence.loadChainFile(critiqueChainPath());
@@ -5161,6 +5163,7 @@ electron_1.ipcMain.handle('apply-post-improvement', async (_evt, args) => {
         const previousHtml = String(current.content || '');
         const title = String(args?.title || current.title || '').trim();
         // v3.8.750 — 비평 버튼의 수정은 지적된 문단만 고친다(critiqueTargeted). 이 채널은 비평 화면(글목록·비서)만 쓴다.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const convergence = require('../dist/core/final/critique-convergence');
         const chainKey = `${String(args?.platform || 'wordpress')}:${postId}`;
         const { improveDraft } = require('../dist/core/final/editor-draft');
