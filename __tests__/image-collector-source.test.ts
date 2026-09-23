@@ -238,4 +238,27 @@ describe('수집 폴더 목록·열기·지우기', () => {
     expect(fs.existsSync(folder)).toBe(false);
     expect(deleteImageFolder(folder)).toBe(false);
   });
+
+  /**
+   * delete-image-folder 는 preload 로 렌더러에 열려 있고, 렌더러가 넘긴 경로를 그대로 받는다.
+   * 수집 폴더(collected-images 바로 아래)가 아니면 지우지 않는다 — 문서 폴더 같은 곳을 통째로 지울 수 없게.
+   */
+  it('수집 폴더가 아닌 경로는 지우지 않는다 (바깥 폴더 · 저장소 자체 · .. 우회 · 한 단계 더 안쪽)', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'not-collected-'));
+    fs.writeFileSync(path.join(outside, 'keep.txt'), 'x');
+    const inner = path.join(STORAGE, '2001-01-01_가', 'sub');
+    fs.mkdirSync(inner, { recursive: true });
+    try {
+      expect(deleteImageFolder(outside)).toBe(false);
+      expect(deleteImageFolder(path.join(STORAGE, '..', path.basename(outside)))).toBe(false);
+      expect(deleteImageFolder(path.join(STORAGE, '2001-01-01_가', '..', '..', path.basename(outside)))).toBe(false);
+      expect(deleteImageFolder(STORAGE)).toBe(false);
+      expect(deleteImageFolder(inner)).toBe(false);
+      expect(fs.existsSync(path.join(outside, 'keep.txt'))).toBe(true);
+      expect(fs.existsSync(STORAGE)).toBe(true);
+      expect(fs.existsSync(inner)).toBe(true);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });

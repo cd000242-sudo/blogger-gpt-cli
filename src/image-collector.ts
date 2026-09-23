@@ -509,11 +509,16 @@ export function getImagesFromFolder(folderPath: string): { path: string; name: s
   }
 }
 
-/** 폴더를 지운다. 지웠으면 true, 없거나 실패하면 false */
+/**
+ * 수집 폴더를 지운다. 지웠으면 true, 없거나 실패하면 false.
+ * 렌더러가 넘긴 경로를 그대로 받으므로 collected-images 바로 아래 폴더만 지운다 — 다른 폴더를 통째로 지울 수 없게.
+ */
 export function deleteImageFolder(folderPath: string): boolean {
   try {
-    if (fs.existsSync(folderPath)) {
-      fs.rmSync(folderPath, { recursive: true });
+    const target = path.resolve(folderPath);
+    if (path.dirname(target) !== path.resolve(getImageStoragePath())) return false;
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { recursive: true });
       return true;
     }
     return false;
