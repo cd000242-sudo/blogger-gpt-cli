@@ -39,6 +39,10 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.callClaudeAPI = exports.callOpenAIAPI = exports.callPerplexityAPI = void 0;
 exports.resolveLlmMaxTokens = resolveLlmMaxTokens;
+exports.claudeAcceptsTemperature = claudeAcceptsTemperature;
+exports.resolveClaudeMaxTokens = resolveClaudeMaxTokens;
+exports.buildClaudeCacheContent = buildClaudeCacheContent;
+exports.assertLiveLlmAllowed = assertLiveLlmAllowed;
 exports.callLLM = callLLM;
 exports.getGenAI = getGenAI;
 const axios_1 = __importStar(require("axios"));
@@ -93,6 +97,41 @@ function resolveLlmMaxTokens() {
     if (Number.isFinite(raw) && raw >= 1024)
         return Math.floor(raw);
     return 16384;
+}
+/**
+ * 🌡️ v3.8.748 — **Claude 5 계열은 `temperature` 를 받지 않는다.**
+ *
+ * 사장님 신고: "클로드 오푸스5랑 페이블 API는 발행이 안 되는 버그가 있네요."
+ * 실측(2026-09-22, 모델별 1회씩):
+ *   claude-opus-5 · claude-fable-5-1 · claude-fable-5 · claude-sonnet-5 → HTTP 400 "`temperature` is deprecated for this model."
+ *   claude-haiku-4-5-20251001 → 통과
+ * 즉 키가 멀쩡해도 **Claude 5 계열은 한 번도 호출되지 못했다.** 화면에서 👑 Fable 5.1 을 골랐을 때 실패하던 이유다.
+ *
+ * 허용 목록으로 판단한다(막는 목록이 아니라). 모르는 새 모델은 **안 보내는 쪽**이 안전하다 —
+ * 안 보내면 provider 기본값으로 동작하지만, 보내면 이렇게 호출 자체가 막힌다.
+ */
+function claudeAcceptsTemperature(model) {
+    return /haiku|claude-(?:2|3)[.-]/i.test(String(model || ''));
+}
+/**
+ * 🧠 v3.8.748 — **추론 모델은 thinking 토큰이 출력 예산을 같이 쓴다.**
+ *
+ * 실측(2026-09-22, 경주 APEC 본문 1편 · claude-opus-5):
+ *   thinking 7,577 + 본문 8,564 = 출력 16,141 토큰. 기본 상한 16,384 에 **아슬아슬**하다.
+ *   그래서 생각을 조금만 더 하면 JSON 이 문장 중간에서 잘린다 —
+ *   live Run 1 이 딱 그렇게 죽었다("Unterminated string in JSON at position 9158", 응답 9,158자).
+ *   같은 프롬프트를 32,768 로 주면 stop_reason=end_turn · 절 7개가 온전히 파싱된다.
+ *
+ * 그래서 추론 모델만 넉넉히 준다. 상한은 "여기까지 기다린다"가 아니라 "여기까지 쓸 수 있다"이고,
+ * 실제 과금은 **쓴 만큼**이라 올려도 평소 비용은 그대로다 — 잘려서 글 한 편을 통째로 버리는 쪽이 비싸다.
+ * 사람이 `LLM_MAX_OUTPUT_TOKENS` 를 직접 정했으면 그 값을 그대로 쓴다.
+ */
+const CLAUDE_REASONING_MAX_TOKENS = 32768;
+function resolveClaudeMaxTokens(model) {
+    const raw = Number(process.env['LLM_MAX_OUTPUT_TOKENS'] || '');
+    if (Number.isFinite(raw) && raw >= 1024)
+        return Math.floor(raw);
+    return claudeAcceptsTemperature(model) ? resolveLlmMaxTokens() : CLAUDE_REASONING_MAX_TOKENS;
 }
 function buildOpenAIChatBody(model, prompt) {
     const body = {
@@ -163,10 +202,12 @@ const PROVIDERS = {
         }),
         buildBody: (model, prompt) => ({
             model,
-            max_tokens: resolveLlmMaxTokens(),
+            // v3.8.748 — 추론 모델은 thinking 이 같은 예산을 쓴다(위 resolveClaudeMaxTokens 주석: 본문 1편 실측 16,141 토큰)
+            max_tokens: resolveClaudeMaxTokens(model),
             messages: [{ role: 'user', content: prompt }],
             system: factualSystemPrompt(),
-            temperature: getGenerationTemperature(prompt),
+            // v3.8.748 — Claude 5 계열은 temperature 를 받지 않는다(아래 claudeAcceptsTemperature 주석 참고)
+            ...(claudeAcceptsTemperature(model) ? { temperature: getGenerationTemperature(prompt) } : {}),
         }),
         extractText: (data) => {
             const content = data?.content;
@@ -214,7 +255,12 @@ function resolveModelChain(provider) {
  * 제한시간은 "여기까지 기다린다"이지 "여기까지 쓴다"가 아니다 — 늘려도 비용은 그대로다.
  * 잘려서 다시 만드는 쪽이 비싸다.
  */
-const SLOW_REASONING_MODEL = /astra|sol\b|^o\d|fable|opus/i;
+/**
+ * v3.8.734 — **terra 도 느린 쪽이다.** 감사 실측: 본문 호출은 입력 4.5만 자 + 추론(medium) + 출력 최대 16k 다.
+ * 90초 안에 못 끝내면 아래 규칙대로 luna 로 내려가 **본문을 저가 모델이 쓴다.** 제한시간이 모델을 바꾸고 있던 셈이다.
+ * 빠른 모델(luna·haiku·sonar·flash)만 짧게 둔다.
+ */
+const SLOW_REASONING_MODEL = /astra|sol\b|terra|^o\d|fable|opus|sonnet/i;
 const SLOW_MODEL_TIMEOUT_MS = 240000;
 function resolveCallTimeout(config, model) {
     const override = Number(process.env['LLM_TIMEOUT_MS'] || '');
@@ -254,12 +300,35 @@ function fasterSiblingOf(provider, model) {
     return FASTER_SIBLING[provider]?.[model] || null;
 }
 /** 대체가 일어났다는 사실을 남긴다 — 장부와 로그가 모르면 그게 '조용한 대체'다 */
-function recordDowngrade(provider, from, to) {
+function recordDowngrade(provider, from, to, reason = 'timeout') {
     try {
         const g = globalThis;
         if (!g.__llmDowngrades)
             g.__llmDowngrades = [];
-        g.__llmDowngrades.push({ provider, from, to, at: Date.now() });
+        g.__llmDowngrades.push({ provider, from, to, reason, at: Date.now() });
+    }
+    catch { /* 기록 실패가 생성을 막지 않는다 */ }
+}
+/**
+ * v3.8.734 — 사용자에게 **보이는** 알림 창구.
+ * 예전엔 하향을 console.warn 으로만 찍고 `__llmDowngrades` 는 아무도 읽지 않았다 — 사용자는 terra 로 쓴 줄 안다.
+ * 생성 파이프라인이 시작할 때 `globalThis.__llmNotice = onLog` 를 걸어 두면 화면 로그로 나간다.
+ */
+function notifyUser(message) {
+    console.warn(`[LLM] ${message}`);
+    try {
+        globalThis.__llmNotice?.(message);
+    }
+    catch { /* 알림 실패가 생성을 막지 않는다 */ }
+}
+/** 이번 생성에서 실제로 쓴 모델을 센다 — 장부의 actualModel 이 여기서 나온다 */
+function recordActualModel(provider, model) {
+    try {
+        const g = globalThis;
+        if (!g.__llmActualModels)
+            g.__llmActualModels = {};
+        const key = `${provider}/${model}`;
+        g.__llmActualModels[key] = (g.__llmActualModels[key] || 0) + 1;
     }
     catch { /* 기록 실패가 생성을 막지 않는다 */ }
 }
@@ -324,8 +393,39 @@ function buildProviderError(config, kind, model, attempts, rawMessage) {
         `원인: ${guide[kind]}\n` +
         `세부: ${detail}`);
 }
-// ─── 통합 호출 함수 ─────────────────────────────
-async function callLLM(provider, prompt) {
+/** 캐시 조각을 Anthropic content 블록으로. 경계가 없으면 null(예전 경로 그대로) */
+function buildClaudeCacheContent(segments) {
+    const list = (segments || []).filter((s) => String(s?.text || '').length > 0);
+    if (list.length === 0 || !list.some((s) => s.cache))
+        return null;
+    return list.map((s) => ({
+        type: 'text',
+        text: s.text,
+        ...(s.cache ? { cache_control: { type: 'ephemeral' } } : {}),
+    }));
+}
+/**
+ * 🚫 v3.8.736 — 유료 호출 안전장치. NO_LIVE_LLM=1 이면 네트워크에 닿기 전에 던진다.
+ * 회귀 하네스·재현 스크립트·테스트가 실수로 과금하지 않게(2026-09-22: capture 인데 본문 5회가 과금된 전례).
+ */
+function assertLiveLlmAllowed(where) {
+    if (process.env['NO_LIVE_LLM'] === '1')
+        throw new Error(`NO_LIVE_LLM=1 — 유료 LLM 호출이 막혀 있습니다 (${where})`);
+    /**
+     * 748 Claude live — 허용 provider 밖의 호출은 네트워크에 닿기 전에 던진다.
+     * 하네스가 `LLM_PROVIDER_ALLOWLIST=claude` 로 켠다. 비어 있으면(제품 기본) 아무것도 막지 않는다.
+     * "OpenAI 호출 0" 을 로그로 세는 대신 코드로 보증하려는 것이다 — 폴백·우회 경로가 하나라도 있으면 여기서 터진다.
+     */
+    const allow = String(process.env['LLM_PROVIDER_ALLOWLIST'] || '').trim();
+    if (allow) {
+        const provider = where.split('/')[1] || '';
+        const allowed = allow.split(',').map((s) => s.trim()).filter(Boolean);
+        if (provider && !allowed.includes(provider))
+            throw new Error(`LLM_PROVIDER_ALLOWLIST=${allow} — ${provider} 호출이 막혀 있습니다 (${where})`);
+    }
+}
+async function callLLM(provider, prompt, options = {}) {
+    assertLiveLlmAllowed(`callLLM/${String(provider)}`);
     const config = PROVIDERS[provider];
     if (!config) {
         throw new Error(`Unknown LLM provider: ${provider}`);
@@ -354,6 +454,10 @@ async function callLLM(provider, prompt) {
     const queue = [...modelChain];
     const tried = new Set();
     let downgraded = false;
+    /** v3.8.734 — JSON 모드. OpenAI chat/completions 의 response_format 만 쓴다(다른 provider 는 프롬프트 지시 + 검증으로 간다) */
+    let useJsonMode = options.json === true && provider === 'openai';
+    /** v3.8.748 — provider 가 "이 파라미터는 안 받는다" 고 400 을 내면 그 이름을 여기 담고 다음 시도에서 뺀다 */
+    const droppedParams = new Set();
     while (queue.length > 0) {
         const model = queue.shift();
         tried.add(model);
@@ -364,7 +468,21 @@ async function callLLM(provider, prompt) {
                 await (0, provider_throttle_1.waitForTextProviderTurn)(config.provider, `${config.name}/${model}`);
                 const callTimeout = resolveCallTimeout(config, model);
                 console.log(`[LLM] ${config.name} ${model} attempt ${attempt + 1}/${maxRetries} (제한 ${Math.round(callTimeout / 1000)}초)`);
-                const response = await axios_1.default.post(config.endpoint, config.buildBody(model, prompt), {
+                const requestBody = config.buildBody(model, prompt);
+                if (useJsonMode)
+                    requestBody['response_format'] = { type: 'json_object' };
+                for (const p of droppedParams)
+                    delete requestBody[p];
+                /**
+                 * 🗄️ v3.8.748 — 캐시 경계가 있으면 user 메시지를 블록으로 바꾼다.
+                 * 이어 붙인 글자는 prompt 와 같으므로 **모델이 보는 내용·순서는 그대로**다.
+                 */
+                if (provider === 'claude' && options.cacheSegments) {
+                    const content = buildClaudeCacheContent(options.cacheSegments);
+                    if (content)
+                        requestBody['messages'] = [{ role: 'user', content }];
+                }
+                const response = await axios_1.default.post(config.endpoint, requestBody, {
                     headers: config.buildHeaders(apiKey),
                     timeout: callTimeout,
                     // v3.8.536: 중지 순간 요청 자체가 끊긴다 (신호 없으면 undefined — 평소와 동일)
@@ -386,6 +504,20 @@ async function callLLM(provider, prompt) {
                             g.__llmUsage = { calls: 0, input: 0, output: 0, byModel: {} };
                         const inTok = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0) || 0;
                         const outTok = Number(usage.completion_tokens ?? usage.output_tokens ?? 0) || 0;
+                        /**
+                         * 🗄️ v3.8.748 — 캐시 실적. write 는 입력 단가의 1.25배, read 는 0.1배라 금액이 크게 갈린다.
+                         * thinking 토큰도 함께 남긴다(출력의 30~43%를 차지한다 — 748 감사).
+                         */
+                        const cacheWrite = Number(usage.cache_creation_input_tokens ?? 0) || 0;
+                        const cacheRead = Number(usage.cache_read_input_tokens ?? 0) || 0;
+                        const thinkTok = Number(usage.output_tokens_details?.thinking_tokens ?? 0) || 0;
+                        g.__llmUsage.cacheWrite = (g.__llmUsage.cacheWrite || 0) + cacheWrite;
+                        g.__llmUsage.cacheRead = (g.__llmUsage.cacheRead || 0) + cacheRead;
+                        g.__llmUsage.thinking = (g.__llmUsage.thinking || 0) + thinkTok;
+                        if (cacheRead > 0)
+                            g.__llmUsage.cacheHits = (g.__llmUsage.cacheHits || 0) + 1;
+                        else if (cacheWrite > 0)
+                            g.__llmUsage.cacheMisses = (g.__llmUsage.cacheMisses || 0) + 1;
                         g.__llmUsage.calls += 1;
                         g.__llmUsage.input += inTok;
                         g.__llmUsage.output += outTok;
@@ -395,11 +527,18 @@ async function callLLM(provider, prompt) {
                         slot.input += inTok;
                         slot.output += outTok;
                         g.__llmUsage.byModel[key] = slot;
+                        // v3.8.736 live 검증 — 호출 하나하나를 남긴다(단계별 비용 분해용). 프롬프트 머리만 남겨 단계를 알아본다
+                        if (!Array.isArray(g.__llmCallLog))
+                            g.__llmCallLog = [];
+                        g.__llmCallLog.push({ at: Date.now(), provider: config.provider, model, input: inTok, output: outTok, cacheWrite, cacheRead, thinking: thinkTok, promptHead: String(prompt || '').slice(0, 80), promptChars: String(prompt || '').length });
+                        if (cacheWrite || cacheRead)
+                            console.log(`[CACHE] ${config.provider}/${model} write ${cacheWrite} · read ${cacheRead} (입력 ${inTok})`);
                     }
                 }
                 catch { /* 기록 실패가 생성을 막지 않는다 */ }
                 const text = config.extractText(response.data);
                 if (text) {
+                    recordActualModel(config.provider, model);
                     return text;
                 }
                 throw new Error('빈 응답');
@@ -425,6 +564,26 @@ async function callLLM(provider, prompt) {
                 }
                 catch { /* 기록 실패가 오류 처리를 막지 않는다 */ }
                 const errorMsg = extractErrorMessage(error);
+                // v3.8.734 — 이 모델이 response_format 을 안 받으면 그 옵션만 빼고 같은 시도를 다시 한다(재시도 횟수를 쓰지 않는다)
+                if (useJsonMode && /response_format|json_object|json mode/i.test(errorMsg)) {
+                    useJsonMode = false;
+                    console.warn(`[LLM] ${model} 은(는) JSON 모드를 받지 않습니다 — 프롬프트 지시만으로 다시 부릅니다`);
+                    attempt -= 1;
+                    continue;
+                }
+                /**
+                 * v3.8.748 — 안 받는 파라미터는 **그것만 빼고** 같은 시도를 다시 한다(재시도 횟수를 쓰지 않는다).
+                 * 위 허용 목록이 못 따라잡은 새 모델에서도 호출 자체가 막히지 않게 하는 두 번째 겹이다.
+                 */
+                if (!droppedParams.size && /`?(temperature|top_p|top_k)`? is deprecated|unsupported parameter|not supported for this model/i.test(errorMsg)) {
+                    const param = (errorMsg.match(/`?(temperature|top_p|top_k)`?/i) || [])[1];
+                    if (param) {
+                        droppedParams.add(param.toLowerCase());
+                        console.warn(`[LLM] ${model} 은(는) ${param} 을(를) 받지 않습니다 — 그 값만 빼고 다시 부릅니다`);
+                        attempt -= 1;
+                        continue;
+                    }
+                }
                 const kind = classifyProviderFailure(config, error);
                 lastKind = kind;
                 lastError = buildProviderError(config, kind, model, totalAttempts, errorMsg);
@@ -454,9 +613,9 @@ async function callLLM(provider, prompt) {
             const faster = fasterSiblingOf(provider, model);
             if (faster && !tried.has(faster)) {
                 downgraded = true;
-                recordDowngrade(provider, model, faster);
-                const note = `⏱️ ${config.name} ${model} 이(가) 제한시간을 넘겼습니다 → 같은 엔진의 빠른 모델 ${faster} 로 한 번 더 시도합니다 (다른 엔진으로 넘어가지 않습니다).`;
-                console.warn(`[LLM] ${note}`);
+                recordDowngrade(provider, model, faster, 'timeout');
+                // v3.8.734 — 화면 로그로도 내보낸다. 고른 모델이 아닌 모델이 글을 쓰게 되는 순간이다
+                notifyUser(`⚠️ 모델 하향: ${config.name} ${model} 이(가) 제한시간을 넘겼습니다 → 같은 엔진의 빠른 모델 ${faster} 로 한 번 더 시도합니다. 이 호출은 ${faster} 가 씁니다 (다른 엔진으로는 넘어가지 않습니다).`);
                 queue.push(faster);
             }
         }
@@ -464,11 +623,11 @@ async function callLLM(provider, prompt) {
     throw lastError || new Error(`모든 ${config.name} 모델 호출 실패`);
 }
 // ─── 하위호환 ────────────────────────────────────
-const callPerplexityAPI = (prompt) => callLLM('perplexity', prompt);
+const callPerplexityAPI = (prompt, options) => callLLM('perplexity', prompt, options);
 exports.callPerplexityAPI = callPerplexityAPI;
-const callOpenAIAPI = (prompt) => callLLM('openai', prompt);
+const callOpenAIAPI = (prompt, options) => callLLM('openai', prompt, options);
 exports.callOpenAIAPI = callOpenAIAPI;
-const callClaudeAPI = (prompt) => callLLM('claude', prompt);
+const callClaudeAPI = (prompt, options) => callLLM('claude', prompt, options);
 exports.callClaudeAPI = callClaudeAPI;
 // ─── Gemini 클라이언트 (Lazy init) ───────────────
 let _genAI = null;

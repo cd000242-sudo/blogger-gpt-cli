@@ -148,13 +148,29 @@ exports.TIER_MODELS = [
         value: 'openai-gpt4o',
         title: 'GPT-5.6 Sol',
         tier: '프리미엄',
-        // 2026-07-30 인하 대상 아님 — $5/$30 유지
-        description: 'OpenAI 최신 플래그십 · 강력한 추론 · 정확한 지시 이행',
-        costKrw: 202,
+        // 2026-08-21 프로모션: $5/$30 → $4/$20 (11-21 까지). 끝나면 $5/$30 으로 되돌려야 한다.
+        description: 'GPT-5.6 Sol · 강력한 추론 · 2026-11-21까지 프로모션가',
+        costKrw: 153,
         provider: 'openai',
         modelId: 'gpt-5.6-sol',
         fallback: ['gpt-5.6-sol', 'gpt-5.6-terra'],
-        usdPer1M: { input: 5, output: 30, source: 'OpenAI 공식 블로그 2026-07-30 (인하 대상 아님, $5/$30 유지)' },
+        usdPer1M: { input: 4, output: 20, source: 'OpenAI 2026-08-21 프로모션가 (입력 $4 / 출력 $20 · 11-21까지, 이전 $5/$30)' },
+    },
+    /**
+     * v3.8.686 — GPT-6 Astra (2026-09-03 출시. 사장님: "지피티6 아스트라 나왔고 비용표 업데이트해").
+     * 재활용할 옛 키가 없어 새 value 키다. 출시가 $10/$50 는 Sol 프로모션가의 2.5배이자
+     * Fable 5.1 과 같은 값 — 글 1편(호출 1회) ₩382. 기본 추천은 여전히 Terra 다.
+     */
+    {
+        value: 'openai-gpt6-astra',
+        title: 'GPT-6 Astra',
+        tier: '프리미엄',
+        description: 'GPT-6 Astra · OpenAI 최신 플래그십 · 최상급 추론 · 고비용',
+        costKrw: 382,
+        provider: 'openai',
+        modelId: 'gpt-6-astra',
+        fallback: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'],
+        usdPer1M: { input: 10, output: 50, source: 'OpenAI 2026-09-03 출시가 (입력 $10 / 출력 $50 · 캐시 입력 $1)' },
     },
     // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
     //   기존 코드의 'claude-sonnet-4-20250514' / 'claude-opus-4-20250514'는 1년 전 버전.
@@ -193,6 +209,28 @@ exports.TIER_MODELS = [
         provider: 'claude',
         modelId: 'claude-fable-5-1',
         fallback: ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+    },
+    /**
+     * 748 — **Opus 5 를 고를 수 있게 한다.** 지금까지 텍스트 티어에 Opus 5 가 아예 없었다.
+     * 그래서 `PRIMARY_TEXT_MODEL=claude-opus-5` 를 줘도 findTier 가 못 찾고 조용히 Sonnet 5 로 떨어졌다
+     * (에이전트 모드 목록에는 이미 있는 모델이다 — agent-models.ts "균형 · 페이블 한도 찼을 때").
+     * 사장님 상황: Fable 5.1 한도 소진 → Opus 5 로 돌려야 한다.
+     * 기존 티어의 뜻은 하나도 바꾸지 않는다 — `claude-opus`(UI 👑) 는 그대로 Fable 5.1 이다. 이건 **추가**다.
+     * 단가는 확인 전이라 usdPer1M 없이 선언값으로 둔다(Sonnet 5 와 Fable 5.1 사이).
+     */
+    {
+        value: 'claude-opus-5',
+        title: 'Claude Opus 5',
+        tier: '프리미엄',
+        description: 'Claude Opus 5 · 상급 추론 · 페이블 한도 찼을 때',
+        costKrw: 191, // 단가에서 계산된 값 (deriveCostKrw) — 선언값과 계산값이 어긋나면 pricing-unification 테스트가 잡는다
+        provider: 'claude',
+        modelId: 'claude-opus-5',
+        fallback: ['claude-opus-5', 'claude-sonnet-5'],
+        // 사장님 확인(2026-09-23, Anthropic 공식 표준 API 단가) — 선언값 대신 토큰 기준으로 계산된다
+        usdPer1M: { input: 5, output: 25, source: 'Anthropic 표준 API 단가 (입력 $5 / 출력 $25 per 1M) · 2026-09-23 확인' },
+        // 화면 가격표에는 아직 안 넣는다 — UI 작업은 748 제품 통합에서 한다. 지금은 라우팅(env·하네스)만
+        hiddenFromUi: true,
     },
     // ─── Perplexity ───────────────────────────
     {
