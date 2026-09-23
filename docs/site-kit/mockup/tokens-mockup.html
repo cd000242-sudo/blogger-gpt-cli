@@ -367,6 +367,13 @@ footer a:hover{color:var(--brand)}
   transition:background var(--t-fast),color var(--t-fast);
 }
 .tools button[aria-pressed="true"]{background:var(--brand);color:var(--ink-invert);border-color:var(--brand)}
+/* 모바일 미리보기 — 섹션 폭만 390px 로 줄이면 @media 가 안 걸려 데스크톱 레이아웃이 짓눌린다.
+   페이지 사본을 390px iframe 에 넣어야 모바일 CSS 가 진짜로 적용된다. */
+#phone{position:fixed;inset:0;z-index:9500;background:rgba(11,10,26,.6);
+  display:flex;align-items:center;justify-content:center}
+#phone[hidden]{display:none}
+#phone iframe{width:390px;height:min(844px,92vh);border:0;border-radius:36px;background:var(--bg);
+  box-shadow:0 0 0 10px var(--ink),0 30px 80px rgba(0,0,0,.5)}
 .note{
   position:absolute;z-index:8000;font-size:11px;font-weight:700;line-height:1.4;
   background:var(--ink);color:#9FE8FF;padding:5px 8px;border-radius:4px;
@@ -650,16 +657,23 @@ p: 16px / 28px / weight 300 / -0.2px — 데스크톱·모바일 동일
   a.addEventListener('click', function(){
     a.setAttribute('aria-pressed', String(document.body.classList.toggle('annotate')));
   });
+  /* 프레임 안(쇼룸·폰 미리보기)에서는 검수 버튼을 숨긴다.
+     frameElement 는 file:// 에서 교차 출처로 막히므로 top 비교로 본다 */
+  if (window.self !== window.top) { document.querySelector('.tools').style.display = 'none'; }
   m.addEventListener('click', function(){
-    var on = !document.body.classList.contains('mobilepreview');
-    document.body.classList.toggle('mobilepreview', on);
+    var on = m.getAttribute('aria-pressed') !== 'true';
     m.setAttribute('aria-pressed', String(on));
-    document.querySelectorAll('.strip, .archive, .single, footer').forEach(function(el){
-      el.style.maxWidth = on ? '390px' : '';
-      el.style.margin = on ? '0 auto' : '';
-      el.style.boxShadow = on ? '0 0 0 100vmax rgba(11,10,26,.6)' : '';
-      el.style.overflowX = on ? 'hidden' : '';
-    });
+    var wrap = document.getElementById('phone');
+    if (!wrap) {
+      wrap = document.createElement('div'); wrap.id = 'phone';
+      var f = document.createElement('iframe');
+      f.setAttribute('title', '모바일 미리보기 390px');
+      f.srcdoc = '<!doctype html>' + document.documentElement.outerHTML;
+      wrap.appendChild(f);
+      wrap.addEventListener('click', function(e){ if (e.target === wrap) m.click(); });
+      document.body.appendChild(wrap);
+    }
+    wrap.hidden = !on;
   });
   document.getElementById('btn-top').addEventListener('click', function(){
     window.scrollTo({ top: 0, behavior: 'smooth' });

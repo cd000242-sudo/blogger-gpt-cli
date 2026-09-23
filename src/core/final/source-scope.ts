@@ -61,9 +61,11 @@ export function deriveSourceScope(topic: string, inputSources: SourceCandidate[]
   const text = plain(topic);
   const clue = `${text} ${plain(hints)}`;
   if (/비교|차이|vs\b/i.test(text)) return undefined;   // 두 제도를 견주는 글은 한쪽으로 좁히면 안 된다
-  const named = AGENCIES.filter((a) => a.name.test(clue));
+  // An excluded agency is not a second requested institution ("LH 기준, HUG 자료는 제외").
+  const includedClue = clue.replace(/(?:HUG|LH|SH|GH|iH|한국토지주택공사|주택도시보증공사|서울주택도시공사|경기주택도시공사|인천도시공사)(?:의|는|은)?\s*(?:(?:자료|정보|공고|제도)(?:는|은|를|을)?\s*)?(?:제외|빼(?:고|주세요)?|사용하지\s*(?:마|않)|섞지\s*마)/gi, ' ');
+  const named = AGENCIES.filter((a) => a.name.test(includedClue));
   const anchored = AGENCIES.filter((a) => inputSources.some((s) => within(s.url || '', a.domain)));
-  const picked = named.length === 1 ? named[0] : named.length === 0 && anchored.length === 1 ? anchored[0] : undefined;
+  const picked = anchored.length === 1 ? anchored[0] : named.length === 1 ? named[0] : undefined;
   if (!picked) return undefined;
   if (!HOUSING_WORDS.test(`${clue} ${inputSources.map((s) => plain(s.title)).join(' ')}`)) return undefined;
   const primary = inputSources.find((s) => within(s.url || '', picked.domain));

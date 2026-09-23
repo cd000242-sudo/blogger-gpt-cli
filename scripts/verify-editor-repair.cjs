@@ -63,6 +63,14 @@ const strip = s => s.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     assert.equal(await page.evaluate(() => window.editorTest.isDirty()), true);
     await page.locator('#veUndoBtn').click();
     assert.match(await page.evaluate(() => window.editorTest.serializeEditor()), /원래 문장/);
+    await page.locator('#veSourceBtn').click();
+    await page.locator('#veSourceArea').fill('<p>원래 문장 — 코드에서 먼저 수정</p>');
+    await page.locator('#veAskFixBtn').click();
+    await page.locator('#veAskMultiInput').fill('원래 문장을 고친 문장으로');
+    await page.locator('#veAskMultiOk').click();
+    await page.waitForFunction(() => window.editorTest.serializeEditor().includes('고친 문장 — 코드에서 먼저 수정'));
+    assert.match(await page.evaluate(() => window.lastCall.args.html), /코드에서 먼저 수정/);
+    assert.equal(await page.locator('#veSourceArea').isVisible(), false);
     await page.evaluate(() => window.editorTest.openVisualEditor({kind:'paste',title:'다음 글',html:'<p>다음 글</p>'}));
     assert.equal(await page.locator('#veUndoBtn').isDisabled(), true);
     assert.deepEqual(errors, []);

@@ -14,8 +14,9 @@ const FILE = 'file:///' + String(process.argv[2] || '').replace(/\\/g, '/');
 const OUT = process.env.BENCH_OUT || __dirname;
 if (!fs.existsSync(OUT)) fs.mkdirSync(OUT, { recursive: true });
 
-/* 우리가 정한 팔레트 — 구조는 실측, 색은 교체 */
-const PALETTE = { bg: '#F6F5FB', brand: '#5B4BFF', ink: '#0B0A1A' };
+/* 우리가 정한 팔레트 — 구조는 실측, 색은 교체.
+   렌더러가 만든 주제별 목업은 BRAND=<hex> 로 그 주제의 브랜드색을 넘긴다. */
+const PALETTE = { bg: '#F6F5FB', brand: (process.env.BRAND || '#5B4BFF').toUpperCase(), ink: '#0B0A1A' };
 
 (async () => {
   const browser = await chromium.launch();

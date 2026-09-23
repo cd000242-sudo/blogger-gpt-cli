@@ -481,8 +481,8 @@ ${stuck.map((it) => `· ${it.title}\n  처방: ${String(it.fix || '').slice(0, 1
     const after = splitSections(html);
     const changes: SectionChange[] = [...revisions.keys()].map((index) => ({
       heading: sections.find((s) => s.index === index)?.heading || `구간 ${index}`,
-      before: plainText(sections.find((s) => s.index === index)?.html || ''),
-      after: plainText(after.find((s) => s.index === index)?.html || ''),
+      before: sections.find((s) => s.index === index)?.html || '',
+      after: after.find((s) => s.index === index)?.html || '',
     }));
     input.log?.('[PROGRESS] 90% - 🔎 코드로 못 재는 지적은 바뀐 구간만 넘겨 검수합니다 (1회)');
     verified = await verifySelectedIssues({ title, changes, issues: semanticIssues, callModel: input.callModel });

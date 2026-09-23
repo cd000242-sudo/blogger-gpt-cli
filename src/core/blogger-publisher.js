@@ -6657,7 +6657,7 @@ async function updateBloggerPost(options = {}) {
   try {
     const postId = String(options.postId || '').trim();
     const title = String(options.title || '').trim();
-    const content = String(options.content || '');
+    const content = flattenDocumentForPost(String(options.content || '')).html;
     if (!postId) return { ok: false, error: 'postId가 없습니다.' };
     if (!content.trim()) return { ok: false, error: '본문이 비어 있습니다.' };
 
@@ -6715,4 +6715,3 @@ module.exports = {
   listBloggerPosts,
   updateBloggerPost,
 };
-

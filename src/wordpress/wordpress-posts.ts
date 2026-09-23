@@ -3,6 +3,7 @@
 // 렌더러가 플랫폼별 분기 없이 같은 흐름으로 목록 → 편집 → 수정발행을 처리할 수 있게 한다.
 import { loadEnvFromFile } from '../env';
 import { wrapAsHtmlBlock, unwrapHtmlBlock } from './wp-html-block';
+import { flattenDocumentForPost } from '../core/final/style-preservation';
 import type {
   PublishedPostItem,
   PublishedPostListResult,
@@ -295,6 +296,7 @@ export async function updateWordPressPost(options: {
   if (!content.trim()) return { ok: false, error: '본문이 비어 있습니다.' };
 
   try {
+    const importedContent = flattenDocumentForPost(content).html;
     const auth = resolveWordPressAuth(options.payload || {});
     /**
      * v3.8.726 — 워드프레스가 wpautop 으로 <p> 를 덧씌우지 못하게 HTML 블록으로 감싼다.
@@ -318,7 +320,7 @@ export async function updateWordPressPost(options: {
      *
      * 대표 이미지가 생길 때만 지운다 — 대표가 없으면 본문 것이 유일한 그림이라 지우면 안 된다.
      */
-    let finalContent = content;
+    let finalContent = importedContent;
     if (mediaId) {
       const withoutLead = stripLeadingThumbnail(finalContent);
       if (withoutLead !== finalContent) {

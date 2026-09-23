@@ -16,6 +16,11 @@
  * 그 기준이면 에이전트 글까지 스킨을 잃는다(v3.8.606 회귀). 앱 표식(bgpt-content 등)이 있으면 언제나 앱 글이다.
  */
 
+import { createHash } from 'crypto';
+import * as cheerio from 'cheerio';
+import postcss from 'postcss';
+import selectorParser from 'postcss-selector-parser';
+
 const APP_MARKS = /\bclass\s*=\s*["'][^"']*\b(?:bgpt-content|max-mode-article|sw-cornerstone|wp-styled-content|blogger-gpt-content|bgpt-wp-ready)\b/i;
 const STYLE_BLOCK = /<style\b[^>]*>[\s\S]*?<\/style\s*>/i;
 const STYLESHEET_LINK = /<link\b[^>]*\brel\s*=\s*(?:"[^"]*\bstylesheet\b[^"]*"|'[^']*\bstylesheet\b[^']*'|stylesheet\b)/i;
@@ -47,30 +52,86 @@ export function shouldPreserveOriginalStyles(html: string, explicit?: boolean): 
  *
  * 편집기는 파일·붙여넣기 글을 문서 그대로 들고 있다. 그걸 그대로 포스트 본문에 넣으면 <title>·<meta>·<html> 이
  * 본문 한가운데 박힌다. head 에서는 스타일시트(<style>·<link rel=stylesheet>)만 살리고, body 의 class·style 은
- * 감싸는 <div> 로 옮긴다 — `.custom p {…}` 처럼 body 의 클래스에 기대는 선택자가 계속 맞도록.
+ * html/body 속성을 각각의 <div> 로 옮기고 CSS AST의 html/body/:root 선택자를 그 래퍼로 연결한다.
+ * 인라인 스타일 규칙은 문서별 영역에 한정한다. 외부 link/@import 파일은 내려받거나 변경하지 않는다.
  * 문서가 아니면 손대지 않는다.
  */
 export function flattenDocumentForPost(html: string): { html: string; flattened: boolean } {
   const source = String(html || '');
-  const bodyMatch = source.match(/<body\b([^>]*)>([\s\S]*?)<\/body\s*>/i);
-  if (!/<html\b/i.test(source) || !bodyMatch) return { html: source, flattened: false };
+  if (!/<html\b/i.test(source) || !/<body\b/i.test(source)) return { html: source, flattened: false };
 
-  const headMatch = source.match(/<head\b[^>]*>([\s\S]*?)<\/head\s*>/i);
-  const head = headMatch ? headMatch[1]! : '';
-  const keptFromHead = [
-    ...(head.match(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi) || []),
-    ...(head.match(/<link\b[^>]*>/gi) || []).filter((tag) => STYLESHEET_LINK.test(tag)),
-  ];
+  // Parse attributes as HTML, then let the serializer escape quotes and entities.
+  // A regex cannot safely read style='font-family:"A > B"' or preserve html attrs.
+  const $ = cheerio.load(source);
+  const htmlElement = $('html').first();
+  const bodyElement = $('body').first();
+  const scopeId = createHash('sha256').update(source).digest('hex').slice(0, 16);
+  $('style').each((_index, element) => {
+    $(element).text(adaptDocumentCss($(element).text(), scopeId));
+  });
 
-  const attrs = bodyMatch[1] || '';
-  const classAttr = attrs.match(/\bclass\s*=\s*("([^"]*)"|'([^']*)')/i);
-  const styleAttr = attrs.match(/\bstyle\s*=\s*("([^"]*)"|'([^']*)')/i);
-  const classes = ['orbit-import', classAttr ? (classAttr[2] ?? classAttr[3] ?? '') : ''].filter(Boolean).join(' ');
-  const style = styleAttr ? (styleAttr[2] ?? styleAttr[3] ?? '') : '';
-  const wrapperOpen = `<div class="${classes}"${style ? ` style="${style}"` : ''}>`;
+  // One DOM traversal preserves the cascade order of interleaved links/styles.
+  const headStyles = $('head').children().filter((_i, element) =>
+    $(element).is('style') || ($(element).is('link')
+      && /(?:^|\s)stylesheet(?:\s|$)/i.test($(element).attr('rel') || '')),
+  );
+  const bodyWrapper = $('<div></div>');
+  const bodyNode = bodyElement[0]!;
+  if ('attribs' in bodyNode) {
+    for (const [name, value] of Object.entries(bodyNode.attribs)) bodyWrapper.attr(name, value);
+  }
+  bodyWrapper.attr('class', ['orbit-import', bodyElement.attr('class')].filter(Boolean).join(' '));
+  bodyWrapper.attr('data-orbit-document-body', scopeId);
+  bodyWrapper.append(bodyElement.contents());
+  const rootWrapper = $('<div></div>');
+  const htmlNode = htmlElement[0]!;
+  if ('attribs' in htmlNode) {
+    for (const [name, value] of Object.entries(htmlNode.attribs)) rootWrapper.attr(name, value);
+  }
+  rootWrapper.attr('data-orbit-document-root', scopeId);
+  rootWrapper.append(headStyles).append(bodyWrapper);
+  return { html: $.html(rootWrapper), flattened: true };
+}
 
-  return {
-    html: `${keptFromHead.join('\n')}${keptFromHead.length ? '\n' : ''}${wrapperOpen}${bodyMatch[2]}</div>`,
-    flattened: true,
-  };
+/** Rewrite selector nodes only: declaration strings, URLs, keyframes and media stay intact. */
+function adaptDocumentCss(css: string, scopeId: string): string {
+  const rootSelector = `[data-orbit-document-root="${scopeId}"]`;
+  const bodySelector = `[data-orbit-document-body="${scopeId}"]`;
+  const nodeFrom = (selector: string) => selectorParser().astSync(selector).first!.first!;
+  const sheet = postcss.parse(css);
+  sheet.walkRules(rule => {
+    // 'from', 'to' and '50%' are animation steps, not document selectors.
+    for (let ancestor: postcss.AnyNode | undefined = rule.parent; ancestor; ancestor = ancestor.parent) {
+      if (ancestor.type === 'atrule' && /(?:^|-)keyframes$/i.test(ancestor.name)) return;
+    }
+    rule.selector = selectorParser(selectors => {
+      selectors.walkTags(tag => {
+        if (tag.namespace) return;
+        const name = tag.value.toLowerCase();
+        if (name === 'div') {
+          // The transport wrappers were html/body in the original document.
+          // Author rules for ordinary divs must not start styling them.
+          tag.parent!.insertAfter(tag, nodeFrom(`:not(:where(${rootSelector}, ${bodySelector}))`).clone());
+          return;
+        }
+        if (name !== 'html' && name !== 'body') return;
+        tag.value = 'div';
+        // A type selector keeps its original specificity (the marker adds zero).
+        tag.parent!.insertAfter(tag, nodeFrom(`:where(${name === 'html' ? rootSelector : bodySelector})`).clone());
+      });
+      selectors.walkPseudos(pseudo => {
+        if (pseudo.value.toLowerCase() === ':root') pseudo.replaceWith(nodeFrom(rootSelector).clone());
+      });
+      // Constrain the selected subject, including the root itself. Prefixing a
+      // descendant selector would incorrectly exclude html/:root rules.
+      selectors.each(selector => {
+        const scope = nodeFrom(`:where(${rootSelector}, ${rootSelector} *)`).clone();
+        const pseudoElement = selector.nodes.find(node => node.type === 'pseudo'
+          && /^(?:::|:(?:before|after|first-line|first-letter)$)/i.test(node.value));
+        if (pseudoElement) selector.insertBefore(pseudoElement, scope);
+        else selector.append(scope);
+      });
+    }).processSync(rule.selector);
+  });
+  return sheet.toString();
 }

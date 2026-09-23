@@ -808,19 +808,23 @@ ${err?.message || err}
    */
   modalRefs.askFixBtn?.addEventListener('click', async () => {
     if (!session) return;
+    // Code view can contain newer HTML than the iframe; send those edits too.
+    if (session.sourceMode) setSourceMode(false);
+    const requestSession = session;
     const request = await askMultiLine({
       title: '✍️ 이렇게 고쳐줘',
       hint: '고칠 내용을 그대로 적어 주세요. 찾아내는 단계 없이 적은 대로 고칩니다.',
       label: '수정 요청',
       placeholder: '예)\n첫 문단이 너무 딱딱합니다. 상황을 먼저 그리고 결론을 뒤에 놓아주세요.\n3번 소제목의 표는 지우고 문장으로 풀어 주세요.\n"신청하세요" 같은 명령형 문장을 줄여 주세요.',
     });
-    if (!request) return;
+    if (!request || session !== requestSession) return;
 
     const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
     lockDraftButtons(true);
     setStatus('✍️ 적어 주신 대로 고쳐 쓰는 중… (몇 분 걸립니다)');
     try {
       const payload = await editorPayload();
+      if (session !== requestSession) return;
       /**
        * 고쳐 쓰기 엔진은 「지적 목록」을 받는다. 사장님이 적은 글을 그 모양으로 감싸 보낸다 —
        * 없는 문제를 지어내지 않고, 적힌 것만 한다.
@@ -839,6 +843,7 @@ ${err?.message || err}
       const res = await window.electronAPI.invoke('improve-editor-html', {
         title, html: serializeEditor(), issues, payload,
       });
+      if (session !== requestSession) return;
       if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
       if (res.html && res.revised > 0) {
         pushUndo('요청대로 고치기');

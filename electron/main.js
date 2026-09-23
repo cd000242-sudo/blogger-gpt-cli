@@ -5574,6 +5574,8 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
             titleMode: payload.titleMode || 'auto',
             sectionCount: payload.sectionCount || 5,
             ctaMode: payload.ctaMode || 'auto',
+            // v3.8.751: 단일·연속발행과 같은 필드명 — orchestration 이 경로를 구분할 필요가 없다
+            userRequest: String(payload.userRequest || '').trim() || undefined,
             crawlUrl: payload.crawlUrl || '',
         };
         if (payload.platform === 'blogger' || payload.platform === 'blogspot') {
@@ -7962,6 +7964,53 @@ electron_1.ipcMain.handle('crawl-url', async (_evt, url) => {
 // ============================================
 // 키워드 발굴 상태 관리
 const keywordDiscoveryStates = new Map();
+// Search-only analysis: no model calls or publication. Share duplicate requests and cache briefly.
+const shortentsPending = new Map();
+const shortentsCache = new Map();
+electron_1.ipcMain.handle('shortents:analyze', async (_evt, args) => {
+    try {
+        const manual = args?.keywords !== undefined;
+        if (manual && (!Array.isArray(args?.keywords) || args.keywords.length < 1 || args.keywords.length > 20 ||
+            args.keywords.some((k) => typeof k !== 'string' || !k.trim() || k.length > 120))) {
+            return { ok: false, error: '숏텐츠 제목을 1~20개, 각각 120자 이내로 입력해 주세요.' };
+        }
+        const keywords = manual ? args.keywords.map(k => k.trim()) : [];
+        const key = manual ? JSON.stringify(keywords) : 'current';
+        const cached = shortentsCache.get(key);
+        if (cached && Date.now() - cached.at < 10 * 60 * 1000)
+            return { ...cached.result, cached: true };
+        if (shortentsPending.has(key))
+            return await shortentsPending.get(key);
+        if (shortentsPending.size)
+            return { ok: false, error: '다른 숏텐츠 분석이 진행 중입니다. 완료 후 다시 눌러 주세요.' };
+        const work = (async () => {
+            const { analyzeShortents } = require('../dist/core/shortents-analysis');
+            const source = manual
+                ? { items: keywords.map(keyword => ({ keyword, url: '' })), fetchedAt: new Date().toISOString(), scope: '직접 입력한 목록 (전체 숏텐츠 아님)', sourceUrl: '' }
+                : await require('../dist/core/shortents-source').listShortents();
+            const { naverSearch } = require('../dist/core/naver-search-client');
+            const env = (0, env_1.loadEnvFromFile)();
+            const results = await analyzeShortents(source.items, (type, params) => naverSearch(type, params, { payload: env, timeoutMs: 8000 }));
+            const result = { ok: true, ...source, results, cached: false };
+            if (results.some((r) => r.score !== null)) {
+                if (shortentsCache.size >= 10)
+                    shortentsCache.delete(shortentsCache.keys().next().value);
+                shortentsCache.set(key, { at: Date.now(), result });
+            }
+            return result;
+        })();
+        shortentsPending.set(key, work);
+        try {
+            return await work;
+        }
+        finally {
+            shortentsPending.delete(key);
+        }
+    }
+    catch (error) {
+        return { ok: false, error: String(error?.message || error) };
+    }
+});
 // 황금 키워드 발굴
 electron_1.ipcMain.handle('find-golden-keywords', async (_evt, keyword, options) => {
     try {

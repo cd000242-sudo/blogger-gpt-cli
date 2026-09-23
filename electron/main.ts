@@ -8348,6 +8348,43 @@ ipcMain.handle('crawl-url', async (_evt, url) => {
 // 키워드 발굴 상태 관리
 const keywordDiscoveryStates = new Map<string, { running: boolean; cancel: boolean }>();
 
+// Search-only analysis: no model calls or publication. Share duplicate requests and cache briefly.
+const shortentsPending = new Map<string, Promise<any>>();
+const shortentsCache = new Map<string, { at: number; result: any }>();
+ipcMain.handle('shortents:analyze', async (_evt, args?: { keywords?: unknown }) => {
+  try {
+    const manual = args?.keywords !== undefined;
+    if (manual && (!Array.isArray(args?.keywords) || args.keywords.length < 1 || args.keywords.length > 20 ||
+      args.keywords.some((k: unknown) => typeof k !== 'string' || !k.trim() || k.length > 120))) {
+      return { ok: false, error: '숏텐츠 제목을 1~20개, 각각 120자 이내로 입력해 주세요.' };
+    }
+    const keywords = manual ? (args!.keywords as string[]).map(k => k.trim()) : [];
+    const key = manual ? JSON.stringify(keywords) : 'current';
+    const cached = shortentsCache.get(key);
+    if (cached && Date.now() - cached.at < 10 * 60 * 1000) return { ...cached.result, cached: true };
+    if (shortentsPending.has(key)) return await shortentsPending.get(key);
+    if (shortentsPending.size) return { ok: false, error: '다른 숏텐츠 분석이 진행 중입니다. 완료 후 다시 눌러 주세요.' };
+    const work = (async () => {
+      const { analyzeShortents } = require('../dist/core/shortents-analysis');
+      const source = manual
+        ? { items: keywords.map(keyword => ({ keyword, url: '' })), fetchedAt: new Date().toISOString(), scope: '직접 입력한 목록 (전체 숏텐츠 아님)', sourceUrl: '' }
+        : await require('../dist/core/shortents-source').listShortents();
+      const { naverSearch } = require('../dist/core/naver-search-client');
+      const env = loadEnvFromFile();
+      const results = await analyzeShortents(source.items, (type: string, params: any) =>
+        naverSearch(type, params, { payload: env, timeoutMs: 8000 }));
+      const result = { ok: true, ...source, results, cached: false };
+      if (results.some((r: any) => r.score !== null)) {
+        if (shortentsCache.size >= 10) shortentsCache.delete(shortentsCache.keys().next().value!);
+        shortentsCache.set(key, { at: Date.now(), result });
+      }
+      return result;
+    })();
+    shortentsPending.set(key, work);
+    try { return await work; } finally { shortentsPending.delete(key); }
+  } catch (error: any) { return { ok: false, error: String(error?.message || error) }; }
+});
+
 // 황금 키워드 발굴
 ipcMain.handle('find-golden-keywords', async (_evt, keyword: string, options?: any) => {
   try {

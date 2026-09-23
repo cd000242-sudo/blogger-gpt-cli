@@ -14,12 +14,11 @@
  * · 원본 `<style>` 은 요청이 서식을 말하지 않는 한 한 글자도 바뀌면 안 된다(외부 HTML 의 스킨 보호).
  * · 고친 뒤 검수 1회 — "요청대로 됐는가"를 바뀐 구간만 넘겨 묻는다.
  */
-import { acceptRevisedSection, splitSections, type CritiqueIssue } from './post-critique';
+import { acceptRevisedSection, type CritiqueIssue } from './post-critique';
 import type { DraftImprovement } from './editor-draft';
 import { verifySelectedIssues, type SectionChange } from './revision-verification';
 
 const plainLength = (html: string): number => String(html || '').replace(/<[^>]+>/g, '').trim().length;
-const plainText = (html: string): string => String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** 요청이 "빼라·줄여라" 인가 — 그러면 짧아지는 것이 정상이다 */
 export function isCuttingRequest(request: string): boolean {
@@ -71,6 +70,7 @@ export async function reviseByRequest(input: {
   issues: CritiqueIssue[];
   callModel: (prompt: string) => Promise<string>;
   log?: (line: string) => void;
+  verify?: boolean;
 }): Promise<DraftImprovement> {
   const wanted = input.issues.map((issue) => issue.title);
   const empty: DraftImprovement = {
@@ -108,19 +108,12 @@ export async function reviseByRequest(input: {
   }
   if (!verdict.accepted) return { ...empty, skipped: [`(전체 문서): ${verdict.reason}`] };
 
-  // 검수 1회 — 바뀐 구간만 넘긴다
-  const before = splitSections(input.html);
-  const after = splitSections(verdict.html);
-  const changes: SectionChange[] = before
-    .map((s) => ({ heading: s.heading, before: plainText(s.html), after: plainText(after.find((a) => a.index === s.index)?.html || '') }))
-    .filter((c) => c.before !== c.after);
-  if (!changes.length) {
-    // 태그·속성만 바뀐 경우 — 평문 비교로는 안 보인다. 요청이 서식이면 그것이 정답이다.
-    changes.push({ heading: '(전체 문서)', before: plainText(input.html).slice(0, 2500), after: plainText(verdict.html).slice(0, 2500) });
-  }
+  // 요청은 소제목 추가·삭제·순서 변경도 포함한다. 같은 구간 번호끼리 맞추면 끝부분을 누락한다.
+  // 전체 HTML로 검수해야 CSS/속성만 바뀐 요청도 실제로 검사할 수 있다.
+  const changes: SectionChange[] = [{ heading: '(전체 문서)', before: input.html, after: verdict.html }];
   input.log?.('[PROGRESS] 85% - 🔎 요청한 변경이 실제로 반영됐는지 확인합니다 (1회)');
-  const fixedIds = touchesStyles(request) && changes.length === 1 && changes[0]!.heading === '(전체 문서)'
-    ? input.issues.map((issue) => issue.id)
+  const fixedIds = input.verify === false
+    ? []
     : await verifySelectedIssues({ title: input.title, changes, issues: input.issues, callModel: input.callModel });
 
   return {

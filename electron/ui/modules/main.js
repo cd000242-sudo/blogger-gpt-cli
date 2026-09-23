@@ -24,6 +24,7 @@ import { initHeaderBadges } from './header-badges.js';
 // v3.8.39: initKeywordDiscover 제거 — LEWORD 외부 앱으로 대체.
 import { initContentStubs } from './content-stubs.js';
 import { initAssistant } from './assistant.js';
+import { initShortents } from './shortents.js';
 
 window.__bgptUseModuleProgressListener = true;
 
@@ -784,6 +785,7 @@ async function initializeApp() {
 
     // 5.6. 사이드바 초기화
     initSidebar();
+    initShortents();
     debugLog('MAIN', '사이드바 초기화 완료');
 
     // 5.7. 발행 프리셋 콘솔 (v3.8.533) — 실패해도 앱 초기화는 계속돼야 한다
@@ -1081,4 +1083,3 @@ if (document.readyState === 'loading') {
 // ============================================================================
 // 전역 에러 핸들러를 제거하여 무한 재귀 문제를 완전히 해결합니다.
 // 브라우저가 기본적으로 모든 오류를 개발자 콘솔에 표시하므로 별도 처리가 불필요합니다.
-

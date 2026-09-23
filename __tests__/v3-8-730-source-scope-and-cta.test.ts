@@ -22,6 +22,11 @@ const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf-8');
 const KEYWORD = '인천·부천 든든전세 4차 모집, 전세사기 걱정되면 볼 만할까';
 
 describe('① 출처 범위 — 주관기관은 키워드·요청사항·직접 넣은 URL 로만 정한다', () => {
+  test('제외하라는 기관 때문에 출처 제한이 풀리지 않고, 직접 넣은 공식 공고를 우선한다', () => {
+    expect(deriveSourceScope(KEYWORD, [], 'LH 공고 기준, HUG 자료는 제외해 주세요')?.agency).toBe('LH');
+    expect(deriveSourceScope(KEYWORD, [{url:'https://apply.lh.or.kr/notice'}], 'LH 공고이고 HUG와 혼동하지 마세요')?.agency).toBe('LH');
+    expect(deriveSourceScope('LH와 HUG 든든전세 비교', [{url:'https://apply.lh.or.kr/notice'}])?.agency).toBeUndefined();
+  });
   test('⭐ 요청사항에 "LH 공고 기준"이라 적으면 LH 로 고정된다 (URL 없이 — 사장님 입력 방식)', () => {
     const scope = deriveSourceScope(KEYWORD, [], 'LH 인천 든든전세 4차 공고 기준으로 써 주세요. 자격·일정·공급호수를 넣어 주세요.');
     expect(scope).toBeTruthy();

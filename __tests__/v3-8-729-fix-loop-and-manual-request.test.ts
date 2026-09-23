@@ -16,6 +16,8 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as cheerio from 'cheerio';
+import postcss from 'postcss';
 import { improveDraft, critiqueDraft } from '../src/core/final/editor-draft';
 import { reviseByRequest, trimToMarkup, isCuttingRequest, allowsMediaLoss } from '../src/core/final/manual-revision';
 import { parseVerification, verifySelectedIssues, buildVerificationPrompt } from '../src/core/final/revision-verification';
@@ -194,7 +196,7 @@ describe('② 같은 지적이 또 나오지 않게 — 세 부품', () => {
     expect(prompts.length).toBe(2);
     expect(prompts[1]).toContain('[고치기 전]');
     expect(prompts[1]).toContain('[고친 뒤]');
-    expect(prompts[1]).not.toContain('<h2>');                         // HTML 통째가 아니라 평문 구간만
+    expect(prompts[1]).toContain('<h2>');                            // 속성·표 수정도 검수할 수 있게 원문 구간 전달
     expect(res.revised).toBe(1);
     expect(res.stillPresent).toEqual([ai.title]);
   });
@@ -206,7 +208,7 @@ describe('② 같은 지적이 또 나오지 않게 — 세 부품', () => {
       title: 't', html: ARTICLE, issues: [ai],
       callModel: async (prompt) => {
         calls += 1;
-        if (prompt.includes('검수자')) return '[{"id":"ai-0","resolved":true,"evidence":"결과 발표일을 적었다"}]';
+        if (prompt.includes('검수자')) return '[{"id":"ai-0","resolved":true,"evidence":"결과는 10월 15일에 발표됩니다."}]';
         return '<h2>일정</h2><p>접수는 9월 20일부터입니다. 서류는 온라인으로 냅니다. 결과는 10월 15일에 발표됩니다. 계약은 11월입니다.</p>';
       },
     });
@@ -323,9 +325,13 @@ describe('④ 밖에서 가져온 HTML 은 그 스킨 그대로 발행한다', (
   test('⭐ 통째 문서는 head 의 스타일시트만 살리고 body 를 감싼 <div> 로 편다', () => {
     const flat = flattenDocumentForPost(doc);
     expect(flat.flattened).toBe(true);
-    expect(flat.html).toContain('<style>.custom p{font-size:27px}</style>');
+    const $ = cheerio.load(flat.html);
+    const rule = postcss.parse($('style').text()).first as postcss.Rule;
+    expect($(rule.selector).text()).toBe('원래 문장');
+    expect(rule.nodes[0]!.toString()).toBe('font-size:27px');
     expect(flat.html).toContain('<link rel="stylesheet" href="https://x/y.css">');
-    expect(flat.html).toContain('<div class="orbit-import custom" style="padding:7px"><p>원래 문장</p></div>');
+    expect($('.orbit-import.custom').attr('style')).toBe('padding:7px');
+    expect($('.orbit-import.custom > p').text()).toBe('원래 문장');
     expect(flat.html).not.toContain('<title>');
     expect(flat.html).not.toContain('<meta');
     expect(flattenDocumentForPost('<p>조각</p>')).toEqual({ html: '<p>조각</p>', flattened: false });

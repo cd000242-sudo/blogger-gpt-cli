@@ -1,4 +1,5 @@
 import { loadEnvFromFile } from '../env';
+import { flattenDocumentForPost } from '../core/final/style-preservation';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -995,6 +996,8 @@ async function fillCodeEditor(page: any, html: string): Promise<boolean> {
 }
 
 export async function fillHtmlEditor(page: any, html: string): Promise<boolean> {
+  // Shared by new posts and updates; fragments already prepared below are a no-op.
+  html = flattenDocumentForPost(html).html;
   if (await fillFirst(page, TISTORY_SELECTORS.editor.htmlEditors, html, 5000)) return true;
   if (await fillCodeEditor(page, html)) return true;
   if (await fillFirst(page, TISTORY_SELECTORS.editor.richEditors, html, 5000)) return true;
@@ -1401,6 +1404,9 @@ async function uploadThumbnailThroughTistoryEditor(
 }
 
 export function buildTistoryFinalHtml(html: string, thumbnailUrl: string, uploadedThumbnailBlock: string, title: string): string {
+  // Flatten before attaching the platform thumbnail, so it cannot be lost when
+  // a full document's body is extracted by the shared editor writer.
+  html = flattenDocumentForPost(html).html;
   // v3.8.299 보험: publish-content를 우회한 경로(직접 publishToTistory 호출)도 대비 — 본문 H1 통째 제거
   if (typeof html === 'string') {
     html = html.replace(/<h1[^>]*>[\s\S]*?<\/h1>/gi, '');
