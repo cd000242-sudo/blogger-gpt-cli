@@ -87,10 +87,11 @@ describe('썸네일 텍스트 미포함 — 발행 3경로 배선', () => {
     expect(source).toContain('...scheduleThumbnailNoTextOverride,');
   });
 
-  it('백엔드 오케스트레이션이 두 썸네일 생성 경로 모두에 옵션을 넘긴다', () => {
+  it('백엔드 오케스트레이션이 썸네일 생성 경로에 옵션을 넘긴다', () => {
     const source = read('src', 'core', 'final', 'orchestration.ts');
     const occurrences = source.split('thumbnailNoText: payload.thumbnailNoText === true,').length - 1;
-    expect(occurrences).toBe(2); // 일반 발행 + URL 기반 생성
+    // v3.8.749: URL 기반 생성이 따로 쓰던 썸네일 경로가 없어졌다 — URL 글도 일반 발행 경로 하나를 탄다
+    expect(occurrences).toBe(1);
   });
 
   it('거미줄 포스팅: 텍스트 포함 해제 시 텍스트 금지를 명시한다', () => {

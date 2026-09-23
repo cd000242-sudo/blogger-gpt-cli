@@ -35,7 +35,8 @@ describe('반자동(skipImages) 썸네일 비용 게이트', () => {
     expect(orch).toContain('유료 썸네일 생성을 건너뜁니다');
   });
 
-  it('⭐ URL 모드 썸네일 경로의 기존 게이트도 그대로다', () => {
-    expect(orch).toContain('if (!thumbnailUrl && !skipImages && !urlThumbnailDisabled)');
+  it('⭐ URL 모드도 같은 게이트를 지난다 — 따로 쓰던 썸네일 경로가 없어졌다 (v3.8.749)', () => {
+    expect(orch).not.toContain('urlThumbnailDisabled');
+    expect(orch).toContain('if (!thumbnailUrl && !thumbnailDisabled && !skipImages)');
   });
 });

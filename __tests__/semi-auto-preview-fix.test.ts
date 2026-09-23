@@ -191,8 +191,10 @@ describe('⑤ 반자동(previewOnly) 요청은 이미지 생성 자체를 건너
   });
 
   it('썸네일도 skipImages를 확인한다 — "글만" 요청에서 썸네일까지 새는 걸 막는다', () => {
-    expect(orch).toMatch(/!skipImages\s*&&\s*preGeneratedThumbnail/);
-    expect(orch).toMatch(/!thumbnailUrl\s*&&\s*!skipImages/);
+    // v3.8.749: URL 글도 본 파이프라인의 썸네일 경로를 탄다 — 유료 썸네일 생성은 이 한 곳에서 막힌다
+    //   (내 폴더 썸네일은 업로드만 해서 무료라 반자동에서도 쓴다 — 키워드 글과 같다)
+    expect(orch).toMatch(/if \(!thumbnailUrl && !thumbnailDisabled && skipImages\)/);
+    expect(orch).toMatch(/if \(!thumbnailUrl && !thumbnailDisabled && !skipImages\)/);
   });
 
   it('createPreviewPayload가 실제로 previewOnly:true로 createPayload를 부른다 (반자동의 유일한 진입점)', () => {
