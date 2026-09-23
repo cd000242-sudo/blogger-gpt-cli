@@ -191,6 +191,14 @@ function pickEyeComfortPalette(): EyeComfortPalette {
   return INK_AND_BRASS;
 }
 
+/**
+ * v3.8.750 — 소제목 파스텔 상자(v3.8.419)에서 **부품 제목**을 뺀다: 요약 카드·목차·CTA 안의 h3.
+ * 749 에서 퍼블리셔 덧칠이 사라지자 이 규칙이 요약 카드 안에 분홍 알약(액자 속 액자)을 만들고
+ * 목차 제목을 소제목처럼 칠했다. 소제목은 자기 인라인 상자(data-orbit-h3box)가 있어 그대로다.
+ * :where 로 감싸 선택자 점수를 올리지 않는다 — 「먹과 놋쇠」 층 순서를 건드리지 않게.
+ */
+const H3_BOX_ONLY = ':where(:not(.summary-container h3, .toc-grid-container h3, .cta-section h3))';
+
 export function generateCSSFinal(platform?: string, contentMode?: string): string {
   // 🛡️ 애드센스 모드 CSS는 publisher.js:270의 injectCSS()가 단일 소스로 주입한다.
   //    과거 여기서도 adsensePlugin.generateCSS()를 반환하여 본문에 raw CSS가 새거나
@@ -302,7 +310,7 @@ ${EEAT_META_CSS}
 /* v3.8.419: H3가 그냥 굵은 텍스트뿐이라 H2 사이 구간에서 눈에 안 띈다는 지적 —
    눈에 편안한 파스텔 색상 박스로 감싼다. 완전 무작위가 아니라 순서대로 6색을 돌려
    같은 글 안에서 색이 튀지 않고 그래도 섹션마다 구분되게 한다. */
-:where(.bgpt-content) .white-paper h3 {
+:where(.bgpt-content) .white-paper h3${H3_BOX_ONLY} {
   font-size: 21px !important;
   font-weight: 700;
   color: #0f172a;
@@ -313,12 +321,12 @@ ${EEAT_META_CSS}
   border-radius: 12px !important;
   border: 1.5px solid transparent !important;
 }
-:where(.bgpt-content) .white-paper h3:nth-of-type(6n+1) { background: #fef3f2 !important; border-color: #fecdca !important; }
-:where(.bgpt-content) .white-paper h3:nth-of-type(6n+2) { background: #eff8ff !important; border-color: #b9e0fe !important; }
-:where(.bgpt-content) .white-paper h3:nth-of-type(6n+3) { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
-:where(.bgpt-content) .white-paper h3:nth-of-type(6n+4) { background: #fefbea !important; border-color: #fde68a !important; }
-:where(.bgpt-content) .white-paper h3:nth-of-type(6n+5) { background: #f5f3ff !important; border-color: #ddd6fe !important; }
-:where(.bgpt-content) .white-paper h3:nth-of-type(6n+6) { background: #fdf2f8 !important; border-color: #fbcfe8 !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+1)${H3_BOX_ONLY} { background: #fef3f2 !important; border-color: #fecdca !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+2)${H3_BOX_ONLY} { background: #eff8ff !important; border-color: #b9e0fe !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+3)${H3_BOX_ONLY} { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+4)${H3_BOX_ONLY} { background: #fefbea !important; border-color: #fde68a !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+5)${H3_BOX_ONLY} { background: #f5f3ff !important; border-color: #ddd6fe !important; }
+:where(.bgpt-content) .white-paper h3:nth-of-type(6n+6)${H3_BOX_ONLY} { background: #fdf2f8 !important; border-color: #fbcfe8 !important; }
 
 :where(.bgpt-content) .white-paper p {
   font-size: 17px !important;
