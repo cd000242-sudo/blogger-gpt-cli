@@ -11,6 +11,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { collapseRepeatedYear } from '../src/core/final/generation';
+import { blockBetween } from './helpers/source-block';
 
 describe('collapseRepeatedYear — 바로 옆에 붙은 같은 연도만 한 번으로', () => {
   it.each([
@@ -68,21 +69,20 @@ describe('orchestration 배선 — AI 제목이 나가기 전에 반드시 지�
     expect(orch).toMatch(/if \(!payload\.keywordFront\) t = frontTitleYear\(t\);[\s\S]{0,300}?t = collapseRepeatedYear\(t\);\s*return t;/);
   });
 
+  // 비평 루프가 끝난 자리 ~ 다음 단계(값을 못 지킨 소제목 정리) 사이
+  const afterLoop = blockBetween(orch, 'void titleRevisedByCritic;', 'const sections = allSectionsObj.sections;');
+
   it('⭐ 제목이 더 바뀌지 않는 자리(비평 루프 뒤)에서 한 번 더 — 값 걷어냄·도려냄·키워드 재조립으로 붙은 것까지', () => {
-    const loopEnd = orch.indexOf('void titleRevisedByCritic;');
-    const finalPass = orch.indexOf('h1 = collapseRepeatedYear(', loopEnd);
-    expect(loopEnd).toBeGreaterThan(0);
-    expect(finalPass).toBeGreaterThan(loopEnd);
-    expect(finalPass - loopEnd).toBeLessThan(900);
+    expect(afterLoop).toMatch(/h1 = collapseRepeatedYear\(String\(h1 \|\| ''\)\)/);
     // 그 뒤로는 제목을 바꾸는 자리가 없어야 한다 (주석 줄은 빼고 본다)
-    const codeAfter = orch.slice(finalPass + 30).split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-    expect(codeAfter).not.toMatch(/\bh1 = (?!collapseRepeatedYear)/);
+    const rest = orch.split('const sections = allSectionsObj.sections;')[1] || '';
+    const codeAfter = rest.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    expect(rest.length).toBeGreaterThan(0);
+    expect(codeAfter).not.toMatch(/\bh1 = /);
   });
 
   it('사람이 정한 제목(custom)은 건드리지 않는다', () => {
-    const loopEnd = orch.indexOf('void titleRevisedByCritic;');
-    const around = orch.slice(loopEnd, loopEnd + 900);
-    expect(around).toMatch(/payload\.titleMode === 'custom' && fixedTitle/);
+    expect(afterLoop).toMatch(/payload\.titleMode === 'custom' && fixedTitle/);
   });
 
   it('제목 프롬프트는 이번에 바꾸지 않았다 (결정적으로 풀리므로)', () => {
