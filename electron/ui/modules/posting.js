@@ -511,6 +511,18 @@ export function resetArticleStateAfterPublish(reason = 'publish') {
       if (kw && kw.value) { kw.value = ''; cleared.push('키워드 칸'); }
       const ct = document.getElementById('customTitle');
       if (ct && ct.value) { ct.value = ''; cleared.push('직접 제목 칸'); }
+      /**
+       * 📝 v3.8.751 — 요청사항도 **이 글에만** 쓰는 값이다.
+       *
+       * 사장님: "요청사항도 발행되고나면 필드 초기화 시켜주세요."
+       * 맞다. 남아 있으면 다음 글에 그대로 실린다 — 그것도 아무 말 없이.
+       * (연속발행은 글마다 항목 요청사항을 이 칸에 다시 세우므로 지워도 다음 글이 멀쩡하다)
+       * 경고 줄도 같이 접는다. 빈 칸에 경고만 남으면 "뭘 경고하는 거지"가 된다.
+       */
+      const ur = document.getElementById('userRequestNote');
+      if (ur && ur.value) { ur.value = ''; cleared.push('요청사항 칸'); }
+      const urWarn = document.getElementById('userRequestWarn');
+      if (urWarn) { urWarn.style.display = 'none'; urWarn.innerHTML = ''; }
     } catch { /* noop */ }
   }
 

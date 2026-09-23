@@ -13,11 +13,18 @@ import * as path from 'path';
 
 const main = fs.readFileSync(path.join(__dirname, '..', 'electron/main.ts'), 'utf-8');
 
-/** 핸들러 등록 지점부터 본문 앞부분을 잘라 온다 */
-function handlerHead(anchor: string, chars = 1600): string {
+/**
+ * 핸들러 등록 지점부터 본문 앞부분을 잘라 온다.
+ *
+ * ⚠️ v3.8.751 — **문자 수가 아니라 줄 수로 센다.**
+ * 예전엔 1600자였는데, 핸들러 payload 타입에 필드 하나(+주석)를 넣었더니 게이트가
+ * 그 창 밖으로 밀려나 테스트만 깨졌다 — 동작은 멀쩡했다. 고정 길이 슬라이스의 전형적인 오작동이라
+ * 줄 수로 바꾼다(이 저장소 helpers/source-block.ts 의 linesAfter 와 같은 규칙).
+ */
+function handlerHead(anchor: string, lines = 90): string {
   const idx = main.indexOf(anchor);
   expect(idx).toBeGreaterThan(-1);
-  return main.slice(idx, idx + chars);
+  return main.slice(idx).split('\n').slice(0, lines).join('\n');
 }
 
 describe('유료 전용 IPC 경로는 무료 체험을 백엔드에서 차단한다', () => {

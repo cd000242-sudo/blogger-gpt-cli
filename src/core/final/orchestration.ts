@@ -1701,6 +1701,19 @@ export async function generateUltimateMaxModeArticleFinal(
       } catch { /* 표시용 — 실패해도 제목은 만든다 */ }
 
       /**
+       * 📝 v3.8.751 — 제목도 작성자 요청을 본다. Research Packet 과 **따로** 넘긴다
+       * (섞으면 요청에 적힌 숫자가 근거로 읽힌다 — generation.ts 의 파라미터 주석 참고).
+       * 비면 빈 문자열이라 제목 프롬프트는 예전 그대로다.
+       */
+      const userRequestTitleBlock = (() => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { buildUserRequestBlock } = require('./user-request');
+          return buildUserRequestBlock((payload as any).userRequest) || '';
+        } catch { return ''; }
+      })();
+
+      /**
        * v3.8.735 — 제목도 Research Packet 을 보고 만든다. 값(날짜·금액·비율·인원)은 패킷·근거에 있는 것만.
        * 만든 뒤 Title Fact Gate: 근거에 없는 값이 있으면 다시 만들고(최대 2회), 그래도 남으면 그 값을 걷어낸다.
        * 근거 없는 값이 든 제목으로는 본문을 쓰지 않는다.
@@ -1719,6 +1732,7 @@ export async function generateUltimateMaxModeArticleFinal(
           // v3.8.594: "키워드 맨 앞" 옵션을 **모델에게** 알려 준다 (예전엔 사후 문자열 재조립뿐이었다)
           !!payload.keywordFront,
           `${researchPacketText.slice(0, 5000)}${directive ? `\n\n${directive}` : ''}`,
+          userRequestTitleBlock,   // v3.8.751
         );
         t = repairTitleYear(t);
         // v3.8.594: 연도는 맨 앞에. 단 "키워드 맨 앞" 옵션이 켜져 있으면 그 옵션이 이긴다.
@@ -1830,6 +1844,30 @@ export async function generateUltimateMaxModeArticleFinal(
       catch { return false; }
     })();
 
+    /**
+     * 📝 v3.8.751 — **소제목도 작성자 요청을 보고 정한다.**
+     *
+     * 실측 확인(2026-09-23): v3.8.718 은 요청사항을 본문 지시(scopedSectionBlock)에만 실었다.
+     * 그런데 요청의 상당수는 **구성**에 관한 말이다 — "재산 처분·계좌 이동 확인법을 꼭 포함",
+     * "뻔한 소제목 반복 금지". 소제목은 본문보다 **먼저** 정해지므로, 그 단계가 요청을 못 보면
+     * 본문 단계에서 아무리 반영해도 이미 없는 절을 만들어 낼 수는 없다. 요청은 절 안에서만
+     * 맴돌다 끝난다 — 사장님 눈에는 "반영이 안 됐다"로 보인다.
+     *
+     * 비어 있으면 빈 문자열이라 소제목 프롬프트는 예전과 한 글자도 다르지 않다.
+     */
+    const userRequestHeadingBlock = (() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { buildUserRequestBlock, describeUserRequest } = require('./user-request');
+        const block = buildUserRequestBlock((payload as any).userRequest);
+        if (block) onLog?.(`[PROGRESS] 35% - 📝 소제목 생성에도 ${describeUserRequest((payload as any).userRequest)}`);
+        return block;
+      } catch (reqErr) {
+        console.warn('[USER-REQUEST] 소제목 주입 스킵:', (reqErr as Error)?.message || reqErr);
+        return '';
+      }
+    })();
+
     const modeResult = dispatchMode(contentMode, keyword, {
       authorInfo: (payload as any).adsenseAuthorInfo,
       siteKey: siteKeyForVariation,
@@ -1859,7 +1897,8 @@ export async function generateUltimateMaxModeArticleFinal(
          */
         const { buildTitlePromiseBlock: promiseBlockForRoles, ensureTitlePromiseHeadings: ensureForRoles } = require('./title-promise-headings');
         try {
-          const rewritten = await generateSectionTitlesFromRoles(keyword, roles, demandSignals, promiseBlockForRoles(String(h1 || '')));
+          // v3.8.751: 애드센스·플러그인 모드도 같은 요청을 본다 (한쪽만 배선하면 모드별로 결과가 갈린다)
+          const rewritten = await generateSectionTitlesFromRoles(keyword, roles, demandSignals, `${promiseBlockForRoles(String(h1 || ''))}${userRequestHeadingBlock}`);
           if (Array.isArray(rewritten) && rewritten.length === h2Titles.length) {
             const changed = rewritten.filter((t, i) => t !== h2Titles![i]).length;
             h2Titles = rewritten;
@@ -1912,7 +1951,7 @@ export async function generateUltimateMaxModeArticleFinal(
       const fallbackTitles = generateIntentAwareFallbackH2Titles(keyword, 5, internalScope);
       try {
         const { buildTitlePromiseBlock: promiseBlockFor } = require('./title-promise-headings');
-        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5, demandSignals, promiseBlockFor(String(h1 || '')));
+        const llmTitles = await generateH2TitlesFinal(keyword, subheadings, 5, demandSignals, `${promiseBlockFor(String(h1 || ''))}${userRequestHeadingBlock}`);
         if (Array.isArray(llmTitles) && llmTitles.length >= 5) {
           h2Titles = llmTitles.slice(0, 5);
           onLog?.(`[PROGRESS] 38% - 🧠 LLM 기반 구체 H2 5개 생성: ${h2Titles.join(' / ')}`);
@@ -1985,7 +2024,7 @@ export async function generateUltimateMaxModeArticleFinal(
        * 둘 다 호출 0회 — 첫 생성에서 지켜야 비용이 안 는다.
        */
       const { buildTitlePromiseBlock, ensureTitlePromiseHeadings } = require('./title-promise-headings');
-      h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count, demandSignals, buildTitlePromiseBlock(String(h1 || '')));
+      h2Titles = await generateH2TitlesFinal(keyword, subheadings, maxH2Count, demandSignals, `${buildTitlePromiseBlock(String(h1 || ''))}${userRequestHeadingBlock}`);
       const promised = ensureTitlePromiseHeadings(String(h1 || ''), h2Titles, keyword);
       if (promised.replaced.length > 0) {
         h2Titles = promised.h2Titles;

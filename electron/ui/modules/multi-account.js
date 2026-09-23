@@ -393,6 +393,15 @@ function collectCurrentDetailSettings() {
     h2ImageMode: valueFromDom('h2ImageMode') || settings.h2ImageMode || 'auto',
     ctaMode: checkedValue('ctaMode', settings.ctaMode || 'auto'),
     postingMode: checkedValue('postingMode', settings.postingMode || 'immediate'),
+    /**
+     * 📝 v3.8.751 — 「이 글 요청사항」도 같이 물려준다.
+     *
+     * 이 패널은 "연속발행에서 쓰는 설정을 다중계정에도 같이 적용한다"고 적어 두고도
+     * 요청사항만 빠져 있었다. 계정마다 다른 요청을 적는 칸은 두지 않는다 —
+     * 다중계정은 **같은 글을 여러 곳에** 올리는 기능이라 요청도 하나다.
+     * 비우면 undefined → 요청 없는 예전 동작 그대로.
+     */
+    userRequest: (valueFromDom('userRequestNote') || '').trim(),
   };
 }
 
@@ -737,6 +746,7 @@ async function startMultiPublish() {
 
   isPublishing = true;
   publishAbort = false;
+  let publishedWithoutStop = false;
   setPublishingUi(true);
   const logContainer = document.getElementById('multiPublishLog');
   if (logContainer) logContainer.innerHTML = '';
@@ -776,11 +786,28 @@ async function startMultiPublish() {
       }
       addLog('대량 발행 완료', 'success');
     }
+    publishedWithoutStop = !publishAbort;
   } catch (error) {
     addLog(`오류 발생: ${error.message}`, 'error');
   } finally {
     isPublishing = false;
     setPublishingUi(false);
+    /**
+     * 📝 v3.8.751 — 끝까지 발행했으면 요청사항 칸을 비운다.
+     * 단일·연속발행과 같은 규칙이다: 중단이나 오류로 멈췄을 땐 그대로 둔다
+     * (같은 요청으로 다시 돌릴 테니).
+     */
+    if (publishedWithoutStop) {
+      try {
+        const note = document.getElementById('userRequestNote');
+        if (note && note.value) {
+          note.value = '';
+          addLog('요청사항 칸을 비웠습니다 (다음 글에 그대로 실리지 않도록).', 'info');
+        }
+        const warn = document.getElementById('userRequestWarn');
+        if (warn) { warn.style.display = 'none'; warn.innerHTML = ''; }
+      } catch (e) { /* 초기화 실패가 발행 결과를 가리지 않는다 */ }
+    }
   }
 }
 

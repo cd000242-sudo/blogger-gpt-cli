@@ -1015,6 +1015,15 @@ function getCurrentQueueSnapshot() {
     // v3.8.433: 쇼핑모드 연속발행 — 고른 제휴사를 대기열에도 그대로 물려준다
     //   ("한 글에 한 제휴사" 원칙이라 항목별이 아니라 스냅샷 단위로 잡는다)
     affiliateProvider: document.querySelector('input[name="affiliateProvider"]:checked')?.value || '',
+    /**
+     * 📝 v3.8.751 — 「이 글 요청사항」을 대기열에도 물려준다.
+     *
+     * 사장님: "연속발행모드에는 요청사항을 입력못하네요."
+     * 맞다. 입력칸은 콘텐츠 탭 하나뿐이었고, 큐 항목은 그 값을 복사해 가지 않았다.
+     * 이제 **대기열에 담는 순간** 화면의 요청사항이 항목에 복사되고, 그 뒤로는
+     * 항목 카드의 칸이 진실이다(글마다 다르게 쓸 수 있다).
+     */
+    userRequest: (document.getElementById('userRequestNote')?.value || '').trim(),
   };
 }
 
@@ -1044,6 +1053,8 @@ function cloneQueueSnapshot(snapshot) {
     urlAiFill: !!snap.urlAiFill,
     urlThreshold: Number(snap.urlThreshold) || 60,
     folderImageCount: Number(snap.folderImageCount || getActivePreGeneratedImageCount() || 0),
+    // v3.8.751: 요청사항은 글자 그대로 옮긴다 — 기본값이 없다(빈 값 = 요청 없음 = 예전 동작)
+    userRequest: String(snap.userRequest || ''),
   };
 }
 
@@ -1071,6 +1082,7 @@ function snapshotFromItem(item) {
     urlAiFill: item.urlAiFill,
     urlThreshold: item.urlThreshold,
     folderImageCount: getActivePreGeneratedImageCount(),
+    userRequest: item.userRequest,   // v3.8.751
   });
 }
 
@@ -1116,6 +1128,12 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   if (force || item.urlAiCheck == null) item.urlAiCheck = snap.urlAiCheck;
   if (force || item.urlAiFill == null) item.urlAiFill = snap.urlAiFill;
   if (force || !item.urlThreshold) item.urlThreshold = snap.urlThreshold || 60;
+  /**
+   * 📝 v3.8.751 — 요청사항.
+   * 항목이 제 값을 갖고 있으면(빈 문자열 포함) 건드리지 않는다 — 지운 것도 뜻이다.
+   * 값 자체가 없을 때만(대기열에 처음 담기거나 구버전 항목) 스냅샷에서 받아온다.
+   */
+  if (force || item.userRequest == null) item.userRequest = snap.userRequest || '';
   return touchItemSnapshot(item);
 }
 
@@ -1134,6 +1152,10 @@ function buildSnapshotChips(snapshot) {
   const folderImageCount = getActivePreGeneratedImageCount();
   if (folderImageCount > 0) {
     chips.splice(6, 0, ['내 폴더 이미지', `${folderImageCount}장`]);
+  }
+  // v3.8.751: 요청사항이 실렸는지 한눈에 — 보이지 않으면 또 "반영 안 됐다"가 된다
+  if (String(snapshot.userRequest || '').trim()) {
+    chips.push(['요청사항', `${String(snapshot.userRequest).trim().length}자`]);
   }
   if (snapshot.postingMode === 'schedule' && snapshot.scheduleDate) {
     chips.splice(2, 0, ['예약', snapshot.scheduleDate.replace('T', ' ')]);
@@ -1438,6 +1460,18 @@ function buildModalHtml() {
                 <!-- v3.8.524: 디스커버·쇼핑이 여기만 빠져 있었다 (단일·예약 발행엔 있었음) -->
                 <option value="discover">🔎 구글 디스커버</option>
               </select>
+            </label>
+            <!-- 📝 v3.8.751: 대기열 전체에 같은 요청사항을 한 번에 넣는 칸.
+                 비워 두면 "변경 안 함"이다 — 항목마다 따로 적어 둔 요청을 지우지 않는다.
+                 글마다 다르게 쓰려면 아래 항목 카드의 요청사항 칸에서 고친다. -->
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">📝 요청사항 일괄 적용 <span style="color:rgba(148,163,184,0.7);font-weight:700;">(비우면 변경 안 함)</span></span>
+              <textarea id="pq-bulk-request" rows="3" placeholder="모든 글에 같이 적용할 요청사항. 예) 포함할 내용·피할 표현·읽는 사람을 적으세요."
+                style="width:100%;min-height:62px;padding:8px 10px;font-size:12px;line-height:1.6;resize:vertical;box-sizing:border-box;"></textarea>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span style="color:rgba(148,163,184,0.75);font-size:10px;flex:1;">⚡ 일괄 적용을 눌러야 반영됩니다. 사실 확인·분량·말투 같은 기본 규칙이 요청보다 우선합니다.</span>
+                <button type="button" id="pq-bulk-request-clear" style="min-height:28px;padding:4px 9px;background:rgba(239,68,68,0.14);border:1px solid rgba(248,113,113,0.32);color:#fecaca;border-radius:8px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">전체 비우기</button>
+              </div>
             </label>
           </div>
         </div>
@@ -1832,6 +1866,13 @@ function buildItemRow(item, idx) {
         <option value="conversational" ${item.toneStyle === 'conversational' ? 'selected' : ''}>대화체</option>
       </select>
     </div>
+    <!-- 📝 v3.8.751: 이 글에만 적용할 요청사항. 비우면 예전과 완전히 같다.
+         칸을 넓게 쓴다 — 한 줄짜리가 아니라 문단으로 적는 칸이다. -->
+    <div class="pq-field" style="grid-column:1/-1;">
+      <label>📝 이 글 요청사항 <span style="font-weight:700;color:rgba(148,163,184,0.72);">(선택 · 이 글에만 적용 · 비우면 요청 없음)</span></label>
+      <textarea class="pq-item-request" rows="3" placeholder="어떻게 써야 하는지 적으세요. 예) 재산 처분·계좌 이동 확인법을 꼭 포함. 뻔한 소제목 반복 금지."
+        style="width:100%;min-height:62px;padding:8px 10px;font-size:12px;line-height:1.6;resize:vertical;box-sizing:border-box;">${escHtml(item.userRequest || '')}</textarea>
+    </div>
     <div class="pq-field">
       <label>팩트체크</label>
       <select class="pq-item-fact">
@@ -1896,6 +1937,7 @@ function buildItemRow(item, idx) {
     <span class="pq-mini">팩트체크 ${escHtml(item.factCheckMode)}</span>
     <span class="pq-mini">제목 ${escHtml(item.titleMode)}</span>
     <span class="pq-mini">톤 ${escHtml(item.toneStyle)}</span>
+    ${String(item.userRequest || '').trim() ? `<span class="pq-mini">📝 요청사항 ${escHtml(String(item.userRequest).trim().length)}자</span>` : ''}
     ${item.url ? '<span class="pq-mini">URL 이미지 연동</span>' : ''}
     ${item.ctaMode === 'manual' && manualCta.url ? `<span class="pq-mini">커스텀 CTA ${escHtml(hostFromUrl(manualCta.url))}</span>` : ''}
   </div>
@@ -2007,6 +2049,15 @@ function bindItemEvents() {
       item.factCheckMode = e.target.value || 'auto';
       saveItem();
       refreshList();
+    });
+    /**
+     * 📝 v3.8.751 — 항목별 요청사항.
+     * refreshList() 를 부르지 않는다 — 글자를 칠 때마다 다시 그리면 커서가 튄다.
+     * 카드 아래 칩(요청사항 N자)은 다음 렌더 때 맞춰진다.
+     */
+    row.querySelector('.pq-item-request')?.addEventListener('input', e => {
+      item.userRequest = e.target.value || '';
+      saveItem();
     });
     // v3.8.144: Tistory 카테고리·공개상태 항목별 override
     row.querySelector('.pq-item-tistory-category')?.addEventListener('change', e => {
@@ -2368,6 +2419,16 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     titleMode: item.titleMode || 'auto',
     toneStyle: item.toneStyle || 'professional',
     factCheckMode: item.factCheckMode || 'auto',
+    /**
+     * 📝 v3.8.751 — 이 항목의 요청사항을 payload 에 싣는다.
+     *
+     * ⚠️ 이 한 줄이 배선의 전부다. 여기 없으면 카드에 적어도 AI 는 못 본다
+     *    (조용한 미배선 — 입력은 받는데 쓰는 곳이 없다).
+     * 단일 발행과 **같은 필드명**이라 백엔드는 두 경로를 구분할 필요가 없다.
+     * 빈 값이면 undefined → 요청사항 없는 예전 동작 그대로.
+     * 즉시 순차발행·스케줄에 추가 두 경로가 모두 이 함수를 지난다.
+     */
+    userRequest: String(item.userRequest || '').trim() || undefined,
     useKeywordAsTitle: !!item.useKeywordAsTitle,
     keywordFront: !!item.keywordFront,
     // 🚫 v3.8.336: 항목에 고정된 "텍스트 미포함 썸네일" 설정을 백엔드로 전달
@@ -2421,6 +2482,16 @@ function applyItemToMainForm(item, scheduleDateIso) {
   };
 
   setValue('keywordInput', item.keyword);
+  /**
+   * 📝 v3.8.751 — 지금 도는 글의 요청사항을 화면 칸에도 그대로 세운다.
+   *
+   * 두 가지를 동시에 한다:
+   *   · 사장님이 지금 어떤 요청으로 돌고 있는지 눈으로 본다
+   *   · createPayload 가 DOM 에서 읽는 값과 큐 오버라이드 값이 **같아진다**
+   *     (둘이 다르면 "카드엔 A 인데 실린 건 B" 가 조용히 생긴다)
+   * 발행이 끝나면 resetArticleStateAfterPublish 가 이 칸을 비운다.
+   */
+  setValue('userRequestNote', item.userRequest || '');
   setValue('contentMode', item.mode || 'external');
   setValue('thumbnailType', normalizeThumbEngine(item.thumb));
   setValue('h2ImageSource', normalizeThumbEngine(item.h2ImageSource || item.thumb));
@@ -3101,6 +3172,8 @@ function bindModalEvents() {
     const tone = document.getElementById('pq-bulk-tone')?.value;
     const fact = document.getElementById('pq-bulk-fact')?.value;
     const scheduleVal = (document.getElementById('pq-bulk-schedule')?.value || '').trim();
+    // 📝 v3.8.751: 요청사항 일괄 적용. 비어 있으면 손대지 않는다(항목별 요청을 지우지 않는다).
+    const bulkRequest = (document.getElementById('pq-bulk-request')?.value || '').trim();
     // v3.8.145: Tistory 카테고리/공개상태 일괄 적용
     const tistoryCat = document.getElementById('pq-bulk-tistory-category')?.value;
     const tistoryVis = document.getElementById('pq-bulk-tistory-visibility')?.value;
@@ -3152,6 +3225,7 @@ function bindModalEvents() {
       if (title) applyTitleOptionToItem(item, title);
       if (tone) item.toneStyle = tone;
       if (fact) item.factCheckMode = fact;
+      if (bulkRequest) item.userRequest = bulkRequest;   // v3.8.751
       // v3.8.137: 예약 발행 + 시간 입력 시 모든 항목에 일괄 적용 (발행 간격은 별도 옵션이 분산 처리)
       if (pm === 'schedule' && scheduleVal) item.scheduleDate = scheduleVal;
       // v3.8.145: Tistory 카테고리/공개상태 일괄 적용
@@ -3163,6 +3237,28 @@ function bindModalEvents() {
       if (item.ctaMode === 'manual') ensureItemManualCta(item);
       touchItemSnapshot(item);
     });
+    persistQueue();
+    refreshList();
+  });
+
+  /**
+   * 📝 v3.8.751 — 요청사항만 전부 지운다.
+   * 일괄 적용 칸은 "비우면 변경 안 함"이라 **지우는 길이 따로 있어야** 한다.
+   * 없으면 항목을 하나씩 열어 지워야 하고, 그러다 하나를 빠뜨리면 그 글만 옛 요청으로 나간다.
+   */
+  document.getElementById('pq-bulk-request-clear')?.addEventListener('click', () => {
+    const withRequest = STATE.keywords.filter((item) => String(item.userRequest || '').trim());
+    if (withRequest.length === 0) {
+      alert('요청사항이 적힌 항목이 없습니다.');
+      return;
+    }
+    if (!confirm(`대기열 ${withRequest.length}개 항목의 요청사항을 모두 지울까요?\n(다른 설정은 그대로입니다)`)) return;
+    STATE.keywords.forEach((item) => {
+      item.userRequest = '';
+      touchItemSnapshot(item);
+    });
+    const bulkBox = document.getElementById('pq-bulk-request');
+    if (bulkBox) bulkBox.value = '';
     persistQueue();
     refreshList();
   });
@@ -3464,6 +3560,18 @@ function bindModalEvents() {
         + `   생성이 끝나면 플랫폼 예약으로 올라가므로 앱을 꺼도 발행됩니다.`
         + lateNote,
       );
+      /**
+       * 📝 v3.8.751 — 스케줄에 넘긴 요청사항은 예약 payload 안에 이미 저장됐다.
+       * 화면 칸에 남겨 두면 다음 글에 또 실린다 — 발행과 같은 규칙으로 비운다.
+       */
+      try {
+        const noteBox = document.getElementById('userRequestNote');
+        if (noteBox) noteBox.value = '';
+        const warnBox = document.getElementById('userRequestWarn');
+        if (warnBox) { warnBox.style.display = 'none'; warnBox.innerHTML = ''; }
+        const bulkBox = document.getElementById('pq-bulk-request');
+        if (bulkBox) bulkBox.value = '';
+      } catch (e) { /* ignore */ }
       STATE.keywords = [];
       persistQueue();
       close();
@@ -3870,6 +3978,22 @@ function bindModalEvents() {
       try { window.__publishQueueActiveImageToken = null; } catch (e) { /* ignore */ }
       try { window.__publishForceOptions = null; } catch (e) { /* ignore */ }
       try { window.__publishQueuePayloadOverrides = null; } catch (e) { /* ignore */ }
+      /**
+       * 📝 v3.8.751 — 연속발행이 끝나면 요청사항 칸을 비운다.
+       *
+       * 큐가 도는 동안 applyItemToMainForm 이 화면 칸에 항목의 요청을 세워 뒀다.
+       * 그대로 두면 다음 단일 발행에 **남의 글 요청**이 조용히 실린다
+       * (마지막 항목이 실패해 resetArticleStateAfterPublish 가 안 돈 경우에도 여기서 지운다).
+       * 대기열에 남은 항목의 요청사항은 항목 안에 있으므로 사라지지 않는다.
+       */
+      try {
+        const noteBox = document.getElementById('userRequestNote');
+        if (noteBox) noteBox.value = '';
+        const warnBox = document.getElementById('userRequestWarn');
+        if (warnBox) { warnBox.style.display = 'none'; warnBox.innerHTML = ''; }
+        const bulkBox = document.getElementById('pq-bulk-request');
+        if (bulkBox) bulkBox.value = '';
+      } catch (e) { /* ignore */ }
       try { window.showQueueQualityReport?.(); } catch (e) { console.warn('[QUEUE] 종합 리포트 표시 실패:', e); }
     }
   });
@@ -3922,6 +4046,8 @@ function addCurrent() {
       factCheckMode: snapshot.factCheckMode,
       useKeywordAsTitle: snapshot.useKeywordAsTitle,
       keywordFront: snapshot.keywordFront,
+      // 📝 v3.8.751: 화면의 「이 글 요청사항」을 담는 순간 복사한다 (그 뒤엔 카드가 진실)
+      userRequest: snapshot.userRequest || '',
       enabled: true,
       // 🆕 URL 이미지 — 단일 발행 UI 현재값을 큐 항목 기본값으로 상속
       url: snapshot.urlImageSource || '',
@@ -3983,6 +4109,7 @@ function open() {
       factCheckMode: snapshot.factCheckMode,
       useKeywordAsTitle: snapshot.useKeywordAsTitle,
       keywordFront: snapshot.keywordFront,
+      userRequest: snapshot.userRequest || '',   // v3.8.751
       enabled: true,
       sourceUrl: entry.contentUrl || entry.sourceUrl || '',
       contentUrl: entry.contentUrl || entry.sourceUrl || '',

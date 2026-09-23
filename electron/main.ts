@@ -5753,6 +5753,8 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
   titleMode?: string;
   sectionCount?: number;
   ctaMode?: string;
+  /** v3.8.751 — 「이 글 요청사항」. 이 핸들러는 필드를 하나씩 골라 담으므로 여기 이름이 없으면 조용히 사라진다 */
+  userRequest?: string;
   postingMode?: string;
   publishType?: string;
   scheduleDate?: string;
@@ -5859,6 +5861,8 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
       titleMode: payload.titleMode || 'auto',
       sectionCount: payload.sectionCount || 5,
       ctaMode: payload.ctaMode || 'auto',
+      // v3.8.751: 단일·연속발행과 같은 필드명 — orchestration 이 경로를 구분할 필요가 없다
+      userRequest: String(payload.userRequest || '').trim() || undefined,
       crawlUrl: payload.crawlUrl || '',
     };
 

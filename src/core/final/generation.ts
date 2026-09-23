@@ -526,6 +526,15 @@ export async function generateH1TitleFinal(
    * 제목의 값은 여기 있는 것만 쓴다. 실측: 패킷 없이 만든 제목에 근거에 없는 "11월 2일"이 들어갔다.
    */
   researchBlock?: string,
+  /**
+   * 📝 v3.8.751 — 이 글에만 적용할 작성자 요청(user-request.buildUserRequestBlock 결과).
+   *
+   * ⚠️ researchBlock 에 섞지 않는다. 그 자리는 "여기 글자로 있는 값만 제목에 쓴다"는
+   *    근거 장부라서, 요청문이 섞이면 요청에 적힌 숫자가 근거로 읽힌다.
+   *    그래서 규칙이 다 선 **맨 끝**에 참고 자격으로 따로 붙인다.
+   * 비면 프롬프트는 예전과 한 글자도 다르지 않다.
+   */
+  userRequestBlock?: string,
 ): Promise<string> {
   // 🔥 현재 날짜 주입
   const currentYear = new Date().getFullYear();
@@ -697,7 +706,9 @@ ${keywordFront ? `- 📌 **제목은 반드시 "${keyword}" 로 시작합니다.
   · 네이버는 검색 의도와 얼마나 맞는지를 봅니다. 두루뭉실한 제목은 걸러집니다.
   · "무엇을 알려주는 글인지" 가 제목에 구체적으로 들어가야 합니다.
     예) (X) 지원금 정보 정리   (O) 소득 얼마까지 받을 수 있나
-
+${userRequestBlock && userRequestBlock.trim() ? `${userRequestBlock.trim()}
+- 위 요청이 제목에 대해 말하고 있으면 제목에 반영하세요. 값(날짜·금액·비율·인원)은 요청에 적혀 있어도 근거에 없으면 쓰지 않습니다.
+` : ''}
 - 오직 1개만 출력 (옵션/설명/번호 없이 제목만)
 `;
 

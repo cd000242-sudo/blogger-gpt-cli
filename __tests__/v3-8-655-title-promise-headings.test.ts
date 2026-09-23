@@ -94,7 +94,9 @@ describe('v3.8.655 제목 약속 → 소제목', () => {
       const sig = g.slice(g.indexOf('export async function generateSectionTitlesFromRoles'));
       expect(sig.slice(0, 600)).toContain('titlePromiseBlock');
       const o = read('src/core/final/orchestration.ts');
-      expect(o).toMatch(/generateSectionTitlesFromRoles\(keyword, roles, demandSignals, \w+\(String\(h1/);
+      // v3.8.751: 같은 인자에 작성자 요청 블록이 함께 실리면서 템플릿 문자열이 됐다.
+      //   확인해야 할 것은 "제목 약속 블록이 이 호출로 들어가는가" 하나다 — 표기 형태가 아니다.
+      expect(o).toMatch(/generateSectionTitlesFromRoles\(keyword, roles, demandSignals, [^;]*\w+\(String\(h1/);
       expect((o.match(/ensureTitlePromiseHeadings|ensureForRoles\(/g) || []).length).toBeGreaterThanOrEqual(2);
     });
 
