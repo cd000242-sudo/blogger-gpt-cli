@@ -487,6 +487,13 @@ export async function generateUltimateMaxModeArticleFinal(
   hardGates?: Record<string, boolean>;
   keywordProvenance?: any;
   hubCharter?: string;
+  /** v3.8.752 — 생성 실행 ID. 장부 줄·캡처 폴더·발행 시도가 이 값으로 이어진다 */
+  runId?: string;
+  /** v3.8.752 (F12) — 품질 상태 여섯 개념 분리(quality-status.ts). qualityConverged 만으로는 루프 OFF 가 '수렴' 처럼 읽혔다 */
+  qualityLoopExecuted?: boolean;
+  qualityLoopOutcome?: 'NOT_RUN' | 'CONVERGED' | 'NOT_CONVERGED' | 'ERROR';
+  codeGatesPassed?: boolean;
+  qualityStatusLabel?: string;
 }> {
   // v3.8.356: 사용자가 선택한 말투/어투를 final 생성 경로에 전달 (module-scope 상태)
   //   generation.ts의 프롬프트 조립과 반말 치환 로직이 이 값을 참조
@@ -674,6 +681,16 @@ export async function generateUltimateMaxModeArticleFinal(
   // v3.8.380(R5): 락을 engine-lock.ts로 추출 — 대기자 워치독(기본 60분, ENGINE_LOCK_WAIT_MS='0'=무제한).
   //   보유자가 멈춰도 대기자는 유한 시간 안에 명확한 에러로 실패한다 (조용한 무한 대기 제거).
   //   "강제 해제"가 아니라 "대기자 타임아웃"인 이유는 engine-lock.ts 상단 주석 참조.
+  /**
+   * 🧾 v3.8.752 — 실행 ID 와 단계별 산출물 캡처(run-trace.ts).
+   * runId 는 늘 만든다(장부·발행 시도 연결에 쓴다). 캡처는 RUN_TRACE=1 또는 payload.runTrace 일 때만 파일을 쓴다 —
+   * 꺼져 있으면 NOOP 이라 프롬프트·모델·검색어·호출 수·결과가 달라지지 않는다. 관측만 한다. finally 에서 뗀다.
+   * 선언은 락 앞(던질 수 없는 대입만), 실제 시작은 try 안 — 락과 try 사이에 코드를 두지 않는다(R5).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const traceMod = require('./run-trace');
+  let trace: import('./run-trace').RunTracer = traceMod.noopTrace();
+  let runId = '';
   let releaseLock: () => void = () => { /* no-op until assigned */ };
   releaseLock = await acquireEngineLock('generateUltimateMaxModeArticleFinal');
 
@@ -683,6 +700,22 @@ export async function generateUltimateMaxModeArticleFinal(
   //   거기서 예외가 나면 finally(releaseLock)가 없어 영구 데드락이었다 (engine-lock.test.ts가 고정).
   //   아래 블록 들여쓰기는 diff·앵커 안정성을 위해 유지한다.
   try {
+  runId = traceMod.newRunId();
+  trace = traceMod.startRunTrace({
+    runId,
+    enabled: traceMod.isTraceEnabled(payload),
+    requested: {
+      mode: String((payload as any)?.contentMode || ''),
+      model: String((payload as any)?.provider || (payload as any)?.primaryGeminiTextModel || ''),
+      qualityLoop: (payload as any)?.qualityLoop,
+      qualityLoopEnv: process.env['QUALITY_LOOP'] === '1',
+      publishTarget: String((payload as any)?.platform || (payload as any)?.targetPlatform || (payload as any)?.blogPlatform || ''),
+      keyword: String((payload as any)?.topic || (payload as any)?.keyword || ''),
+    },
+  });
+  traceMod.bindActiveTrace(trace);
+  if (trace.enabled) onLog?.(`[PROGRESS] 1% - 🧾 실행 캡처 ON — run ${runId} → ${trace.dir}`);
+  trace.snapshot('request.payload', payload, { note: '요청 payload (키·토큰은 가려서 저장)' });
   /**
    * 🧹 v3.8.633 — 지난 발행의 판정을 지운다.
    *
@@ -1272,6 +1305,13 @@ export async function generateUltimateMaxModeArticleFinal(
           if (calls.failed.length > 0) pipelineStatus.mark('SEARCH', usable > 0 ? 'SEARCH_WEAK' : 'SEARCH_FAIL', `실패한 소스: ${calls.failed.join(', ')}`);
           else if (usable < 5) pipelineStatus.mark('SEARCH', 'SEARCH_WEAK', `검색 결과 ${usable}건`);
           else pipelineStatus.mark('SEARCH', 'SEARCH_OK', calls.line);
+          // 🧾 v3.8.752 — 검색어·채널별 결과/오류/캐시·수집 본문(RAW)을 그대로 남긴다. 새 조회 없음
+          trace.snapshot('search.results', {
+            queries: naverClient.getNaverCallLog(),
+            channels: naverClient.summarizeNaverChannels(),
+            counts: { blog: blogResults.length, kin: kinResults.length, news: newsResults.length, web: webResults.length, suggest: suggestResults.length },
+            documents: crawledFromAPI.map((r: any) => ({ source: r?.source, title: r?.title, url: r?.url, date: r?.date, chars: String(r?.content || '').length, content: r?.content, subheadings: r?.subheadings })),
+          }, { note: '검색 직후 — CLEAN 전 수집 본문' });
         } else {
           // 네이버 키 없어도 Google Suggest는 무료 → 실행
           const suggestOnly = await crawler.crawlGoogleSuggest(crawlerConfig).catch(() => []);
@@ -1592,6 +1632,8 @@ export async function generateUltimateMaxModeArticleFinal(
       refreshEvidence('');
     }
     pipelineStatus.mark('GROUNDING', gate.status, gateMod.describeGate(gate));
+    // 🧾 v3.8.752 — CLEAN 뒤 근거 장부 1단계: 후보·채택·탈락(사유)·관문·Writer 에게 갈 렌더. 스니펫과 본문은 항목의 cleanedText 그대로
+    trace.snapshot('evidence.stage1', { candidates: evidenceCandidates, items: evidenceItems, rejected: evidenceRejected, gate, renderText: evidenceRender.text, renderUsedIds: (evidenceRender.used || []).map((u: any) => u?.id) }, { note: '제목 생성 전' });
 
     /**
      * 🧾 RESEARCH PACKET — 제목보다 먼저. 수치·날짜는 코드가 뽑고, 사실·자격·조건은 LLM 1회로 정리한 뒤 근거와 대조한다.
@@ -1612,6 +1654,7 @@ export async function generateUltimateMaxModeArticleFinal(
     });
     const packetModel = require('./model-use').modelsSince(packetModelSnap);
     let researchPacketText: string = packetMod.renderPacket(researchPacket);
+    trace.snapshot('packet.raw', { packet: researchPacket, text: researchPacketText, model: packetModel }, { note: 'RAW_PACKET — LLM 정리 직후' });
     /** 2단계에서 근거가 늘면 수치·날짜·출처표만 다시 뽑는다 — 문장(LLM 정리)은 그대로, 호출 0회 */
     const refreshPacketValues = (): void => {
       const code = packetMod.buildCodePacket({ mainKeyword: keyword, title: String(researchPacket.topic || keyword), items: evidenceRender.used, readerQuestions: demandSignals.userQuestions, searchSuggestions: demandSignals.searchQueries });
@@ -2993,6 +3036,9 @@ ${quoted}
       }
     } catch { /* 진단 실패는 생성을 막지 않는다 */ }
     (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), channels: require('../naver-search-client').summarizeNaverChannels(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate, titleAudit: titleGateResult };
+    // 🧾 v3.8.752 — 근거 2단계(제목 뒤 보탠 것 포함)와 값을 다시 뽑은 패킷
+    trace.snapshot('evidence.stage2', { items: evidenceItems, rejected: evidenceRejected, gate, stats: evidenceLedgerStats, queries: (globalThis as any).__lastEvidenceDebug.queries, channels: (globalThis as any).__lastEvidenceDebug.channels, titleAudit: titleGateResult }, { note: '제목 확정 뒤' });
+    trace.snapshot('packet.refreshed', { packet: researchPacket, text: researchPacketText }, { note: '수치·날짜 재추출 뒤(LLM 문장은 그대로)' });
     pipelineStatus.mark('WRITER', gate.status === 'GROUNDING_OK' && researchPacket.status !== 'EMPTY' ? 'WRITER_READY' : 'WRITER_READY_WEAK',
       gate.status === 'GROUNDING_OK' ? '' : '근거가 모자랍니다 — 근거 밖의 수치·일정은 쓰지 않도록 지시합니다');
 
@@ -3166,6 +3212,7 @@ ${quoted}
     } catch (viewErr: any) {
       console.warn('[WRITER-VIEW] 패킷 보기 실패 — RAW 패킷을 그대로 줍니다:', String(viewErr?.message || viewErr).slice(0, 80));
     }
+    trace.snapshot('packet.writer-view', writerPacketView ? { text: writerPacketView.text, decisions: writerPacketView.decisions, summary: writerPacketView.summary } : { fallback: 'RAW_PACKET', text: researchPacketText }, { note: 'Writer 용 정제 Packet(빠진 값과 사유 포함)' });
     const writerEvidenceBlocks: string[] = [
       writerPacketView?.text || researchPacketText,
       ...(evidenceRender.text
@@ -3597,6 +3644,8 @@ ${quoted}
 `;
 
     const draftModelSnap = require('./model-use').snapshotModels();
+    // 🧾 v3.8.752 — Writer 가 실제로 받는 재료(프롬프트 자체는 generation.ts 가 호출 직전에 남긴다)
+    trace.snapshot('writer.materials', { keyword, h2Titles, factEnrichedContents, draftContent, scopedSectionBlock, skipQualityBoost, thread: articleThread ? { question: articleThread.question, source: articleThread.source } : null }, { note: 'generateAllSectionsFinal 인자' });
     let allSectionsObj = await generateAllSectionsFinal(
       keyword,
       h2Titles,
@@ -3609,6 +3658,8 @@ ${quoted}
       articleThread,   // v3.8.673 — 보강 호출이 실 위반도 고친다
     );
     const draftModel = require('./model-use').modelsSince(draftModelSnap);
+    trace.snapshot('draft.returned', allSectionsObj, { note: 'generateAllSectionsFinal 반환(보강·takeaway 반영 뒤)' });
+    trace.meta({ draftModel });
 
     // 🧬 v3.8.390: 자기중복 관측 — **차단하지 않는다.** 재고만 하고 발행은 그대로 진행한다.
     //   v3.8.385 에 넣은 buildUniquenessBlock(기존 글 제목을 보여줘 각도를 다르게 잡게 하는 예방책)이
@@ -3896,7 +3947,14 @@ ${quoted}
     let factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, factEvidence);
     if (factIntegrityReport.status === 'blocked') {
       onLog?.(`[PROGRESS] 74% - [FACT] 근거와 일치하지 않는 주장 ${factIntegrityReport.violations.length}건을 제거 후 재검사합니다.`);
+      // 🧾 v3.8.752 — 로그는 "2건 제거" 라고만 했다. 무엇을 지웠는지(전후·위반 목록)를 남긴다
+      const draftPlain = (obj: any): string => [String(obj?.introduction || ''), ...(obj?.sections || []).flatMap((s: any) => (s?.h3Sections || []).map((h: any) => String(h?.content || ''))), String(obj?.conclusion || '')].join('\n');
+      const factBefore = trace.snapshot('draft.before-fact-filter', allSectionsObj);
+      const factBeforeText = draftPlain(allSectionsObj);
+      const violationsBefore = factIntegrityReport.violations.map((v: any) => ({ location: v.location, kind: v.kind, detail: v.detail }));
       allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, factEvidence);
+      const factAfter = trace.snapshot('draft.after-fact-filter', allSectionsObj);
+      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true });
       factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, factEvidence);
 
       if (factIntegrityReport.status === 'blocked') {
@@ -4089,7 +4147,8 @@ ${quoted}
         if ((loopErr as any)?.canceled === true) throw loopErr;
         console.warn('[CRITIQUE] 루프 실패 — 초안 그대로 진행:', String(loopErr?.message || loopErr).slice(0, 120));
         onLog?.(`[PROGRESS] 79% - ⚠️ 비평 루프 오류 (초안 그대로 진행, 자동 발행은 막습니다): ${String(loopErr?.message || loopErr).slice(0, 80)}`);
-        critiqueReport = { converged: false, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], titleRevision: null, researchRounds: 0, researchRecovery: null, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
+        // v3.8.752 — loopError 표식: 상태 이름표가 오류·타임아웃을 '미수렴' 이 아니라 'ERROR' 로 적는다(PASS 로 바꾸지 않는다)
+        critiqueReport = { converged: false, loopError: true, manualReviewReason: `비평 루프 오류: ${String(loopErr?.message || loopErr).slice(0, 80)}`, criticCycles: 0, revisionCycles: 0, qualityLoopCalls: 0, critic1: null, verifications: [], verificationContexts: [], editorial: null, revisions: [], issueLedger: [], titleIssues: [], titleRevision: null, researchRounds: 0, researchRecovery: null, open: { critical: 0, major: 0, minor: 0, pending: 0 }, unchangedSections: 0, revisedSections: 0, totalSections: 0, models: { critic1: '', revision: [], verify: [], editorial: '' } };
       }
     }
     void titleRevisedByCritic;
@@ -4329,13 +4388,17 @@ ${quoted}
       promises: (() => { try { return require('./reader-retention').titlePromises(String(h1 || '')) as string[]; } catch { return []; } })(),
     });
     const summaryFactText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
+    // 🧾 v3.8.752 — 요약표(질문·답·근거 줄 포함)의 LLM 원본. 답 상자의 재료가 여기서 나온다
+    const summaryRawSnap = trace.snapshot('summary-table.raw', summaryTable, { note: 'generateSummaryTableFinal 반환' });
     if (inspectFactIntegrity(summaryFactText, factEvidence).status === 'blocked') {
+      const summaryBeforeText = summaryFactText;
       summaryTable = {
         ...summaryTable,
         headers: (summaryTable.headers || []).map((value) => sanitizeFactUnsafeHtml(value, factEvidence)),
         rows: (summaryTable.rows || []).map((row) => row.map((value) => sanitizeFactUnsafeHtml(value, factEvidence))),
       };
       const sanitizedSummaryText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
+      trace.change('summary-table.fact-filter', { fn: 'sanitizeFactUnsafeHtml', before: summaryRawSnap, after: trace.snapshot('summary-table.filtered', summaryTable), beforeText: summaryBeforeText, afterText: sanitizedSummaryText, reason: '요약표 근거 불일치 정리', judgeable: true });
       if (inspectFactIntegrity(sanitizedSummaryText, factEvidence).status === 'blocked') {
         // v3.8.323: 크롤링이 항상 완벽하지 않음 → 발행 차단 대신 경고만 남기고 진행 (사용자 보고: "크롤링이 정확하지 않은 것 같아")
         onLog?.('[PROGRESS] 70% - ⚠️ [FACT] 요약표 근거 부족 감지 (경고만 남기고 발행 진행)');
@@ -5681,7 +5744,11 @@ ${quoted}
           const { softenHtmlVoice } = await import('./voice-softener');
           const voiced = softenHtmlVoice(html, 2);
           if (voiced.changed > 0) {
+            // 🧾 v3.8.752 — 말투 변환 전후(문장 단위 diff)
+            const htmlBeforeVoice = html;
+            const voiceBefore = trace.snapshot('html.before-voice', htmlBeforeVoice, { ext: 'html' });
             html = voiced.html;
+            trace.change('voice-softener', { fn: 'softenHtmlVoice', before: voiceBefore, after: trace.snapshot('html.after-voice', html, { ext: 'html' }), beforeText: htmlBeforeVoice, afterText: html, reason: `어미 치환 ${voiced.changed}문장`, judgeable: true });
             onLog?.(`[PROGRESS] 92% - 🗣️ 문장 ${voiced.changed}개에 사람 말투 어미를 섞었습니다 (~죠 · ~거든요)`);
           }
         }
@@ -5970,7 +6037,18 @@ ${introductionHTML}
       const { ensureVerdictAnswer } = require('./answer-verdict');
       // v3.8.681 — 제목이 약속한 조각마다 한 문장씩. 실측(679): "남는 신청 요건" 이 첫 화면에 없었다
       const { titlePromises } = require('./reader-retention');
-      const v = ensureVerdictAnswer(verdictAnswer, (allSectionsObj.sections || []) as any[], titlePromises(String(h1 || '')));
+      const promisesForAnswer = titlePromises(String(h1 || ''));
+      const v = ensureVerdictAnswer(verdictAnswer, (allSectionsObj.sections || []) as any[], promisesForAnswer);
+      /**
+       * 🧾 v3.8.752 — 답 상자는 따로 남긴다(감사 F05): 입력 답 · 후보 판단문(절 takeaway) · 규칙(제목 약속) · 결과.
+       * 이 뒤에 발행 전 자가 수정이 본문을 다시 쓰므로, 답 상자 문장이 본문에 없어지는 순서가 여기서 시작된다.
+       */
+      trace.snapshot('answer-box.build', {
+        inputAnswer: String(summaryTable.answer || ''), question: summaryTable.question, basis: summaryTable.basis,
+        candidates: (allSectionsObj.sections || []).map((s: any) => ({ h2: s?.h2, takeaway: s?.takeaway })),
+        promises: promisesForAnswer, rebuilt: v.rebuilt, reason: v.reason, answer: v.answer,
+        bodySnapshotNote: '이 시점 본문 = draft.* 최신 스냅샷 · html 조립 중',
+      }, { note: 'ensureVerdictAnswer 입력·출력' });
       if (v.rebuilt) {
         verdictAnswer = v.answer;
         onLog?.(`[PROGRESS] 90% - 🧭 답 상자를 절의 판단 문장으로 다시 조립했습니다 (${v.reason})`);
@@ -6495,7 +6573,9 @@ ${conclusionHTML}
       });
 
       const qualityStatus = qualityReport.passed ? '✅ PASS' : '⚠️ WARN';
-      onLog?.(`[QUALITY] ${qualityStatus} 품질 점수: ${qualityReport.score}/100`);
+      // v3.8.752 (F12) — 이 점수는 **초안 절(HTML 조립 전)** 을 형식 규칙으로 잰 것이다. 발행본 점수는 장부(auditArticle · 최종 HTML)가 따로 잰다
+      onLog?.(`[QUALITY] ${qualityStatus} 기본 형식 검사(초안 절 기준 · 발행본 아님): ${qualityReport.score}/100`);
+      trace.check('validateArticleQuality', { status: 'RUN', result: { score: qualityReport.score, passed: qualityReport.passed, issues: qualityReport.issues }, target: 'draft-sections', changedAfter: true });
       if (qualityReport.issues.length > 0) {
         onLog?.(`[QUALITY] 발견된 문제 (${qualityReport.issues.length}건):`);
         qualityReport.issues.forEach(issue => onLog?.(`   - ${issue}`));
@@ -7064,6 +7144,7 @@ ${conclusionHTML}
       // 748 (C): 자가 수정이 글을 얼마나 바꾸고 얼마가 드는지 잰다 — 없애지 않는다. Judge 는 이 뒤에 온다
       const usdBeforePreflight = (() => { try { return Number(require('../llm/usage-cost').estimateCost().usd) || 0; } catch { return 0; } })();
       const htmlBeforePreflight = html;
+      const preflightBeforeSnap = trace.snapshot('html.before-preflight', html, { ext: 'html', note: '발행 전 자가 수정 직전(답 상자 조립 뒤)' });
       const outcome = await fixBeforePublish(
         { title: h1 || keyword, html, reportSlot: (payload as any)?.cpcReportSlot, question: articleThread?.question },
         (prompt: string) => callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 }),
@@ -7072,7 +7153,10 @@ ${conclusionHTML}
       if (outcome.revised > 0) {
         html = outcome.html;
         onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
+        // 🧾 v3.8.752 — 자가 수정 전후(문장 diff) · 반려/수정 사유(notes)
+        trace.change('pre-publish-fix', { fn: 'fixBeforePublish', before: preflightBeforeSnap, after: trace.snapshot('html.after-preflight', html, { ext: 'html' }), beforeText: htmlBeforePreflight, afterText: html, reason: `구간 ${outcome.revised}개 재작성 · 호출 ${outcome.calls}회`, notes: outcome.notes.slice(0, 12), judgeable: true });
       }
+      trace.check('fixBeforePublish', { status: 'RUN', artifact: preflightBeforeSnap, result: { revised: outcome.revised, calls: outcome.calls, notes: outcome.notes.slice(0, 12) }, changedAfter: outcome.revised > 0 });
       const usdAfterPreflight = (() => { try { return Number(require('../llm/usage-cost').estimateCost().usd) || 0; } catch { return 0; } })();
       const changedChars = Math.abs(String(html).replace(/<[^>]+>/g, '').length - String(htmlBeforePreflight).replace(/<[^>]+>/g, '').length);
       // v3.8.632: 장부에 남긴다 — 자가 수정이 줄어드는지가 첫 생성이 좋아졌다는 신호다
@@ -7133,6 +7217,8 @@ ${conclusionHTML}
     try {
       visibleArticle = require('./visible-article').parseVisibleArticle(html);
       if (visibleArticle && visibleArticle.notes.length) onLog?.(`[PROGRESS] 97% - 👁️ 보이는 글 되읽기: ${visibleArticle.notes.join(' · ')}`);
+      // 🧾 v3.8.752 — 독자용 최종(제목·답 상자·본문·FAQ·CTA·결론). 플랫폼 payload(html.final)와 따로 둔다. 본문 길이는 base64·script 를 뺀 보이는 글자
+      trace.snapshot('article.visible', visibleArticle, { note: 'parseVisibleArticle(html) — 독자가 보는 글' });
     } catch (visErr: any) {
       console.warn('[VISIBLE] 되읽기 실패 — 초안 객체로 심사합니다:', String(visErr?.message || visErr).slice(0, 80));
     }
@@ -7229,10 +7315,22 @@ ${conclusionHTML}
       ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
     ].filter(Boolean).join(' · ');
     publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
-    pipelineStatus.mark('FINAL', qualityConverged ? 'QUALITY_CONVERGED' : 'MANUAL_REVIEW', manualReviewReason);
+    /**
+     * v3.8.752 (감사 F12) — 상태 이름표를 여섯 개념으로 가른다(quality-status.ts).
+     * 4편 실측: 루프 OFF 인데 `FINAL: QUALITY_CONVERGED` 가 찍혔다 — 미실행 관문이 true 라 '수렴' 별칭이 붙은 것.
+     * publishDecision·qualityConverged 계산과 발행 창구 동작은 그대로다. 바뀌는 것은 FINAL 문자열·로그·장부 필드뿐.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const qualityStatus = require('./quality-status').summarizeQualityStatus({
+      qualityLoopOn, loopEligible: runFinalQa, critiqueReport, hardGatesAllPass, qualityConverged, publishDecision, manualReviewReason,
+    });
+    pipelineStatus.mark('FINAL', qualityStatus.finalStage, qualityConverged ? qualityStatus.label : manualReviewReason);
     onLog?.(qualityConverged
-      ? (qualityLoopOn ? `[PROGRESS] 97% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 97% - ✅ 품질 관문 통과 (품질 루프 OFF · 비평·수정 없음)`)
-      : (qualityLoopOn ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason}`));
+      ? (qualityStatus.qualityLoopOutcome === 'CONVERGED' ? `[PROGRESS] 97% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 97% - ✅ ${qualityStatus.label}`)
+      : (qualityLoopOn ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason} · ${qualityStatus.label}`));
+    trace.check('hardGates', { status: 'RUN', result: { hardGates, hardGatesAllPass, qualityConverged, publishDecision, manualReviewReason } });
+    trace.check('qualityLoop', { status: qualityStatus.qualityLoopExecuted ? (qualityStatus.qualityLoopOutcome === 'ERROR' ? 'FAILED' : 'RUN') : 'NOT_RUN', result: { outcome: qualityStatus.qualityLoopOutcome, label: qualityStatus.label, calls: qualityLoopCalls } });
+    trace.check('finalJudge', { status: runFinalQa ? (finalJudge ? 'RUN' : 'FAILED') : 'NOT_RUN', result: finalJudge ? { decision: finalJudge.decision, blocking: (finalJudge.blockingIssues || []).length } : null });
     (globalThis as any).__lastCritiqueDebug = { critique: critiqueReport, judge: finalJudge, hardGates, qualityConverged, manualReviewReason, finalQaNotes, keywordProvenance, titleAudit: titleGateResult, bodyUnsupported: bodyClaimCheck.unsupported, emptySections: emptySectionResult, coreValues, threadQuestions: threadQuestionAudit, writerPacketView: writerPacketView ? { summary: writerPacketView.summary, decisions: writerPacketView.decisions, text: writerPacketView.text } : null, thread: articleThread ? { question: articleThread.question, source: articleThread.source } : null, packetRecovery: (researchPacket as any)?.recovery || null, visibleArticle: visibleArticle ? { title: visibleArticle.title, sections: visibleArticle.sections.length, faq: visibleArticle.faqItems.length, notes: visibleArticle.notes } : null, preflight: (globalThis as any).__lastPreflight || null, ctas: ctas.map((c) => ({ url: c.url, buttonText: c.buttonText, hook: c.hookingMessage, actionStatus: (c as any).actionStatus || 'n/a' })), draftArticle: (globalThis as any).__lastDraftArticle || null, finalArticle: judgeArticle, title: judgeTitle, packetText: researchPacketText, items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })) };
 
     /**
@@ -7279,6 +7377,13 @@ ${conclusionHTML}
         url: '',
         title: String(h1 || keyword || ''),
         keyword: String(keyword || ''),
+        // v3.8.752 — 실행 ID(발행 시도가 이 값으로 이 줄에 붙는다) · 점수의 대상 원고 · 품질 상태 여섯 개념
+        runId,
+        auditScoreTarget: 'final-html',
+        qualityLoopExecuted: qualityStatus.qualityLoopExecuted,
+        qualityLoopOutcome: qualityStatus.qualityLoopOutcome,
+        codeGatesPassed: qualityStatus.codeGatesPassed,
+        qualityStatusLabel: qualityStatus.label,
         auditScore: gatedScore,
         auditScoreRaw: audited.score,
         hardGates,
@@ -7334,12 +7439,18 @@ ${conclusionHTML}
         ...(pipelineStatus.stages.length ? { pipelineStatus: pipelineStatus.summary() } : {}),
         ...(evidenceLedgerStats ? { evidence: evidenceLedgerStats } : {}),
       });
+      // 🧾 v3.8.752 — 방금 쓴 장부 줄을 그대로 남긴다(url 은 발행 시도가 채운다). 캡처 ON 일 때만 되읽는다
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      if (trace.enabled) trace.snapshot('ledger.entry', require('./publish-ledger').readLedger(ledgerPath()).slice(-1)[0] || null, { note: '장부 줄(url 은 발행 시도가 채운다)' });
+      trace.check('auditArticle', { status: 'RUN', result: { score: gatedScore, raw: audited.score, kinds }, target: 'final-html', changedAfter: false });
       {
         const use = describeModelUse();
+        trace.meta({ requestedModel: use.requestedModel || '', actualModel: use.actualModel || '', downgraded: use.downgraded, downgradeReason: use.downgradeReason || '', mode: String(contentMode || ''), qualityLoop: { requested: (payload as any)?.qualityLoop, env: process.env['QUALITY_LOOP'] === '1', actual: qualityLoopOn, source: (payload as any)?.qualityLoop === true ? 'payload' : (process.env['QUALITY_LOOP'] === '1' ? 'env' : 'default-off'), executed: qualityStatus.qualityLoopExecuted, outcome: qualityStatus.qualityLoopOutcome }, publishDecision, costUsd: costUsd ?? null });
         if (use.downgraded) onLog?.(`[PROGRESS] 98% - ⚠️ 모델 하향 발생: 고른 모델 ${use.requestedModel} → 실제 ${use.actualModel} (${use.downgradeReason}) — 장부에 기록했습니다`);
         else if (use.actualModel) onLog?.(`[PROGRESS] 98% - 🧠 실제 사용 모델: ${use.actualModel} (하향 없음)`);
       }
-      onLog?.(`[PROGRESS] 98% - 📒 품질 ${gatedScore}점${gatedScore !== audited.score ? ` (원점수 ${audited.score} · 관문 미통과로 상한)` : ''} · 중복 ${((Number(overlap.max)||0)).toFixed(2)} · ${publishDecision} 를 장부에 남겼습니다`);
+      // v3.8.752 (F12) — 점수의 대상(발행 직전 HTML)과 발행 상태(참고 판정인지)를 이름표로 붙인다
+      onLog?.(`[PROGRESS] 98% - 📒 발행본 형식 점수 ${gatedScore}점(auditArticle · 최종 HTML)${gatedScore !== audited.score ? ` (원점수 ${audited.score} · 관문 미통과로 상한)` : ''} · 중복 ${((Number(overlap.max)||0)).toFixed(2)} · 발행 상태 ${publishDecision}${qualityLoopOn ? '' : '(참고 판정 · 루프 OFF)'} · run ${runId} 를 장부에 남겼습니다`);
     } catch (ledgerError: any) {
       // 장부는 있으면 좋은 것이지 발행 조건이 아니다
       console.warn('[LEDGER] 건너뜀:', String(ledgerError?.message || ledgerError).slice(0, 100));
@@ -7364,6 +7475,10 @@ ${conclusionHTML}
         : `[PROGRESS] 99% - ℹ️ 품질 관문 참고(발행은 막지 않음 · 품질 루프 OFF): ${manualReviewReason}`);
     }
 
+    // 🧾 v3.8.752 — 플랫폼에 보낼 최종 HTML(payload) 과 결과 요약. 이 아래로는 본문을 바꾸는 단계가 없다
+    trace.snapshot('html.final', html, { ext: 'html', note: '반환 HTML = publish payload 의 content' });
+    trace.finish('OK', { result: { title: h1, thumbnail: !!thumbnailUrl, publishDecision, qualityConverged, hardGates, qualityStatus: qualityStatus.label } });
+
     return {
       html,
       title: h1,
@@ -7374,6 +7489,12 @@ ${conclusionHTML}
       qualityConverged,
       manualReviewReason,
       hardGates,
+      // v3.8.752 — 실행 ID · 품질 상태 여섯 개념
+      runId,
+      qualityLoopExecuted: qualityStatus.qualityLoopExecuted,
+      qualityLoopOutcome: qualityStatus.qualityLoopOutcome,
+      codeGatesPassed: qualityStatus.codeGatesPassed,
+      qualityStatusLabel: qualityStatus.label,
       ...(keywordProvenance ? { keywordProvenance } : {}),
       qualityReport: finalQualityReport, // v3.5.84: UI 모달 노출용 품질 리포트
       // v3.8.544: 허브 헌장(단일 일관 모드에서만 채워진다) — 왜 이 허브를 발행했는지의 기록
@@ -7397,12 +7518,16 @@ ${conclusionHTML}
         onLog?.(`[PROGRESS] 0% - ❌ 콘텐츠 생성 오류: ${msg.substring(0, 150)}`);
       }
     }
+    // 🧾 v3.8.752 — 실패한 실행도 그때까지의 스냅샷은 그대로 남는다. manifest 에 결과와 오류만 적는다
+    trace.finish((error as any)?.canceled === true ? 'CANCELED' : 'FAILED', { error: String(msg).slice(0, 300) });
     throw error;
   } finally {
     // 🎯 AI 엔진 env 원복 (다음 요청에 영향 방지)
     process.env['PRIMARY_TEXT_MODEL'] = previousTextModel;
     // v3.8.734 — 하향 알림 창구를 뗀다 (다음 글·다른 경로의 호출이 이 글의 onLog 로 새지 않게)
     (globalThis as any).__llmNotice = null;
+    // v3.8.752 — 캡처 문맥을 뗀다 (다음 글의 스냅샷이 이 폴더로 새지 않게)
+    try { traceMod.unbindActiveTrace(trace); } catch { /* no-op */ }
     try { releaseLock(); } catch { /* no-op 보호 */ }
   }
 }

@@ -2030,8 +2030,16 @@ JSON만 출력 (설명/마크다운 금지):
     if (diet.removedChars > 0) {
       onLog?.(`[PROGRESS] 50% - 🥗 프롬프트 다이어트: 되풀이 규칙 ${diet.removedLines}줄 · ${diet.removedChars.toLocaleString()}자 제거 (${prompt.length.toLocaleString()}자 → ${diet.text.length.toLocaleString()}자 · 근거는 그대로)`);
     }
+    /**
+     * 🧾 v3.8.752 — 실제로 호출에 실리는 프롬프트(diet.text)와 모델의 최초 반환을 **그 값 그대로** 남긴다.
+     * 재조립하지 않는다 — 스냅샷 문자열 === 호출 인자. 캡처가 꺼져 있으면 NOOP 이라 호출은 달라지지 않는다.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const runTrace = require('./run-trace').currentTrace();
+    runTrace.snapshot('writer.prompt', diet.text, { ext: 'txt', note: 'callGeminiWithGrounding 인자 그대로' });
     // v3.8.536: 본문 통짜 JSON 은 32k 토큰까지 받는다 — 60~75초 상한으론 서버가 조금만 느려도 실패한다 (실사고)
     let response = await callGeminiWithGrounding(diet.text, 1, false, undefined, { timeoutMs: resolveSectionTimeoutMs() });
+    runTrace.snapshot('writer.response.raw', String(response ?? ''), { ext: 'txt', note: '모델 최초 반환(파싱 전)' });
     let json = extractJsonObject(response);
 
     let allSectionsObj: {
@@ -2048,7 +2056,9 @@ JSON만 출력 (설명/마크다운 금지):
     } catch (e) {
       onLog?.('[PROGRESS] 50% - 🔁 JSON 파싱 실패, 1회 재시도...');
       const retryPrompt = `${prompt}\n\nIMPORTANT: Return ONLY a valid JSON object starting with { and ending with }. No markdown, no code fences, no extra text. Do not add explanations after the closing brace.`;
+      runTrace.snapshot('writer.retry.prompt', retryPrompt, { ext: 'txt' });
       response = await callGeminiWithRetry(retryPrompt, 1, { timeoutMs: resolveSectionTimeoutMs() });
+      runTrace.snapshot('writer.retry.response.raw', String(response ?? ''), { ext: 'txt' });
       json = extractJsonObject(response);
       try {
         allSectionsObj = safeParseJson(json);
@@ -2096,8 +2106,11 @@ JSON만 출력 (설명/마크다운 금지):
      * 이제 감사 결함이 있으면 보강을 돌리고, 인용한 문장 목록을 실어 보낸다. 보강 뒤 다시 재서 결함이 늘면 폐기한다.
      */
     const { auditDraft, buildDraftFixBlock, compareDraftAudits, describeDraftFindings } = require('./draft-audit');
+    // 🧾 v3.8.752 — 파싱된 초안(보강 전). 이 뒤의 보강·takeaway 가 무엇을 바꿨는지 여기와 대조한다
+    const parsedDraftSnap = runTrace.snapshot('writer.draft.parsed', allSectionsObj, { note: '파싱 직후 · 보강 전' });
     const draftAudit = auditDraft(allSectionsObj, { question: thread?.question });
     (globalThis as any).__lastDraftAudit = { before: draftAudit.findings.length, after: draftAudit.findings.length };
+    runTrace.check('auditDraft', { status: 'RUN', artifact: parsedDraftSnap, result: { findings: draftAudit.findings.length, summary: describeDraftFindings(draftAudit.findings) } });
     if (draftAudit.findings.length) {
       onLog?.(`[PROGRESS] 65% - 🔎 초안 감사: 고칠 것 ${draftAudit.findings.length}건 (${describeDraftFindings(draftAudit.findings)}) — 문장째 인용해 보강에 싣습니다`);
     }
@@ -2149,7 +2162,9 @@ ${lowQuality ? (lengthPlan.tier === 'legacy'
 
 JSON만 출력:
 `;
+      runTrace.snapshot('writer.boost.prompt', improvePrompt, { ext: 'txt', note: '보강 호출 인자 그대로' });
       const improved = await callGeminiWithRetry(improvePrompt, 1, { timeoutMs: resolveSectionTimeoutMs() });
+      runTrace.snapshot('writer.boost.response.raw', String(improved ?? ''), { ext: 'txt' });
       const improvedJson = extractJsonObject(improved);
       try {
         const candidate = safeParseJson(improvedJson);
@@ -2206,10 +2221,14 @@ JSON만 출력:
         if (reasons.length > 0) {
           console.warn(`[generateAllSections] 보강 결과가 원본보다 나빠 폐기: ${reasons.join(', ')}`);
           onLog?.(`[PROGRESS] 65% - ⚠️ 보강 결과가 원본보다 부실해 폐기하고 원본을 유지합니다 (${reasons.join(', ')})`);
+          runTrace.event('writer.boost', { accepted: false, reasons, candidate: runTrace.snapshot('writer.boost.rejected', candidate)?.id ?? null });
         } else {
+          // 🧾 v3.8.752 — 보강 전후(문장 diff) — "보강이 무엇을 바꿨나" 를 처음으로 남긴다
+          const boostBeforeText = JSON.stringify(allSectionsObj);
           allSectionsObj = candidate;
           (globalThis as any).__lastDraftAudit = { before: draftAudit.findings.length, after: audited.findings.length };
           onLog?.(`[PROGRESS] 65% - ✅ 본문 보강 반영 (${beforeLen}자 → ${afterLen}자)`);
+          runTrace.change('writer.boost', { fn: 'generateAllSectionsFinal/boost', before: parsedDraftSnap, after: runTrace.snapshot('writer.draft.boosted', candidate), beforeText: boostBeforeText, afterText: JSON.stringify(candidate), reason: `초안 감사 ${draftAudit.findings.length}→${audited.findings.length}건 · 실 위반 ${threadBefore.length}건`, judgeable: true });
         }
       } catch (parseErr) {
         // v3.5.94: 보강 단계 JSON 실패 시 원본 유지 (보강 전 데이터로 fallback)
@@ -2361,6 +2380,8 @@ JSON만 출력:
      */
     const withTakeaways = attachTakeaways(normalized.sections, (t) => applyCasualTransform(t));
     if (withTakeaways.attached > 0) onLog?.(`[PROGRESS] 66% - 🧵 절 ${withTakeaways.attached}개에 필자의 반응(takeaway)을 붙였습니다`);
+    // 🧾 v3.8.752 — takeaway 가 붙은 뒤(답 상자의 후보 문장이 여기서 정해진다)
+    if (withTakeaways.attached > 0) runTrace.event('takeaways.attached', { attached: withTakeaways.attached, snapshot: runTrace.snapshot('writer.draft.with-takeaways', { ...normalized, sections: withTakeaways.sections })?.id ?? null });
     return { ...normalized, sections: withTakeaways.sections };
 
   } catch (e) {
