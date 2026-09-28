@@ -100,15 +100,20 @@ describe('v3.8.651 발행 주소 잇기', () => {
   describe('발행 경로에 배선돼 있다', () => {
     const main = read('electron/main.ts');
 
+    /**
+     * v3.8.752 — 발행 성공 자리는 이제 제목이 아니라 runId 로 잇는다(recordPublishAttemptSafely → recordPublishAttempt).
+     * attachUrlToLedger 함수는 그대로 남아 있지만(위 단위 테스트) 앱 발행 경로는 더 이상 제목으로 추측하지 않는다 —
+     * 감사 실측: 블로거 실패 → 워드프레스 재발행이 publish-content 를 타 url 이 빈칸이었고, 제목이 같은 다른 글에 붙을 수도 있었다.
+     */
     test('발행 성공 자리에서 채운다', () => {
       const block = blockBetween(main, '[RUN-POST] ✅ 발행 성공', 'freeTrialPublish');
-      expect(block).toContain('attachUrlToLedger');
+      expect(block).toContain('recordPublishAttemptSafely');
       expect(block).toContain('publishResult.url');
     });
 
     /** 장부 기록 실패가 발행을 되돌리면 안 된다 */
     test('실패해도 발행은 그대로 간다', () => {
-      const block = blockBetween(main, 'attachUrlToLedger', 'freeTrialPublish');
+      const block = blockBetween(main, 'function recordPublishAttemptSafely(', 'function publishTargetOf(');
       expect(block).toContain('catch');
     });
   });

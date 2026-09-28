@@ -54,6 +54,8 @@ function saveToRepublishQueue(entry = {}) {
       payload: entry.payload || {},
       lastError: entry.lastError || '',
       keyword: entry.keyword || entry.title || '',
+      // v3.8.752 — 생성 실행 ID. 재발행이 성공하면 이 값으로 원래 장부 줄에 주소가 붙는다(제목으로 추측하지 않는다)
+      runId: entry.runId || '',
     };
     const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
     queue.push(item);
@@ -822,6 +824,7 @@ export async function runPosting() {
           payload: payload || {},
           lastError: publishResult?.error || 'agent_publish_failed',
           keyword: payload?.keyword || payload?.topic || keywordValue || '',
+          runId: agentResult?.runId || generated.runId || '',
         });
       }
       setFinalResult({
@@ -875,6 +878,8 @@ export async function runPosting() {
         content: result.html || result.content || '',
         thumbnail: result.thumbnail || '',
         payload,
+        // v3.8.752 — 생성 실행 ID (재발행·수동 발행이 원래 장부 줄에 이어지게)
+        runId: result.runId || '',
       };
     }
 
@@ -913,6 +918,7 @@ export async function runPosting() {
           payload: payload || {},
           lastError: publishErrorMessage,
           keyword: payload?.keyword || payload?.title || '',
+          runId: result.runId || '',
         });
 
         // 인증 오류 → 설정 탭으로 자동 이동
@@ -1462,6 +1468,8 @@ export async function publishToPlatform() {
           title: titleToPublish,
           content: htmlToPublish,
           thumbnailUrl: thumbnailToPublish,
+          // v3.8.752 — 생성 실행 ID (장부 줄에 주소를 잇는 열쇠)
+          runId: appState.generatedContent.runId || '',
         });
       } else if (window.blogger?.publishContent) {
         result = await window.blogger.publishContent(

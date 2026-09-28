@@ -367,6 +367,8 @@ export function buildRepublishData(item, platformValue) {
     content: item?.html,
     title: item?.title,
     thumbnailUrl: item?.thumbnailUrl || '',
+    // v3.8.752 — 생성 실행 ID. 재발행 성공이 원래 장부 줄에 붙는다(A 글: 블로거 실패 → 워드프레스 재발행이 url 빈칸이었다)
+    runId: item?.runId || '',
     payload: {
       ...(item?.payload || {}),
       // 세 키를 나란히 명시한다 — 축약형을 쓰면 "세 키가 다 있나"를 눈으로 확인하기 어렵다

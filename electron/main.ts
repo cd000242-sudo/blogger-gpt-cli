@@ -5941,6 +5941,17 @@ ipcMain.handle('run-multi-account-post', async (_evt, payload: {
       postPayload.generatedLabels = article.labels;
     }
     const publishResult = await publishGeneratedContent(postPayload, articleTitle, articleHtml, articleThumbnail);
+    // v3.8.752 — 다중계정 경로도 생성 1건 → 발행 시도를 runId 로 잇는다
+    recordPublishAttemptSafely({
+      runId: String(article?.runId || ''),
+      platform: String(postPayload?.platform || postPayload?.targetPlatform || postPayload?.blogPlatform || ''),
+      target: publishTargetOf(postPayload),
+      ok: !!(publishResult.ok || publishResult.success),
+      url: String(publishResult.url || publishResult.postUrl || ''),
+      postId: String(publishResult.postId || publishResult.id || ''),
+      error: publishResult.ok || publishResult.success ? '' : String(publishResult.error || '발행 실패'),
+      source: 'multi-account',
+    });
 
     if (publishResult.ok || publishResult.success) {
       console.log('[MULTI-ACCOUNT] 🎉 발행 성공!', publishResult.url);
@@ -6713,6 +6724,42 @@ safeRegisterHandler('run-semi-auto-post', async (_evt: Electron.IpcMainInvokeEve
   }
 });
 
+/**
+ * 🔗 v3.8.752 — 발행 시도를 **생성 실행 ID(runId)** 로 장부 줄과 캡처 폴더에 잇는다 (감사 F13).
+ *
+ * 예전 attachUrlToLedger 는 제목으로 가장 최근 빈 줄을 찾았다. A 글(2026-09-28)에서 블로거가 invalid_grant 로 실패하고
+ * 워드프레스 재발행이 publish-content 를 탔는데 거기엔 장부 배선이 없어 url 이 빈칸으로 남았다.
+ * 이제 성공·실패 모두 시도로 남고, runId 가 없으면 제목으로 추측하지 않고 미연결 파일에 남긴다.
+ * 기록 실패가 발행 결과를 바꾸지 않는다.
+ */
+function recordPublishAttemptSafely(input: { runId?: string; platform?: string; target?: string; ok: boolean; url?: string; postId?: string; error?: string; source: string }): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { recordPublishAttempt, defaultLedgerPath, appendRunTracePublishAttempt } = require('../dist/core/final/publish-ledger');
+    try {
+      if (input.runId && typeof appendRunTracePublishAttempt === 'function') appendRunTracePublishAttempt(String(input.runId), { platform: input.platform, target: input.target, ok: input.ok, url: input.url, postId: input.postId, error: input.error, source: input.source });
+    } catch { /* 캡처 폴더가 없으면(캡처 OFF) 조용히 넘어간다 */ }
+    const rec = recordPublishAttempt(defaultLedgerPath(), {
+      runId: String(input.runId || ''),
+      platform: String(input.platform || ''),
+      target: String(input.target || ''),
+      ok: input.ok === true,
+      url: String(input.url || ''),
+      postId: String(input.postId || ''),
+      error: String(input.error || ''),
+      source: input.source,
+    });
+    console.log(`[LEDGER] 🔗 발행 시도 기록 (${input.source} · ${input.ok ? '성공' : '실패'}): ${rec.linked ? `run ${input.runId} 에 연결${rec.duplicate ? ' (같은 주소 이미 있음 — 중복 안 붙임)' : ''}` : 'run 미연결(runId 없음 또는 장부에 없음) — 미연결 파일에 남김'}`);
+  } catch (ledgerErr: any) {
+    console.warn('[LEDGER] 발행 시도 기록 건너뜀:', String(ledgerErr?.message || ledgerErr).slice(0, 120));
+  }
+}
+
+/** 발행 대상 식별 — 비밀 없이 블로그 ID·사이트 주소·블로그 이름만 */
+function publishTargetOf(p: any): string {
+  return String(p?.blogId || p?.wordpressUrl || p?.wpSiteUrl || p?.tistoryBlogName || p?.tistoryBlogUrl || '');
+}
+
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
 ipcMain.handle('run-post', async (_evt, payload) => {
   let freeTrialPublish = false;
@@ -7186,23 +7233,18 @@ ipcMain.handle('run-post', async (_evt, payload) => {
           console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
 
           /**
-           * 🔗 v3.8.651 — 장부의 그 줄에 주소를 채운다.
-           *
-           * 장부는 생성이 끝날 때 쓰이므로 그때는 주소를 모른다. 여기가 처음 아는 자리다.
-           * 9/21 에 애드센스가 풀리면 페이지 주소로 RPM 을 붙일 수 있고,
-           * 그때 **오늘 쌓은 줄들도 같이** 이어진다 — 지금 안 채우면 그 글들은 영영 못 맞춘다.
+           * 🔗 v3.8.651 — 장부의 그 줄에 주소를 채운다. 장부는 생성이 끝날 때 쓰이므로 그때는 주소를 모른다. 여기가 처음 아는 자리다.
+           * v3.8.752 — 제목이 아니라 **runId** 로 잇는다(recordPublishAttemptSafely). 실패 시도도 아래에서 남긴다.
            */
-          try {
-            const { attachUrlToLedger, defaultLedgerPath } = require('../dist/core/final/publish-ledger');
-            const ok = attachUrlToLedger(
-              defaultLedgerPath(),
-              String(result?.title || payload?.topic || ''),
-              String(publishResult.url || ''),
-            );
-            if (ok) console.log('[LEDGER] 🔗 발행 주소를 장부에 남겼습니다');
-          } catch (ledgerErr: any) {
-            console.warn('[LEDGER] 주소 기록 건너뜀:', String(ledgerErr?.message || ledgerErr).slice(0, 120));
-          }
+          recordPublishAttemptSafely({
+            runId: String(result?.runId || ''),
+            platform: String(payload?.platform || payload?.targetPlatform || payload?.blogPlatform || ''),
+            target: publishTargetOf(payload),
+            ok: true,
+            url: String(publishResult.url || ''),
+            postId: String(publishResult.postId || publishResult.id || ''),
+            source: 'run-post',
+          });
 
           if (freeTrialPublish) {
             try {
@@ -7269,6 +7311,15 @@ ipcMain.handle('run-post', async (_evt, payload) => {
     // 모든 시도 실패
     console.error('[RUN-POST] 발행 최종 실패:', lastPublishError);
     onLog(`[PROGRESS] 100% - ⚠️ 발행 실패: ${lastPublishError}`);
+    // v3.8.752 — 실패도 시도로 남긴다(성공 url 을 지우지 않는다). 재발행이 성공하면 같은 runId 줄에 이어진다
+    recordPublishAttemptSafely({
+      runId: String(result?.runId || ''),
+      platform: String(payload?.platform || payload?.targetPlatform || payload?.blogPlatform || ''),
+      target: publishTargetOf(payload),
+      ok: false,
+      error: String(lastPublishError || '발행 실패'),
+      source: 'run-post',
+    });
     return {
       ok: true,
       ...result,
@@ -7969,6 +8020,21 @@ ipcMain.handle('publish-content', async (_evt, data) => {
     const result = await publishGeneratedContent(
       data.payload, data.title, data.content, data.thumbnailUrl, publishOnLog,
     );
+
+    /**
+     * 🔗 v3.8.752 — 이 창구(편집기·재발행 대기열·수동 발행)에는 장부 배선이 없었다(감사 F13).
+     * 대기열 항목·generatedContent 가 실어 온 runId 로 원래 생성 줄에 시도(성공·실패)를 잇는다. runId 가 없으면 미연결로만 남긴다.
+     */
+    recordPublishAttemptSafely({
+      runId: String(data?.runId || data?.payload?.runId || ''),
+      platform: String(data?.platform || data?.payload?.platform || data?.payload?.targetPlatform || data?.payload?.blogPlatform || ''),
+      target: publishTargetOf(data?.payload),
+      ok: !!(result && result.ok),
+      url: String(result?.url || ''),
+      postId: String(result?.postId || result?.id || ''),
+      error: result && !result.ok ? String(result.error || '발행 실패') : '',
+      source: 'publish-content',
+    });
 
     console.log('[PUBLISH] 발행 결과:', {
       ok: result?.ok,
