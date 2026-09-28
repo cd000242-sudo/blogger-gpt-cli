@@ -379,12 +379,30 @@ ${ymylBlock}`;
  * 키워드가 YMYL 카테고리인지 판정. 가장 강하게 매칭된 카테고리 반환.
  * 매칭 없으면 null.
  */
+/**
+ * v3.8.752 (감사 F10) — finance 와 insurance 가 **동점**일 때만 문맥으로 가른다.
+ *
+ * 실측: "보험금 지급지연 지연이자, 언제부터 계산되는지 확인" → '이자'(finance 5) 와 '보험'(insurance 5) 이 동점이고
+ * 배열 순서상 finance 가 이겨 결론부에 "투자 권유가 아닙니다 … 원금 손실 가능성" 면책이 붙었다. 보험금 청구 글에 투자 면책이다.
+ *
+ * '보험' 이 있으면 무조건 insurance 로 정하지 않는다 — "보험회사 주가 전망" · "보험업종 투자" 는 투자 문맥이라 finance 가 맞다.
+ * 동점이 아니면 손대지 않는다(점수·가중치·배열 순서 그대로).
+ */
+const INSURANCE_CLAIM_CONTEXT = /(보험금|보험\s*청구|청구\s*(?:절차|서류|방법)|지급\s*지연|지연\s*이자|지연이자|손해사정|부지급|면책\s*사유|약관\s*(?:상|에\s*따라|대로))/i;
+const INVESTMENT_CONTEXT = /(주가|주식|증권|투자|배당|상장|펀드|etf|채권|공모주|시가총액|업종|실적)/i;
+
+function breakFinanceInsuranceTie(k: string): 'finance' | 'insurance' {
+  if (INSURANCE_CLAIM_CONTEXT.test(k) && !INVESTMENT_CONTEXT.test(k)) return 'insurance';
+  return 'finance';
+}
+
 export function classifyYmyl(keyword: string): YmylCategory {
   if (!keyword) return null;
   const k = keyword.toLowerCase();
 
   let bestCategory: NonNullable<YmylCategory> | null = null;
   let bestScore = 0;
+  const scores: Partial<Record<NonNullable<YmylCategory>, number>> = {};
 
   for (const rule of YMYL_RULES) {
     // v3.8.362: excludeIfMatches — 사회보험/공공 카테고리가 민간 보험 intent로 오분류되지 않도록 배제 필터
@@ -394,12 +412,17 @@ export function classifyYmyl(keyword: string): YmylCategory {
     for (const pattern of rule.patterns) {
       if (pattern.test(k)) score += rule.weight;
     }
+    scores[rule.category] = score;
     if (score > bestScore) {
       bestScore = score;
       bestCategory = rule.category;
     }
   }
 
+  // v3.8.752 — 동점(finance == insurance == 최고점)일 때만 문맥으로. 그 외는 예전 그대로
+  if (bestCategory === 'finance' && bestScore > 0 && scores.insurance === bestScore) {
+    return breakFinanceInsuranceTie(k);
+  }
   return bestCategory;
 }
 
