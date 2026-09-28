@@ -25,6 +25,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * v3.8.752 — 발행 시도는 장부 줄뿐 아니라 run 캡처 폴더(run-trace)에도 남는다.
+ * main.ts 는 dist 경로 하나(publish-ledger)만 부르면 되도록 여기서 함께 내보낸다(run-trace 는 이 모듈에 기대지 않는다 — 순환 없음).
+ */
+export { appendPublishAttempt as appendRunTracePublishAttempt } from './run-trace';
+
 export interface LedgerEntry {
   /** 발행 시각 (ISO) */
   at: string;
@@ -110,6 +116,58 @@ export interface LedgerEntry {
   /** 나중에 애드센스에서 채운다 */
   rpm?: number;
   pageviews?: number;
+  /**
+   * v3.8.752 — 생성 실행 ID. 발행 시도가 이 값으로 **이 줄**에 이어진다(제목이 같아도 다른 줄에 붙지 않는다).
+   * 감사 실측(F13): 블로거 실패 → 워드프레스 재발행 성공이 publish-content 를 타면서 장부 url 이 빈칸으로 남았다.
+   */
+  runId?: string;
+  /** 발행 시도 하나하나 — 실패도 남는다. 성공 url 은 entry.url 에도 올라간다(첫 성공만) */
+  publishAttempts?: PublishAttempt[];
+  /**
+   * v3.8.752 (F12) — 품질 상태를 여섯 개념으로 가른 결과. quality-status.ts 가 만든다.
+   * qualityConverged 만 보면 루프 OFF 도 '수렴' 처럼 읽혔다.
+   */
+  qualityLoopExecuted?: boolean;
+  qualityLoopOutcome?: 'NOT_RUN' | 'CONVERGED' | 'NOT_CONVERGED' | 'ERROR';
+  codeGatesPassed?: boolean;
+  qualityStatusLabel?: string;
+  /** auditScore 가 어느 원고를 잰 것인가 — 'final-html' = 자가 수정까지 끝난 발행 직전 HTML */
+  auditScoreTarget?: string;
+}
+
+export interface PublishAttempt {
+  attemptId: string;
+  at: string;
+  platform: string;
+  /** 블로그 ID·사이트 주소 같은 대상 식별(비밀 없음) */
+  target?: string;
+  ok: boolean;
+  url?: string;
+  postId?: string;
+  error?: string;
+  /** 어느 창구에서 왔나 — run-post · publish-content · schedule … */
+  source?: string;
+}
+
+export interface PublishAttemptInput {
+  runId?: string | undefined;
+  platform: string;
+  target?: string | undefined;
+  ok: boolean;
+  url?: string | undefined;
+  postId?: string | undefined;
+  error?: string | undefined;
+  source?: string | undefined;
+}
+
+export interface PublishAttemptRecord {
+  attemptId: string;
+  /** runId 로 장부 줄을 찾아 붙였나 */
+  linked: boolean;
+  /** 같은 성공 url 이 이미 있어 붙이지 않았나(재시도·같은 응답 재처리) */
+  duplicate: boolean;
+  /** runId 가 없거나 장부에 그 run 이 없어 미연결 파일에 남겼나 */
+  unlinked: boolean;
 }
 
 /** 장부가 너무 커지지 않게 — 하루 10편이면 100일치 */
@@ -187,6 +245,89 @@ export function attachUrlToLedger(ledgerPath: string, title: string, url: string
     return false;
   } catch {
     return false;
+  }
+}
+
+/** 미연결 시도가 쌓이는 곳 — 장부 옆 파일. run 이 없는 발행(편집기 새 글·옛 대기열)도 사라지지 않는다 */
+export function unlinkedAttemptsPath(ledgerPath: string): string {
+  return path.join(path.dirname(ledgerPath), 'publish-attempts-unlinked.json');
+}
+
+const MAX_UNLINKED = 500;
+
+function newAttemptId(): string {
+  return `pa_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function toAttempt(input: PublishAttemptInput, attemptId: string): PublishAttempt {
+  return {
+    attemptId,
+    at: new Date().toISOString(),
+    platform: String(input.platform || ''),
+    ...(input.target ? { target: String(input.target) } : {}),
+    ok: input.ok === true,
+    ...(input.url ? { url: String(input.url).trim() } : {}),
+    ...(input.postId ? { postId: String(input.postId) } : {}),
+    ...(input.error ? { error: String(input.error).slice(0, 300) } : {}),
+    ...(input.source ? { source: String(input.source) } : {}),
+  };
+}
+
+function appendUnlinked(ledgerPath: string, attempt: PublishAttempt, runId: string | undefined, reason: string): void {
+  try {
+    const file = unlinkedAttemptsPath(ledgerPath);
+    let list: unknown[] = [];
+    if (fs.existsSync(file)) {
+      try { const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')); if (Array.isArray(parsed)) list = parsed; } catch { list = []; }
+    }
+    const next = [...list, { ...attempt, ...(runId ? { runId } : {}), unlinkedReason: reason }].slice(-MAX_UNLINKED);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf-8');
+  } catch { /* 미연결 기록 실패도 발행을 막지 않는다 */ }
+}
+
+/**
+ * 🔗 v3.8.752 — 발행 시도를 **run ID 로** 장부 줄에 잇는다 (감사 F13).
+ *
+ * attachUrlToLedger(제목으로 잇기)는 A 글에서 빈칸을 남겼다: 블로거 실패 뒤 워드프레스 재발행이
+ * publish-content 를 타는데 거기엔 장부 배선이 없었고, 있었더라도 제목이 같은 다른 글에 붙을 수 있었다.
+ *
+ * 규칙:
+ *   · runId 가 없으면 제목으로 추측하지 않는다 — 미연결 파일에 남긴다
+ *   · 실패도 남긴다. 실패가 앞선 성공 url 을 지우지 않는다
+ *   · 같은 성공 url 이 이미 붙어 있으면 두 번 붙이지 않는다(재시도·같은 응답 재처리)
+ *   · entry.url 은 첫 성공 url 만 — 다른 플랫폼 성공은 publishAttempts 에 남는다
+ *   · 지난 글은 손대지 않는다(runId 가 없으니 어차피 못 잇는다)
+ */
+export function recordPublishAttempt(ledgerPath: string, input: PublishAttemptInput): PublishAttemptRecord {
+  const attemptId = newAttemptId();
+  const attempt = toAttempt(input, attemptId);
+  const runId = String(input.runId || '').trim();
+  const none = { attemptId, linked: false, duplicate: false, unlinked: true };
+  if (!runId) { appendUnlinked(ledgerPath, attempt, undefined, 'NO_RUN_ID'); return none; }
+
+  try {
+    const entries = readLedger(ledgerPath);
+    let index = -1;
+    for (let i = entries.length - 1; i >= 0; i--) { if (String(entries[i]?.runId || '') === runId) { index = i; break; } }
+    if (index < 0) { appendUnlinked(ledgerPath, attempt, runId, 'RUN_NOT_IN_LEDGER'); return none; }
+
+    const entry = entries[index]!;
+    const attempts = Array.isArray(entry.publishAttempts) ? entry.publishAttempts : [];
+    if (attempt.ok && attempt.url && attempts.some((a) => a.ok && a.url === attempt.url)) {
+      return { attemptId, linked: true, duplicate: true, unlinked: false };
+    }
+    const updated: LedgerEntry = {
+      ...entry,
+      publishAttempts: [...attempts, attempt],
+      ...(attempt.ok && attempt.url && !entry.url ? { url: attempt.url } : {}),
+    };
+    const next = entries.map((e, i) => (i === index ? updated : e));
+    fs.writeFileSync(ledgerPath, JSON.stringify(next, null, 2), 'utf-8');
+    return { attemptId, linked: true, duplicate: false, unlinked: false };
+  } catch {
+    appendUnlinked(ledgerPath, attempt, runId, 'LEDGER_WRITE_FAILED');
+    return none;
   }
 }
 
