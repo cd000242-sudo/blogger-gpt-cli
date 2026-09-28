@@ -70,6 +70,11 @@ describe('v3.8.752 run-trace', () => {
     expect(on.n).toBe(off.n);
     expect(fs.readdirSync(root)).toHaveLength(1);                     // OFF 는 폴더를 만들지 않았다
     expect(files(tracer)).toEqual(expect.arrayContaining(['manifest.json', 'events.jsonl', 'checks.jsonl']));
+    // 어느 코드로 돌았는지 — 버전 번호가 아니라 산출물 해시로 남는다 (3단계: 옛 실행본을 '캡처 ON' 으로 오인하지 않게)
+    const id = manifest(tracer).codeIdentity;
+    expect(id.runTraceSha1).toMatch(/^[0-9a-f]{40}$/);
+    expect(id.orchestrationSha1).toMatch(/^[0-9a-f]{40}$/);
+    expect(typeof id.packaged).toBe('boolean');
     // 아무 데도 매지 않은 문맥은 NOOP — 아무것도 쓰지 않고 null 을 준다
     expect(currentTrace().enabled).toBe(false);
     expect(currentTrace().snapshot('x', 'y')).toBeNull();
