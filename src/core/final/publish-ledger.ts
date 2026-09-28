@@ -29,7 +29,12 @@ import * as path from 'path';
  * v3.8.752 — 발행 시도는 장부 줄뿐 아니라 run 캡처 폴더(run-trace)에도 남는다.
  * main.ts 는 dist 경로 하나(publish-ledger)만 부르면 되도록 여기서 함께 내보낸다(run-trace 는 이 모듈에 기대지 않는다 — 순환 없음).
  */
-export { appendPublishAttempt as appendRunTracePublishAttempt } from './run-trace';
+export {
+  appendPublishAttempt as appendRunTracePublishAttempt,
+  isTraceEnabled as isRunTraceEnabled,
+  traceRootDir as runTraceRootDir,
+  codeIdentity as runTraceCodeIdentity,
+} from './run-trace';
 
 export interface LedgerEntry {
   /** 발행 시각 (ISO) */

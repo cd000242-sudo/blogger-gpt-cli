@@ -252,6 +252,29 @@ function packageVersion(): string {
   } catch { return String(process.env['npm_package_version'] || ''); }
 }
 
+function fileSha1(file: string): string {
+  try { return sha1(fs.readFileSync(file, 'utf8')); } catch { return ''; }
+}
+
+/**
+ * 어느 코드로 돌았는지 — 버전 번호는 같은데 산출물이 다를 수 있다(빌드 안 한 dist·옛 설치본).
+ * 이 모듈과 orchestration 산출물의 해시, 그리고 빌드 때 남긴 dist/build-info.json(있으면)을 적는다.
+ */
+export function codeIdentity(): Record<string, unknown> {
+  const ext = path.extname(__filename) || '.js';
+  const buildInfoPath = path.join(__dirname, '..', '..', 'build-info.json');
+  let buildInfo: unknown = null;
+  try { if (fs.existsSync(buildInfoPath)) buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8')); } catch { buildInfo = null; }
+  return {
+    moduleDir: __dirname.replace(/\\/g, '/'),
+    packaged: /app\.asar/i.test(__dirname),
+    gitSha: String(process.env['GIT_SHA'] || ''),
+    runTraceSha1: fileSha1(__filename),
+    orchestrationSha1: fileSha1(path.join(__dirname, `orchestration${ext}`)),
+    buildInfo,
+  };
+}
+
 class FileTracer implements RunTracer {
   readonly enabled = true;
   readonly runId: string;
@@ -271,7 +294,7 @@ class FileTracer implements RunTracer {
       startedAtKst: kstStamp(now).text,
       timezone: `local offset ${-now.getTimezoneOffset()} min · 표기는 KST(UTC+9)`,
       appVersion: packageVersion(),
-      codeIdentity: { moduleDir: __dirname.replace(/\\/g, '/'), packaged: /app\.asar/i.test(__dirname), gitSha: String(process.env['GIT_SHA'] || '') },
+      codeIdentity: codeIdentity(),
       requested: redact(requested) as Record<string, unknown>,
       actual: {},
       snapshots: [],

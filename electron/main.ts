@@ -14935,6 +14935,18 @@ app.whenReady().then(async () => {
     // 설정을 못 읽어도 앱은 떠야 한다 — 각 모듈이 알아서 파일을 다시 읽는다
     console.warn('[APP] 설정 → 환경변수 반영 실패:', String(e?.message || e).slice(0, 100));
   }
+  /**
+   * v3.8.752 — 실행 캡처 설정을 부팅 로그에 남긴다(ON/OFF·폴더·코드 식별만, 키 없음).
+   * "캡처 ON 인 줄 알았는데 옛 실행본이었다" 를 막는다 — 모듈이 없으면 그 사실이 여기 찍힌다.
+   */
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const rt = require('../dist/core/final/publish-ledger');   // run-trace 는 이 모듈이 재수출한다(dist 경로 하나만 부른다)
+    const id = rt.runTraceCodeIdentity();
+    console.log(`[RUN-TRACE] 캡처 ${rt.isRunTraceEnabled() ? 'ON' : 'OFF'} · 폴더 ${rt.runTraceRootDir()} · 앱 ${app.getVersion()} · packaged ${app.isPackaged} · run-trace ${String(id.runTraceSha1 || '').slice(0, 10)} · orchestration ${String(id.orchestrationSha1 || '').slice(0, 10)}${id.buildInfo ? ` · build ${JSON.stringify(id.buildInfo)}` : ''}`);
+  } catch (e: any) {
+    console.warn('[RUN-TRACE] 캡처 모듈 없음(옛 실행본 — 캡처 불가):', String(e?.message || e).slice(0, 100));
+  }
 
   // v3.8.381(R6): 부팅 시 스케줄 감시 자동 재개 — 기존에는 사용자가 대기열에서 "예약"을
   //   눌러야만 감시가 시작되어, 앱 재시작 후 기존 예약이 조용히 실행되지 않았다.
