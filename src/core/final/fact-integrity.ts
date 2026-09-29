@@ -94,22 +94,53 @@ function normalize(value: string): string {
 /** 유형을 가르는 낱말 — 이름표에 이게 있으면 값은 근거에서 이 낱말 곁에 있어야 한다 */
 const SUBJECT_QUALIFIER = /(우대형|일반형|신규|기존|1차|2차|3차|지방|수도권|특별|가입자|재직자|취업자|소상공인|청년형|일반)/g;
 const SUBJECT_WINDOW = 160;
+/** 같은 축에서 서로를 가르는 낱말 — 이름표가 한쪽이면 다른 쪽이 값 앞에 선 문장은 이 행의 근거가 아니다 (v3.8.754) */
+const QUALIFIER_GROUPS: string[][] = [['우대형', '일반형'], ['신규', '기존'], ['1차', '2차', '3차'], ['지방', '수도권']];
+/** 값 앞의 "주어 조각"은 같은 문장에서 직전 값 뒤부터다 — "일반형 6% 우대형 12%" 에서 12% 의 조각은 " 우대형 " */
+const PRIOR_VALUE = /\d[\d.]*\s*(?:%p|%|만\s*원|원|억|만)/g;
+const SENTENCE_BREAK = /[.!?。]/;
+/** 값 바로 뒤(12자 안)의 부정 — "12%가 적용되지 않는다"·"12%를 받지 못한다"·"12%가 아니라" */
+const NEGATION_AFTER = /^.{0,12}?(?:않|못|아니|제외|미적용)/;
 
 /**
  * v3.8.753 — 값이 이름표의 유형 낱말 곁에 있는가. 이름표에 유형 낱말이 없으면 판단하지 않는다(null).
  * 실측(run 1b7d92 표): "우대형 기여금 | 납입액의 12퍼센트" — 근거의 "우대형에는 12%" 곁에 있어야 통과.
  * 근거에 "청년도약계좌 12%" 만 있고 "우대형" 이 없으면 숫자가 같아도 그 행의 값이 아니다.
+ *
+ * v3.8.754 — "160자 안에 있다" 만으로는 "일반형 6%, 우대형 12%" 한 문장에서 일반형 행의 12% 도 통과한다(반례).
+ * 값마다 **같은 문장에서 직전 값 뒤의 주어 조각**을 보고, 거기 선 낱말이 이름표와 같은 축의 반대편이면 그 값은 세지 않는다.
+ * 값 바로 뒤가 부정("적용되지 않는다")이면 세지 않는다. 문장에 유형 낱말이 없으면 표처럼 줄이 갈린 경우로 보고
+ * 가장 가까운 앞 낱말 하나만 본다. 그래도 못 찾으면 false(미확인) — 오답보다 못 찾음이 낫다.
+ * contextText 는 normalizeForMatch 를 지난 글이다(쉼표·줄바꿈 없음, 괄호는 공백).
  */
 function nearSubject(normalizedValue: string, contextText: string, subjectHint: string | undefined): boolean | null {
-  const qualifiers = [...new Set((String(subjectHint || '').match(SUBJECT_QUALIFIER) || []))];
-  if (qualifiers.length === 0) return null;
+  const hinted = new Set<string>(String(subjectHint || '').match(SUBJECT_QUALIFIER) || []);
+  if (hinted.size === 0) return null;
+  const rivals = new Set<string>(QUALIFIER_GROUPS.filter((g) => g.some((q) => hinted.has(q))).flat().filter((q) => !hinted.has(q)));
   const spaced = normalizedValue.split('').map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
   const re = new RegExp(`(?<![\\d.])${spaced}`, 'g');
   let m: RegExpExecArray | null;
   while ((m = re.exec(contextText)) !== null) {
-    const window = contextText.slice(Math.max(0, m.index - SUBJECT_WINDOW), m.index + m[0].length + SUBJECT_WINDOW);
-    if (qualifiers.some((q) => window.includes(q))) return true;
-    if (m[0].length === 0) re.lastIndex += 1;
+    if (m[0].length === 0) { re.lastIndex += 1; continue; }
+    const before = contextText.slice(Math.max(0, m.index - SUBJECT_WINDOW), m.index);
+    const after = contextText.slice(m.index + m[0].length, m.index + m[0].length + SUBJECT_WINDOW);
+    const sentenceAfter = after.split(SENTENCE_BREAK)[0] || '';
+    if (NEGATION_AFTER.test(sentenceAfter)) continue;
+    let cut = 0;
+    for (let i = before.length - 1; i >= 0; i -= 1) if (SENTENCE_BREAK.test(before[i]!)) { cut = i + 1; break; }
+    const sentenceBefore = before.slice(cut);
+    let segment = sentenceBefore;
+    PRIOR_VALUE.lastIndex = 0;
+    let pv: RegExpExecArray | null;
+    while ((pv = PRIOR_VALUE.exec(sentenceBefore)) !== null) segment = sentenceBefore.slice(pv.index + pv[0].length);
+    let qualifiers = segment.match(SUBJECT_QUALIFIER) || [];
+    if (qualifiers.length === 0) {
+      const tail = sentenceAfter.slice(0, 12).match(SUBJECT_QUALIFIER);          // "12% 우대형" 처럼 바로 뒤에 붙은 이름표
+      const prev = before.match(SUBJECT_QUALIFIER);                              // 표처럼 줄이 갈렸으면 가장 가까운 앞 낱말 하나
+      qualifiers = tail ? tail : prev ? [prev[prev.length - 1]!] : [];
+    }
+    if (qualifiers.length === 0 || qualifiers.some((q) => rivals.has(q))) continue;
+    if (qualifiers.some((q) => hinted.has(q))) return true;
   }
   return false;
 }
