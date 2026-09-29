@@ -47,6 +47,8 @@ export interface GuardFactsInput {
   evidence?: FactEvidence;
   /** 핵심 질문에 답하는 문장인가 — 그 문장이 사라지는 교체본은 받지 않는다 */
   isCoreAnswer?: (sentence: string) => boolean;
+  /** v3.8.765 — 주장 단위 지원 상태(현재 공식 답과 반대인 문장은 값 보호 대상이 아니다) */
+  claimSupport?: (sentences: string[]) => Array<'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED' | 'UNKNOWN'>;
 }
 
 export interface RepairDecision {
@@ -60,6 +62,8 @@ export interface RepairDecision {
   introducedUnsupported: string[];
   /** 사라진 핵심 질문 답·판단 기준 문장 */
   lostCore: string[];
+  /** v3.8.765 — 현재 공식 답과 반대라 보호하지 않은 문장(주장 단위) */
+  contradictedClaims?: string[];
   reason: string;
 }
 
@@ -275,7 +279,13 @@ function classifyParagraph(paraHtml: string, evidence: FactEvidence, blockHtml?:
  * 근거 없는 값이 새로 들어오거나, 핵심 질문 답·판단 기준 문장이 사라지면 그 문단의 교체본을 받지 않는다(원문 유지).
  * 문체·중복·장황함은 고쳐도 된다 — 값과 판단 기준만 본다.
  */
-export function gateRepairs(html: string, repairs: FactRepair[], evidence: FactEvidence, options: { issueByIndex?: Map<number, string[]>; isCoreAnswer?: (s: string) => boolean } = {}): { accepted: FactRepair[]; decisions: RepairDecision[] } {
+/**
+ * v3.8.765 — 보호 단위는 값 토큰이 아니라 **주장**이다. claimSupport 가 문장마다 SUPPORTED/UNSUPPORTED/CONTRADICTED/UNKNOWN 을 준다.
+ * CONTRADICTED(현재 공식 답과 반대) 문장 안에만 있던 값은 사라져도 보호 값 소실이 아니고, 그 문장은 판단 기준 문장으로도 보호하지 않는다.
+ * 실측(run 111bcf): 늦은 재작성이 "…2026년 6월 최초 가입자에게만 허용된 예외였기 때문" 을 지우려 했는데 "2026년" 이 보호 값이라 거부돼 틀린 문장이 남았다.
+ */
+export type GateClaimSupport = (sentences: string[]) => Array<'SUPPORTED' | 'UNSUPPORTED' | 'CONTRADICTED' | 'UNKNOWN'>;
+export function gateRepairs(html: string, repairs: FactRepair[], evidence: FactEvidence, options: { issueByIndex?: Map<number, string[]>; isCoreAnswer?: (s: string) => boolean; claimSupport?: GateClaimSupport } = {}): { accepted: FactRepair[]; decisions: RepairDecision[] } {
   const paragraphs = splitParagraphs(html);
   const accepted: FactRepair[] = [];
   const decisions: RepairDecision[] = [];
@@ -291,12 +301,16 @@ export function gateRepairs(html: string, repairs: FactRepair[], evidence: FactE
     const a = classifyParagraph(String(r.html || ''), evidence, block.replace(before.html, String(r.html || '')));
     const afterText = stripMarkup(String(r.html || ''));
     const norm = (s: string) => s.replace(/[,\s]/g, '');
-    const lostProtected = b.supported.filter((t) => !issue.includes(t) && !norm(afterText).includes(norm(t)));
+    const support = options.claimSupport ? options.claimSupport(b.sentences) : b.sentences.map(() => 'UNKNOWN' as const);
+    const contradicted = b.sentences.filter((_, i) => support[i] === 'CONTRADICTED');
+    // 값이 든 문장이 **전부** 현재 공식 답과 반대면 그 값은 보호하지 않는다(값이 든 문장을 못 찾으면 예전처럼 보호)
+    const onlyInContradicted = (t: string) => { const holders = b.sentences.filter((s) => norm(s).includes(norm(t))); return holders.length > 0 && holders.every((s) => contradicted.includes(s)); };
+    const lostProtected = b.supported.filter((t) => !issue.includes(t) && !norm(afterText).includes(norm(t)) && !onlyInContradicted(t));
     const introducedUnsupported = a.unsupported.filter((t) => !b.unsupported.includes(t));
-    const lostCore = b.sentences.filter((s) => (options.isCoreAnswer?.(s) || retention.keyPhrases(s).length >= 2 && /(?:에\s*따라|별로)\s*[^.]{0,30}?(?:다르|달라)|함께\s*(?:놓고|보고|두고)/.test(s))
+    const lostCore = b.sentences.filter((s) => !contradicted.includes(s) && (options.isCoreAnswer?.(s) || retention.keyPhrases(s).length >= 2 && /(?:에\s*따라|별로)\s*[^.]{0,30}?(?:다르|달라)|함께\s*(?:놓고|보고|두고)/.test(s))
       && !retention.keyPhrases(s).some((p: string) => { const [x, y] = p.split(' '); return new RegExp(`${x}[^.]{0,6}${y}`).test(afterText); }));
     const ok = lostProtected.length === 0 && introducedUnsupported.length === 0 && lostCore.length === 0;
-    decisions.push({ paragraphIndex: idx, accepted: ok, issueTokens: issue, lostProtected, introducedUnsupported, lostCore, reason: ok ? '보호 값·판단 기준 유지' : [lostProtected.length ? `보호 값 사라짐: ${lostProtected.join(', ')}` : '', introducedUnsupported.length ? `근거 없는 값 유입: ${introducedUnsupported.join(', ')}` : '', lostCore.length ? `판단 기준 문장 사라짐: ${lostCore[0]!.slice(0, 60)}` : ''].filter(Boolean).join(' · ') });
+    decisions.push({ paragraphIndex: idx, accepted: ok, issueTokens: issue, lostProtected, introducedUnsupported, lostCore, ...(contradicted.length ? { contradictedClaims: contradicted.map((s) => s.slice(0, 160)) } : {}), reason: ok ? (contradicted.length ? `현재 공식 답과 반대인 문장 ${contradicted.length}개 삭제 허용 · 나머지 보호 값·판단 기준 유지` : '보호 값·판단 기준 유지') : [lostProtected.length ? `보호 값 사라짐: ${lostProtected.join(', ')}` : '', introducedUnsupported.length ? `근거 없는 값 유입: ${introducedUnsupported.join(', ')}` : '', lostCore.length ? `판단 기준 문장 사라짐: ${lostCore[0]!.slice(0, 60)}` : ''].filter(Boolean).join(' · ') });
     if (ok) accepted.push(r);
   }
   return { accepted, decisions };
@@ -325,7 +339,7 @@ function alignParagraphs(a: string[], b: string[]): Array<[number, number]> {
   return pairs;
 }
 
-export function gateRewrite(beforeHtml: string, afterHtml: string, evidence: FactEvidence, options: { isCoreAnswer?: (s: string) => boolean } = {}): RewriteGateResult {
+export function gateRewrite(beforeHtml: string, afterHtml: string, evidence: FactEvidence, options: { isCoreAnswer?: (s: string) => boolean; claimSupport?: GateClaimSupport } = {}): RewriteGateResult {
   const before = String(beforeHtml || ''); const after = String(afterHtml || '');
   if (before === after) return { html: after, status: 'not-applicable', regions: [], rolledBack: 0 };
   const bp = splitParagraphs(before); const ap = splitParagraphs(after);
@@ -342,7 +356,7 @@ export function gateRewrite(beforeHtml: string, afterHtml: string, evidence: Fac
     const afterRegionHtml = afterIdx.map((x) => ap[x]!.html).join('\n') || '<p></p>';
     // 전 문단마다 "후 구간 전체" 를 교체본으로 본다 — 보호 값이 구간 안 어디에든 남아 있으면 된다
     const repairs = beforeIdx.map((x) => ({ paragraphIndex: x, html: afterRegionHtml }));
-    const gated = beforeIdx.length ? gateRepairs(before, repairs, evidence, { ...(options.isCoreAnswer ? { isCoreAnswer: options.isCoreAnswer } : {}) }) : { decisions: [] as RepairDecision[] };
+    const gated = beforeIdx.length ? gateRepairs(before, repairs, evidence, { ...(options.isCoreAnswer ? { isCoreAnswer: options.isCoreAnswer } : {}), ...(options.claimSupport ? { claimSupport: options.claimSupport } : {}) }) : { decisions: [] as RepairDecision[] };
     // 새로 생긴 구간(전 문단 없음)은 근거 없는 값 유입만 본다
     const introduced = beforeIdx.length === 0 ? gateRepairs(`<p></p>`, [{ paragraphIndex: 0, html: afterRegionHtml }], evidence).decisions : [];
     const decisions = [...gated.decisions, ...introduced];
@@ -515,7 +529,7 @@ export async function guardFacts(input: GuardFactsInput): Promise<GuardFactsResu
       const zones = protectedZones(html);
       const paragraphs = splitParagraphs(html);
       repairs = repairs.filter((r) => { const p = paragraphs[Number(r.paragraphIndex)]; return p && !inZone(zones, p.start); });   // 답 상자·FAQ 교체본은 무조건 버린다
-      const gated = gateRepairs(html, repairs, evidence, { issueByIndex, ...(input.isCoreAnswer ? { isCoreAnswer: input.isCoreAnswer } : {}) });
+      const gated = gateRepairs(html, repairs, evidence, { issueByIndex, ...(input.isCoreAnswer ? { isCoreAnswer: input.isCoreAnswer } : {}), ...(input.claimSupport ? { claimSupport: input.claimSupport } : {}) });
       decisions = gated.decisions;
       const rejected = gated.decisions.filter((d) => !d.accepted);
       if (rejected.length) onLog?.(`[사실검증] 교체본 ${rejected.length}개 거부 — ${rejected.map((d) => `[${d.paragraphIndex}] ${d.reason}`).join(' / ').slice(0, 300)}`);
