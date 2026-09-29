@@ -1,5 +1,6 @@
 import { containsValueToken, normalizeForMatch } from './number-token';
-import { resolveDerivedDifferences, type DerivedCheck } from './derived-difference';
+import { resolveDerivedDifferences, resolveHypotheticalValues, type DerivedCheck } from './derived-difference';
+import { extractRanges, rangesOf, sameRange, isRangeBound, boundTokens } from './range-value';
 
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
 
@@ -24,6 +25,7 @@ export interface FactEvidence {
 
 export type FactIntegrityViolationKind =
   | 'unsupported_exact_value'
+  | 'unsupported_range'
   | 'unsupported_institution';
 
 export interface FactIntegrityViolation {
@@ -312,7 +314,8 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   const topicText = isNumeric ? normalizeForMatch(evidence.topic || '') : normalize(evidence.topic || '');
   if (topicText && has(topicText)) return true;
   const contextText = isNumeric ? normalizeForMatch(evidence.context || '') : normalize(evidence.context || '');
-  if (!has(contextText)) return false;
+  // v3.8.760 — 근거의 범위 표기("13.2~14.4%")의 하한·상한도 그 값이다. 실측(run d7a142): "13.2%" 가 "13.2~" 로만 있어 미확인이 됐다
+  if (!has(contextText)) return isNumeric && isRangeBound(normalizedValue, rangesOf(contextText)) && (evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH);
   // v3.8.753 — 이름표에 유형 낱말이 있으면 그 곁의 값만 인정한다(다른 상품·다른 유형의 같은 숫자 차단)
   //   v3.8.755 — 주어 대조는 괄호를 남긴 정규화로 한다("6%(일반형) 또는 12%(우대형)" 을 가르기 위해)
   if (isNumeric && evidence.subjectHint && nearSubject(normalizedValue, normalizeForSubject(evidence.context || ''), evidence.subjectHint) === false) return false;
@@ -328,11 +331,29 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
   const inherentlyTimeSensitiveValues = exactValues.filter((value) => /20\d{2}|월|만원|원|억|%|퍼센트|세|^\d{4}-/.test(value));
   const valuesToVerify = sensitive ? exactValues : inherentlyTimeSensitiveValues;
 
+  /**
+   * v3.8.760 — 범위 표기는 구조(하한·상한·단위)로 대조한다. 문장의 "13.2%에서 14.4%" 는 근거에 같은 범위가 묶여 있어야 지원된다 —
+   * 하한·상한이 근거 어딘가에 따로 있는 것(상품 A 13.2%, 상품 B 14.4%)으로는 범위를 지원하지 않는다.
+   */
+  const sentenceRanges = extractRanges(sentence);
+  const evidenceRanges = sentenceRanges.length ? rangesOf(normalizeForMatch(evidence.context || '')) : [];
+  const supportedBounds = new Set<string>();
+  for (const r of sentenceRanges) {
+    if (evidenceRanges.some((e) => sameRange(e, r))) { for (const t of boundTokens(r)) supportedBounds.add(normalize(t)); continue; }
+    violations.push({ kind: 'unsupported_range', sentence, detail: `근거 장부에 같은 범위가 없음: ${r.raw.replace(/\s+/g, ' ').trim()}` });
+  }
+
   if (valuesToVerify.length > 0) {
-    let unsupported = valuesToVerify.filter((value) => !isSupportedToken(value, evidence, evidenceIsStrong));
+    let unsupported = valuesToVerify.filter((value) => !supportedBounds.has(normalize(value)) && !isSupportedToken(value, evidence, evidenceIsStrong));
     // v3.8.757 — 직접 근거가 없는 값이라도 같은 블록의 표로 검산되는 단순 차액이면 지원된 것으로 본다(검산 기록은 derived 로 남긴다)
     if (unsupported.length > 0 && evidence.blockHtml) {
       const { resolved, checks } = resolveDerivedDifferences(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
+      derivedOut?.push(...checks);
+      unsupported = unsupported.filter((value) => !resolved.has(value));
+    }
+    // v3.8.760 — 명시적 가정 예시의 기준값·계산값은 공식 사실이 아니다(P1-D). 가정 표지가 붙은 값과, 검증된 규칙으로 그 기준값에서 나오는 값만 지원한다
+    if (unsupported.length > 0 && evidence.blockHtml) {
+      const { resolved, checks } = resolveHypotheticalValues(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
       derivedOut?.push(...checks);
       unsupported = unsupported.filter((value) => !resolved.has(value));
     }

@@ -14,8 +14,11 @@ import { containsValueToken, normalizeForMatch } from './number-token';
 
 export interface DerivedOperand { label: string; value: string; unit: string; sourceIds: string[]; /** v3.8.759 — 피연산자의 출처: 근거 장부 ID 가 있으면 'evidence', 같은 블록의 명시적 가정이면 'hypothetical' */ origin?: 'evidence' | 'hypothetical' }
 export interface DerivedCheck {
-  /** 'abs-diff' = 근거값 두 개의 차액 · 'hypothetical-diff' = 같은 블록의 명시적 가정(예시 기준값)에서 나온 차액(v3.8.759) */
-  kind: 'abs-diff' | 'hypothetical-diff';
+  /**
+   * 'abs-diff' = 근거값 두 개의 차액 · 'hypothetical-diff' = 같은 블록의 명시적 가정(예시 기준값)에서 나온 차액(v3.8.759)
+   * 'hypothetical-input' = 가정 표지가 붙은 기준값 자체(v3.8.760) · 'hypothetical-apply' = 검증된 비율·차액 규칙을 기준값에 한 번 적용한 값(v3.8.760)
+   */
+  kind: 'abs-diff' | 'hypothetical-diff' | 'hypothetical-input' | 'hypothetical-apply';
   sentence: string;
   claim: string;
   item: string;
@@ -47,8 +50,9 @@ const DIRECTION_MORE = /더\s*(?:많|크|높|길)/;
 const DIRECTION_LESS = /더\s*(?:적|작|낮|짧)|덜/;
 const DIFF_CUE = new RegExp(`차이|차액|${DIRECTION_MORE.source}|${DIRECTION_LESS.source}`);
 const CONDITIONAL_ROW = /예정|통과\s*(?:시|할\s*경우)|가정|추정|지난|과거|이전\s*회차|당시/;
-const AMOUNT = /(\d[\d,]*(?:\.\d+)?)\s*(만\s*원|억\s*원|원|개월|명|건)/g;
-const UNIT_NORM: Record<string, string> = { '만원': '만원', '억원': '억원', '원': '원', '개월': '개월', '명': '명', '건': '건' };
+// v3.8.760 — 가정 예시는 금액 밖(주행거리·시간)에도 있다. 단위를 몇 개 더 읽는다(계산 규칙은 같다)
+const AMOUNT = /(\d[\d,]*(?:\.\d+)?)\s*(만\s*원|억\s*원|원|개월|명|건|km|시간|분)/g;
+const UNIT_NORM: Record<string, string> = { '만원': '만원', '억원': '억원', '원': '원', '개월': '개월', '명': '명', '건': '건', 'km': 'km', '시간': '시간', '분': '분' };
 
 const plain = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
 const parseAmount = (text: string): { num: number; unit: string; token: string } | null => {
@@ -156,6 +160,82 @@ export function resolveDerivedDifferences(
     }
     if (best) { resolved.set(token, best); checks.push(best); }
     else if (!checks.some((c) => c.claim === token)) checks.push({ kind: 'abs-diff', sentence: text, claim: token, item: '', operands: [], operation: '', result: '', verdict: 'unverifiable', reason: '같은 블록의 표에서 같은 단위·항목의 두 값을 찾지 못함' });
+  }
+  return { resolved, checks };
+}
+
+/**
+ * v3.8.760 — 명시적 가정 예시의 값(P1-D).
+ * 실측(run fba7e9): "원래 월 100만원을 받을 예정이라면 1년 조기수령은 월 94만원입니다." — 100만원은 가정 기준값, 94만원은 검증된 규칙(1년 6% 감액)을
+ * 기준값에 한 번 적용한 값. 둘 다 공식 사실이 아니며 근거에 없다는 이유로 지울 값도 아니다. 가정 표지가 없는 "월 100만원을 지급한다" 는 사실 주장이라 그대로 검사한다.
+ * 허용 연산: 기준값 × (1 ± r%) · 기준값 × r% · 기준값 ± d (r·d 는 근거로 확인된 값이어야 한다). 복리·세금·할인·수익률·시뮬레이션·추천 문장은 대상 아님.
+ */
+/** 값 바로 앞의 가정 표지 — "원래 월 100만원", "예를 들어 100만원", "기본 수령액이 월 100만원". 사이에 다른 값이나 긴 구절이 있으면 표지가 아니다 */
+const HYPO_BEFORE = /(?:원래|예를\s*들어|예컨대|가령|만약|예시로|기본\s*(?:수령액|금액|보험금|가격)?(?:이|은|는)?)\s*(?:월|연|매월|매년|하루|1일|1회)?\s*$/;
+const HYPO_AFTER = /^[^.]{0,12}?(?:(?:이|으)?라고\s*(?:가정|놓|치|보|하)|(?:이|으)?라면|인\s*경우|일\s*때|으로\s*가정|을\s*가정|를\s*가정|가정하)/;
+const RATE = /(\d+(?:\.\d+)?)\s*(?:%|퍼센트)(?!\s*(?:p|포인트))/g;
+
+export function resolveHypotheticalValues(
+  sentence: string,
+  unsupported: string[],
+  blockHtml: string,
+  evidenceContext: string,
+  isSupported: (t: string) => boolean,
+): { resolved: Map<string, DerivedCheck>; checks: DerivedCheck[] } {
+  const resolved = new Map<string, DerivedCheck>();
+  const checks: DerivedCheck[] = [];
+  const text = plain(sentence);
+  if (!text || FORBIDDEN_OP.test(text)) return { resolved, checks };
+  const blockText = plain(blockHtml);
+  const blockIsExample = EXAMPLE_BLOCK.test(blockText) || HYPOTHESIS_MARK.test(blockText);
+  // 1) 가정 표지가 붙은 값 — 문장 안에서 값 앞 25자 또는 뒤 12자에 표지가 있어야 한다(블록 표지만으로는 부족: "실제 정책 금액처럼" 쓴 값은 검사한다)
+  const inputs: Array<{ num: number; unit: string; token: string }> = [];
+  for (const m of text.matchAll(AMOUNT)) {
+    const v = parseAmount(m[0]);
+    if (!v) continue;
+    const before = text.slice(0, m.index || 0); const after = text.slice((m.index || 0) + m[0].length);
+    if (HYPO_BEFORE.test(before) || HYPO_AFTER.test(after)) inputs.push(v);
+  }
+  for (const token of unsupported) {
+    const claim = parseAmount(token);
+    if (!claim) continue;
+    const asInput = inputs.find((v) => v.num === claim.num && v.unit === claim.unit);
+    if (asInput) {
+      const check: DerivedCheck = { kind: 'hypothetical-input', sentence: text, claim: token, item: '', operands: [{ label: '가정 기준값', value: asInput.token, unit: asInput.unit, sourceIds: [], origin: 'hypothetical' }], operation: '가정 선언', result: asInput.token, verdict: 'hypothetical', reason: '문장이 가정으로 명시한 기준값 — 공식 사실이 아니며 검사 대상도 아니다(EXPLICIT_HYPOTHETICAL_INPUT)' };
+      resolved.set(token, check); checks.push(check);
+    }
+  }
+  // 2) 기준값에 검증된 규칙을 한 번 적용한 값 — 문장에 가정 표지가 있거나 블록이 예시 블록이어야 한다
+  const bases = [...inputs, ...findHypotheses(blockHtml).map((h) => h.base)].filter((b, i, arr) => arr.findIndex((x) => x.num === b.num && x.unit === b.unit) === i);
+  if (bases.length === 0 || !(inputs.length > 0 || blockIsExample)) return { resolved, checks };
+  // 규칙 비율은 블록(같은 예시 안)에 적힌 것을 먼저 쓰고, 블록에 비율이 없으면 근거 장부의 비율을 쓴다 — 어느 쪽이든 근거로 확인된 값만
+  const localRates = [...new Set([...blockText.matchAll(RATE)].map((m) => m[1]!))];
+  const ratePool = localRates.length > 0 ? localRates : [...new Set([...plain(evidenceContext).matchAll(RATE)].map((m) => m[1]!))];
+  const rates = ratePool.filter((r) => isSupported(`${r}%`)).map(Number);
+  const diffs = [...blockText.matchAll(AMOUNT)].map((m) => parseAmount(m[0])).filter((v): v is { num: number; unit: string; token: string } => !!v && isSupported(v.token));
+  for (const token of unsupported) {
+    if (resolved.has(token)) continue;
+    const claim = parseAmount(token);
+    if (!claim) continue;
+    let hit: DerivedCheck | null = null;
+    for (const b of bases) {
+      if (b.unit !== claim.unit || hit) continue;
+      for (const r of rates) {
+        for (const [op, val] of [[`× (1 − ${r}%)`, b.num * (1 - r / 100)], [`× (1 + ${r}%)`, b.num * (1 + r / 100)], [`× ${r}%`, b.num * r / 100]] as Array<[string, number]>) {
+          if (Math.abs(val - claim.num) <= 0.5) { hit = { kind: 'hypothetical-apply', sentence: text, claim: token, item: '', operands: [{ label: '가정 기준값', value: b.token, unit: b.unit, sourceIds: [], origin: 'hypothetical' }, { label: '규칙', value: `${r}%`, unit: '%', sourceIds: sourceIdsOf(evidenceContext, `${r}%`), origin: 'evidence' }], operation: `${b.token} ${op}`, result: `${Math.round(val)}${claim.unit}`, verdict: 'hypothetical', reason: `가정 기준값에 검증된 비율을 한 번 적용한 값 — 사실로 승격하지 않음(EXPLICIT_HYPOTHETICAL_DERIVATION)` }; break; }
+        }
+        if (hit) break;
+      }
+      if (hit) continue;
+      for (const d of diffs) {
+        if (d.unit !== claim.unit || d.num === b.num) continue;
+        for (const [op, val] of [[`− ${d.token}`, b.num - d.num], [`+ ${d.token}`, b.num + d.num]] as Array<[string, number]>) {
+          if (Math.abs(val - claim.num) <= 1e-9) { hit = { kind: 'hypothetical-apply', sentence: text, claim: token, item: '', operands: [{ label: '가정 기준값', value: b.token, unit: b.unit, sourceIds: [], origin: 'hypothetical' }, { label: '규칙', value: d.token, unit: d.unit, sourceIds: sourceIdsOf(evidenceContext, d.token), origin: 'evidence' }], operation: `${b.token} ${op}`, result: `${val}${claim.unit}`, verdict: 'hypothetical', reason: '가정 기준값에 검증된 차액을 한 번 적용한 값 — 사실로 승격하지 않음(EXPLICIT_HYPOTHETICAL_DERIVATION)' }; break; }
+        }
+        if (hit) break;
+      }
+    }
+    if (hit) { resolved.set(token, hit); checks.push(hit); }
   }
   return { resolved, checks };
 }

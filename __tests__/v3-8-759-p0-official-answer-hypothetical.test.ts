@@ -257,6 +257,7 @@ describe('전역 (T19~T21)', () => {
     expect(alignRowsToBody(R2.summary019.rows, B2).changes).toEqual([]);
     const rep1 = inspectArticleFactIntegrity(R1.draft017, viewOf(R1).evidence);
     expect(rep1.derived || []).toEqual([]);                                                        // 가정 없는 글에 파생 계산이 생기지 않는다
-    expect(rep1.violations.map((v) => v.detail).join(' ')).toMatch(/13\.2%/);                       // 범위 표기 미대조(기지 P1)는 그대로 남는다 — 이번 범위 밖
+    // v3.8.760(P1-A) 전에는 범위 표기 "13.2%에서 14.4%" 가 미확인이었다 — 이제 근거의 "13.2~14.4%" 와 구조로 대조돼 통과한다(v3-8-760 테스트가 상세 검증)
+    expect(rep1.violations).toEqual([]);
   });
 });
