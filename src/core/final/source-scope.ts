@@ -25,7 +25,24 @@ export interface SourceScope {
   round?: string;
   year?: string;
   regions: string[];
+  /**
+   * v3.8.757 — 비교 글(vs·비교·차이·"A 대 B")의 범위. 실측(run f607bc): 비교 제목이면 범위를 통째로 비워
+   * 기관 재검색·공식 우선 수집이 빠졌다. 비교 범위는 **조사 우선순위**(공식 재검색·본문 예산 우선)에만 쓰고,
+   * 다른 쪽 대상의 자료(다른 기관·언론·블로그)를 근거에서 빼지 않는다.
+   */
+  comparison?: boolean;
+  /** 비교 대상 이름들(키워드에서 vs/대 로 가른 것) */
+  subjects?: string[];
 }
+
+const COMPARISON_CUE = /\bvs\.?\b|비교|차이|(?:^|\s)대(?:\s|$)/i;
+/** "A vs B"·"A 대 B" 를 대상별로 가른다. 낱말 '대' 는 앞뒤에 공백이 있을 때만 구분자다 */
+export function comparisonSubjects(topic: string): string[] {
+  const text = plain(topic);
+  const parts = text.split(/\s*\bvs\.?\b\s*|\s+대\s+/i).map((s) => s.replace(/\s*(?:비교|차이|장단점|정리)\s*$/g, '').trim()).filter(Boolean);
+  return parts.length >= 2 ? parts : [text];
+}
+export const isComparisonTopic = (topic: string) => COMPARISON_CUE.test(plain(topic));
 
 /**
  * 주관기관 사전 — 이름과 **확인된** 공식 도메인만. 확실하지 않은 기관은 넣지 않는다(틀린 도메인은 멀쩡한 근거를 버린다).
@@ -60,11 +77,17 @@ const roundOf = (text: string) => text.match(/(?:제\s*)?(\d+)\s*차(?:\b|[^0-9]
 export function deriveSourceScope(topic: string, inputSources: SourceCandidate[] = [], hints = ''): SourceScope | undefined {
   const text = plain(topic);
   const clue = `${text} ${plain(hints)}`;
-  if (/비교|차이|vs\b/i.test(text)) return undefined;   // 두 제도를 견주는 글은 한쪽으로 좁히면 안 된다
+  /**
+   * v3.8.757 — 두 제도를 견주는 글도 범위를 비우지 않는다. 다만 비교 범위는 자료를 **거르지 않고**(sourceMatchesScope 가 통과시킨다)
+   * 공식 재검색·본문 수집 우선순위에만 쓴다. 서로 다른 두 기관이 이름으로 함께 지목되면 한쪽으로 못 좁힌다 → 예전처럼 없음(한계).
+   */
+  const comparison = isComparisonTopic(text);
+  const subjects = comparison ? comparisonSubjects(text) : undefined;
   // An excluded agency is not a second requested institution ("LH 기준, HUG 자료는 제외").
   const includedClue = clue.replace(/(?:HUG|LH|SH|GH|iH|한국토지주택공사|주택도시보증공사|서울주택도시공사|경기주택도시공사|인천도시공사)(?:의|는|은)?\s*(?:(?:자료|정보|공고|제도)(?:는|은|를|을)?\s*)?(?:제외|빼(?:고|주세요)?|사용하지\s*(?:마|않)|섞지\s*마)/gi, ' ');
   const named = AGENCIES.filter((a) => a.name.test(includedClue));
   const anchored = AGENCIES.filter((a) => inputSources.some((s) => within(s.url || '', a.domain)));
+  if (comparison && named.length >= 2) return undefined;   // 두 기관을 견주는 글 — 단일 범위로 표현할 수 없다
   const picked = anchored.length === 1 ? anchored[0] : named.length === 1 ? named[0] : undefined;
   if (!picked) return undefined;
   if (!HOUSING_WORDS.test(`${clue} ${inputSources.map((s) => plain(s.title)).join(' ')}`)) return undefined;
@@ -77,6 +100,7 @@ export function deriveSourceScope(topic: string, inputSources: SourceCandidate[]
     ...(round ? { round } : {}),
     ...(year ? { year } : {}),
     regions: REGIONS.filter((r) => identity.includes(r)),
+    ...(comparison ? { comparison: true, subjects: subjects || [text] } : {}),
   };
 }
 
@@ -89,6 +113,7 @@ export function deriveSourceScope(topic: string, inputSources: SourceCandidate[]
  */
 export function sourceMatchesScope(source: SourceCandidate, scope?: SourceScope): boolean {
   if (!scope) return true;
+  if (scope.comparison) return true;   // v3.8.757 — 비교 범위는 거르지 않는다(다른 쪽 대상의 자료가 필요하다)
   const title = plain(source.title);
   const text = `${title} ${plain(source.content)}`;
   const ownDomain = within(source.url || '', scope.domain);
@@ -123,6 +148,13 @@ export function hasOfficialSource(sources: SourceCandidate[], scope?: SourceScop
 /** 프롬프트에 싣는 출처 계층 지시 — 모든 생성·수정에 앞서 붙는다 */
 export function buildSourceScopeDirective(scope?: SourceScope): string {
   if (!scope) return '';
+  if (scope.comparison) {
+    return [
+      '[출처 범위 — 비교 글]',
+      `비교 대상: ${(scope.subjects || [scope.topic]).join(' · ')}`,
+      `공식 출처 우선: ${scope.agency} / ${scope.domain}. 다른 쪽 대상의 자료(다른 기관·언론)도 근거로 쓴다. 회차·연도가 다른 수치를 이번 사실로 옮기지 않는다.`,
+    ].join('\n');
+  }
   return [
     '[공고 출처 범위 — 모든 생성·수정에 적용]',
     `대상: ${scope.topic}`,

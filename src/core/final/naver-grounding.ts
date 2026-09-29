@@ -37,7 +37,7 @@
  */
 
 import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust';
-import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, type SourceScope } from './source-scope';
+import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, isComparisonTopic, comparisonSubjects, type SourceScope } from './source-scope';
 import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceDraft } from './evidence';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
@@ -75,6 +75,9 @@ const BODY_FETCH_MAX = 6;
 
 /** 한 건에서 가져올 본문 글자수 */
 const BODY_CHARS = 900;
+
+/** v3.8.757 — BODY_FETCH_MAX 안에서 이 주제의 공식 페이지에 먼저 주는 몫(총량은 늘지 않는다) */
+const OFFICIAL_RESERVE = 2;
 
 /**
  * ① 검색 결과에서 근거가 될 만한 글자를 모은다.
@@ -133,6 +136,21 @@ export interface GroundingResult {
   rejected?: RejectedEvidence[];
   /** 실제로 나간 검색어 */
   query?: string;
+  /**
+   * v3.8.757 — 본문 수집 시도 기록. 실측(run f607bc): 공식 페이지(fsc 87370)가 스니펫 117자로 남았는데
+   * 시도했는지·예산에 밀렸는지·실패했는지 저장자료로 가를 수 없었다. snippet-only 와 fetch 실패를 구분한다.
+   */
+  fetchLog?: FetchAttempt[];
+}
+
+export interface FetchAttempt {
+  url: string;
+  tag: string;
+  attempted: boolean;
+  ok: boolean;
+  chars: number;
+  /** 'ok' · 'budget'(예산 소진으로 미시도) · 'file-url'(첨부파일) · 'fetch-failed' · 'scope-mismatch' */
+  reason: 'ok' | 'budget' | 'file-url' | 'fetch-failed' | 'scope-mismatch';
 }
 
 /**
@@ -341,9 +359,13 @@ export async function fetchGrounding(
    * 그 갈래엔 예산이 없어 120자 스니펫으로 남았다. 한 통이면 그런 구멍이 없다.
    */
   let budgetLeft = BODY_FETCH_MAX;
+  const fetchLog: FetchAttempt[] = [];
 
   const enrich = async (items: any[], tag: string, budget: number): Promise<string[]> => {
-    if (budget <= 0) return items.map((it) => keep(it, tag, snippet(it, tag), '')).filter(Boolean);
+    if (budget <= 0) {
+      for (const it of items) fetchLog.push({ url: bodyUrlOf(it), tag, attempted: false, ok: false, chars: 0, reason: 'budget' });
+      return items.map((it) => keep(it, tag, snippet(it, tag), '')).filter(Boolean);
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { looksLikeFileUrl } = require('../crawlers/official-page-body');
@@ -376,9 +398,13 @@ export async function fetchGrounding(
 
     return items.map((it, i) => {
       const body = bodies[i];
+      const url = bodyUrlOf(it);
+      if (!spend.has(i)) fetchLog.push({ url, tag, attempted: false, ok: false, chars: 0, reason: url && looksLikeFileUrl(url) ? 'file-url' : 'budget' });
+      else if (!body) fetchLog.push({ url, tag, attempted: true, ok: false, chars: 0, reason: 'fetch-failed' });
       if (!body) return keep(it, tag, snippet(it, tag), '');
-      if (!sourceMatchesScope({ url: bodyUrlOf(it), title: stripTags(it?.title), content: body }, sourceScope)) return '';
-      return keep(it, tag, `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${bodyUrlOf(it)}\n[추출 원문]` : ''} ${body}`.trim(), body);
+      if (!sourceMatchesScope({ url, title: stripTags(it?.title), content: body }, sourceScope)) { fetchLog.push({ url, tag, attempted: true, ok: true, chars: body.length, reason: 'scope-mismatch' }); return ''; }
+      fetchLog.push({ url, tag, attempted: true, ok: true, chars: body.length, reason: 'ok' });
+      return keep(it, tag, `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${url}\n[추출 원문]` : ''} ${body}`.trim(), body);
     }).filter(Boolean);
   };
 
@@ -411,7 +437,7 @@ export async function fetchGrounding(
      * 🏛️ v3.8.730 — 공고형 글은 **주관기관이 정해져 있다.** 검색 순위나 .go.kr 같은 접미사로 정체를 정하지 않는다.
      * 본문 긁기 예산을 그 기관의 공식 페이지에 먼저 쓰고, 다른 기관의 같은 이름 제도·다른 회차 자료는 뺀다.
      */
-    if (sourceScope) {
+    if (sourceScope && !sourceScope.comparison) {
       const asCandidate = (it: any) => ({ ...it, url: bodyUrlOf(it), title: stripTags(it?.title), content: stripTags(it?.description) });
       const unique = new Set<string>();
       const webPool = [...(agencyWeb?.ok ? agencyWeb.items : []), ...(web?.ok ? web.items : [])];
@@ -434,11 +460,15 @@ export async function fetchGrounding(
         officialCount: officialParts.length,
         newsCount: newsParts.length,
         skippedBlogs: blog?.ok ? blog.items.length : 0,
-        items: accepted, rejected, query,
+        items: accepted, rejected, query, fetchLog,
       };
     }
 
-    const webItems: any[] = web?.ok && Array.isArray(web.items) ? web.items : [];
+    // v3.8.757 — 비교 범위면 기관 재검색 결과를 일반 웹문서 풀 앞에 둔다(거르지 않고 우선만)
+    const webItems: any[] = [
+      ...(sourceScope?.comparison && agencyWeb?.ok && Array.isArray(agencyWeb.items) ? agencyWeb.items : []),
+      ...(web?.ok && Array.isArray(web.items) ? web.items : []),
+    ];
 
     let newsItems = usable(news?.ok ? news.items : []);
 
@@ -472,12 +502,28 @@ export async function fetchGrounding(
      * 웹문서 갈래에서는 블로그를 뺀다 — 여기 섞이면 순위를 알 수 없어서다.
      * 블로그는 아래에서 **정확도순 상위 몇 건만** 따로 받는다(v3.8.581).
      */
-    const webUsable = usable(webItems, (it) => !isUserGeneratedUrl(String(it?.link || '')));
+    const webUsableAll = usable(webItems, (it) => !isUserGeneratedUrl(String(it?.link || '')));
 
     /** 이미 담은 주소 — 블로그 갈래에서 같은 글을 두 번 넣지 않으려고 모아 둔다 */
     const seenLinks = new Set<string>(
       webItems.map((it) => String(it?.link || '')).filter(Boolean),
     );
+
+    /**
+     * 🏛️ v3.8.757 — 검색 결과에 **이 주제의 공식 페이지**가 있으면 본문 예산 일부를 먼저 준다.
+     * 실측(run f607bc): 금융위 페이지가 웹문서 결과에 있었지만 예산 6건을 뉴스가 먼저 써서 스니펫 117자로 남았다.
+     * 예산 총량(BODY_FETCH_MAX)은 그대로 — 뉴스에서 최대 OFFICIAL_RESERVE 건만 옮겨 온다. 공식 도메인이라도 주제와
+     * 안 맞는 페이지(matchesTopic 미달)는 우선하지 않는다. 옛 안내문을 최신 공고로 승격하는 것이 아니라 본문을 읽게 할 뿐이다.
+     */
+    //   비교 글("A vs B")이면 한쪽 대상만 다루는 공식 페이지도 주제에 맞는다 — 키워드 전체가 아니라 대상별로 댄다.
+    //   갈래·표시·집계는 그대로 [웹] 이다(기관 문서는 웹 갈래라는 기존 계약 유지) — 바뀌는 것은 본문 예산의 순서뿐.
+    const topicsForOfficial = sourceScope?.subjects?.length ? sourceScope.subjects : (isComparisonTopic(mainKeyword) ? comparisonSubjects(mainKeyword) : [mainKeyword]);
+    const officialFirst = webUsableAll
+      .filter((it) => isOfficialDestination(bodyUrlOf(it)) && topicsForOfficial.some((t) => matchesTopic(`${stripTags(it?.title)} ${stripTags(it?.description)}`, t)))
+      .slice(0, OFFICIAL_RESERVE);
+    const officialFirstParts = officialFirst.length > 0 ? await enrich(officialFirst, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft)) : [];
+    const reservedUrls = new Set(officialFirst.map((it) => bodyUrlOf(it)));
+    const webUsable = webUsableAll.filter((it) => !reservedUrls.has(bodyUrlOf(it)));   // 앞에서 먼저 읽은 공식 페이지는 뺀다
 
     // 뉴스 본문을 먼저 채운다 — 언론사 기사는 추출이 가장 잘 된다(실측 2,540~7,703자)
     const newsParts = await enrich(newsItems, '뉴스', budgetLeft);
@@ -595,15 +641,15 @@ export async function fetchGrounding(
     const blogParts = await enrich(blogTop, '블로그', budgetLeft);
 
     return {
-      text: [...newsParts, ...officialParts, ...webParts, ...blogParts]
+      text: [...newsParts, ...officialParts, ...officialFirstParts, ...webParts, ...blogParts]
         .join('\n').slice(0, MAX_SNIPPET_CHARS),
       newsCount: newsParts.length,
-      webCount: webParts.length,
+      webCount: officialFirstParts.length + webParts.length,
       officialCount: officialParts.length,
       blogCount: blogParts.length,
       skippedBlogs: Math.max(0, blogSeen.length - blogTop.length),
       breakingEvent,
-      items: accepted, rejected, query,
+      items: accepted, rejected, query, fetchLog,
     };
   } catch {
     return empty;

@@ -1545,6 +1545,8 @@ export async function generateUltimateMaxModeArticleFinal(
       // v3.8.633 — 속보 판정을 반환값에서 받는다(전역만 믿으면 지난 판정이 묻어간다)
       if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
       groundingStats = g;
+      // 🧾 v3.8.757 — 본문 수집 시도(예산 미시도·첨부·실패·성공)를 남긴다. 공식 페이지가 스니펫만 남은 이유를 저장자료로 가르기 위해
+      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], scope: sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
       const summary = describeGrounding(g);
       console.log(`[GROUNDING] ${summary}`);
       if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
