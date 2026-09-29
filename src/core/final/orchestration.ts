@@ -39,7 +39,7 @@ import {
   normalizeExperience, hasExperience, buildExperienceBlock, NO_EXPERIENCE_GUARD,
 } from './experience-block';
 import { extractLivedSignals, buildLivedVoiceBlock, describeMissingLivedMaterial, HUMAN_VOICE_RULES } from './lived-voice';
-import { guardFacts, buildGroundingReference } from './fact-guard';
+import { guardFacts, buildGroundingReference, gateRewrite } from './fact-guard';
 // v3.8.574: AI 를 부르지 않는 구조 검사 — 열거 구멍·앞 잘린 문단·과한 단정
 import { findStructureIssues, describeStructureIssues } from './structure-guard';
 // v3.8.575: 이미 쓰는 네이버 키로 근거를 넓히고 낡음을 본다 (추가 비용 없음)
@@ -7303,11 +7303,19 @@ ${conclusionHTML}
         onLog,
       );
       if (outcome.revised > 0) {
-        html = outcome.html;
+        /**
+         * v3.8.762 — 마지막 늦은 LLM 재작성 경로도 같은 보호 계약(fact-guard 의 gateRewrite = gateRepairs 재사용). 고친 결함과 무관한 보호 값·검산·가정·핵심 답이
+         * 사라진 구간은 원본으로 되돌린다. 두 라이브 run 은 revised=0 이라 실제 손실은 없었지만 구조적 구멍이었다. 추가 호출 0.
+         */
+        const rewriteGate = gateRewrite(html, outcome.html, validationView().evidence, { isCoreAnswer: (s: string) => isCoreAnswerSentence(s, coreQuestionsPlan) });
+        trace.event('pre-publish-fix.rewrite', { accepted: rewriteGate.status === 'accepted', status: rewriteGate.status, rolledBack: rewriteGate.rolledBack, reason: rewriteGate.rolledBack ? 'protected-information-loss' : rewriteGate.status, regions: rewriteGate.regions.map((r) => ({ accepted: r.accepted, before: r.beforeText.slice(0, 160), after: r.afterText.slice(0, 160), reasons: r.decisions.filter((d) => !d.accepted).map((d) => d.reason) })) });
+        if (rewriteGate.rolledBack) onLog?.(`[PROGRESS] 97% - 🧷 자가 수정 구간 ${rewriteGate.rolledBack}개를 보호 정보 손실로 되돌렸습니다`);
+        html = rewriteGate.html;
         onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
         // 🧾 v3.8.752 — 자가 수정 전후(문장 diff) · 반려/수정 사유(notes)
         trace.change('pre-publish-fix', { fn: 'fixBeforePublish', before: preflightBeforeSnap, after: trace.snapshot('html.after-preflight', html, { ext: 'html' }), beforeText: htmlBeforePreflight, afterText: html, reason: `구간 ${outcome.revised}개 재작성 · 호출 ${outcome.calls}회`, notes: outcome.notes.slice(0, 12), judgeable: true });
       }
+      if (outcome.revised === 0) trace.event('pre-publish-fix.rewrite', { accepted: 'not-applicable', status: 'not-applicable', revised: 0, calls: outcome.calls });
       trace.check('fixBeforePublish', { status: 'RUN', artifact: preflightBeforeSnap, result: { revised: outcome.revised, calls: outcome.calls, notes: outcome.notes.slice(0, 12) }, changedAfter: outcome.revised > 0 });
       const usdAfterPreflight = (() => { try { return Number(require('../llm/usage-cost').estimateCost().usd) || 0; } catch { return 0; } })();
       const changedChars = Math.abs(String(html).replace(/<[^>]+>/g, '').length - String(htmlBeforePreflight).replace(/<[^>]+>/g, '').length);

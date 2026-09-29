@@ -302,6 +302,73 @@ export function gateRepairs(html: string, repairs: FactRepair[], evidence: FactE
   return { accepted, decisions };
 }
 
+/**
+ * v3.8.762 — 늦은 LLM 재작성(pre-publish-fix 등)이 만든 **전후 HTML** 을 같은 게이트에 통과시킨다. 새 게이트가 아니다 — gateRepairs 를 재사용한다.
+ * 문단 단위로 전후를 맞추고(같은 글자의 문단은 같은 문단), 바뀐 구간마다 "전 문단들 → 후 구간" 을 교체본으로 보아 보호 값·근거 없는 값 유입·핵심 답 소실을 본다.
+ * 거부된 구간은 원본 문단으로 되돌린다(rollback). 바뀐 구간이 없으면 not-applicable.
+ */
+export interface RewriteRegion { beforeIndices: number[]; afterIndices: number[]; accepted: boolean; decisions: RepairDecision[]; beforeText: string; afterText: string }
+export interface RewriteGateResult { html: string; status: 'not-applicable' | 'accepted' | 'partially-rejected' | 'rejected'; regions: RewriteRegion[]; rolledBack: number }
+
+function alignParagraphs(a: string[], b: string[]): Array<[number, number]> {
+  // LCS(같은 글자 문단) — 문단 수는 수십~수백이라 O(n·m) 으로 충분하다
+  const n = a.length; const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i -= 1) for (let j = m - 1; j >= 0; j -= 1) dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+  const pairs: Array<[number, number]> = [];
+  let i = 0; let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { pairs.push([i, j]); i += 1; j += 1; }
+    else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) i += 1;
+    else j += 1;
+  }
+  return pairs;
+}
+
+export function gateRewrite(beforeHtml: string, afterHtml: string, evidence: FactEvidence, options: { isCoreAnswer?: (s: string) => boolean } = {}): RewriteGateResult {
+  const before = String(beforeHtml || ''); const after = String(afterHtml || '');
+  if (before === after) return { html: after, status: 'not-applicable', regions: [], rolledBack: 0 };
+  const bp = splitParagraphs(before); const ap = splitParagraphs(after);
+  const key = (p: { html: string }) => stripMarkup(p.html).replace(/\s+/g, ' ').trim();
+  const pairs = alignParagraphs(bp.map(key), ap.map(key));
+  // 매칭 사이의 빈틈이 바뀐 구간
+  const regions: RewriteRegion[] = [];
+  const anchors: Array<[number, number]> = [[-1, -1], ...pairs, [bp.length, ap.length]];
+  for (let k = 0; k + 1 < anchors.length; k += 1) {
+    const [bi, ai] = anchors[k]!; const [bj, aj] = anchors[k + 1]!;
+    const beforeIdx: number[] = []; for (let x = bi + 1; x < bj; x += 1) beforeIdx.push(x);
+    const afterIdx: number[] = []; for (let x = ai + 1; x < aj; x += 1) afterIdx.push(x);
+    if (beforeIdx.length === 0 && afterIdx.length === 0) continue;
+    const afterRegionHtml = afterIdx.map((x) => ap[x]!.html).join('\n') || '<p></p>';
+    // 전 문단마다 "후 구간 전체" 를 교체본으로 본다 — 보호 값이 구간 안 어디에든 남아 있으면 된다
+    const repairs = beforeIdx.map((x) => ({ paragraphIndex: x, html: afterRegionHtml }));
+    const gated = beforeIdx.length ? gateRepairs(before, repairs, evidence, { ...(options.isCoreAnswer ? { isCoreAnswer: options.isCoreAnswer } : {}) }) : { decisions: [] as RepairDecision[] };
+    // 새로 생긴 구간(전 문단 없음)은 근거 없는 값 유입만 본다
+    const introduced = beforeIdx.length === 0 ? gateRepairs(`<p></p>`, [{ paragraphIndex: 0, html: afterRegionHtml }], evidence).decisions : [];
+    const decisions = [...gated.decisions, ...introduced];
+    regions.push({ beforeIndices: beforeIdx, afterIndices: afterIdx, accepted: decisions.every((d) => d.accepted), decisions, beforeText: beforeIdx.map((x) => key(bp[x]!)).join(' ').slice(0, 240), afterText: afterIdx.map((x) => key(ap[x]!)).join(' ').slice(0, 240) });
+  }
+  if (regions.length === 0) return { html: after, status: 'not-applicable', regions, rolledBack: 0 };
+  // 거부 구간을 뒤에서부터 원본으로 되돌린다(앞 위치가 밀리지 않게)
+  let out = after;
+  let rolledBack = 0;
+  for (const r of [...regions].reverse()) {
+    if (r.accepted) continue;
+    rolledBack += 1;
+    const beforeSlice = r.beforeIndices.length ? before.slice(bp[r.beforeIndices[0]!]!.start, bp[r.beforeIndices[r.beforeIndices.length - 1]!]!.end) : '';
+    if (r.afterIndices.length) {
+      const s = ap[r.afterIndices[0]!]!.start; const e = ap[r.afterIndices[r.afterIndices.length - 1]!]!.end;
+      out = out.slice(0, s) + beforeSlice + out.slice(e);
+    } else {
+      // 문단이 통째로 지워진 구간 — 앞 매칭 문단 뒤에 원본을 다시 넣는다
+      const prevAfter = r.afterIndices.length === 0 && r.beforeIndices.length ? (() => { const firstBefore = r.beforeIndices[0]!; const anchor = pairs.filter(([b]) => b < firstBefore).pop(); return anchor ? ap[anchor[1]]!.end : 0; })() : 0;
+      out = out.slice(0, prevAfter) + '\n' + beforeSlice + out.slice(prevAfter);
+    }
+  }
+  const rejected = regions.filter((r) => !r.accepted).length;
+  return { html: out, status: rejected === 0 ? 'accepted' : rejected === regions.length ? 'rejected' : 'partially-rejected', regions, rolledBack };
+}
+
 /** 고친 문단만 제자리에 갈아끼운다. 지목되지 않은 문단은 글자 하나 건드리지 않는다. */
 export function applyFactRepairs(html: string, repairs: FactRepair[]): string {
   try {

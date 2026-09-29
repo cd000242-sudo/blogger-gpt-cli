@@ -23,7 +23,7 @@ export function planCoreQuestions(input: { keyword: string; searchIntent?: strin
   const subjectText = `${intentText} \n ${plain(String(input.evidenceText || '').slice(0, 4000))}`;
   const switching = SWITCH_INTENT.test(intentText);
   // 계약 낱말은 의도(키워드·질문)에 있거나, 근거 앞부분에 두 번 이상 나와야 한다 — 근거 한 줄의 우연한 낱말로 켜지지 않게
-  const contractHits = (subjectText.match(ONGOING_CONTRACT) || []).length;
+  const contractHits = (subjectText.match(new RegExp(ONGOING_CONTRACT.source, 'g')) || []).length;
   const contractInIntent = ONGOING_CONTRACT.test(intentText);
   const ongoing = contractInIntent || contractHits >= 2;
   const applicable = switching && ongoing;
