@@ -302,25 +302,186 @@ export function evidenceHeader(item: EvidenceItem): string {
     + `  · URL: ${item.url || '없음'}`;
 }
 
+/** 렌더가 어느 문서의 어느 구간을 전달했는가(원문 오프셋) — 캡처(run-trace)에 남긴다 */
+export interface RenderSelection {
+  id: string;
+  delivered: boolean;
+  chars: number;
+  /** cleanedText 의 [start, end) — 붙이면 전달 본문과 같다 */
+  ranges: Array<[number, number]>;
+  reason?: string;
+}
+
+/** 조건·예외·절차를 말하는 낱말 — 이런 문장이 소개문보다 먼저 들어간다 */
+const CONDITION_WORDS = /(이하|이상|초과|미만|제외|포함|유지|해지|중도|우대|일반형|우대형|자격|대상|요건|조건|기간|신청|심사|개설|기여금|비과세|한도|최대|최소|만기|납입|소득|매출|가구|구간|경우|불가|가능|필요|안내|기준|절차|서류|마감|접수)/g;
+/** 예외·단서를 말하는 표현 — "다만·단·않으면·받지 못하지만" 은 조건의 반대편이라 소개문보다 값어치가 크다 */
+const EXCEPTION_WORDS = /(다만|단,|단 |않으면|못하|받지|안 됩니다|불가|제외|예외|특별|경우에는|경우에만|이라면|라면)/g;
+const VALUE_WORDS = /\d[\d,]*(?:\.\d+)?\s*(?:만\s*원|원|억|%|퍼센트|명|건|개월|년|월|일|세|회|천|만)/g;
+const SHELL_LINE = /(구독|공감|댓글|공유하기|클릭|바로가기|기자\s*$|사진=|저작권|무단전재|더보기|이전글|다음글|카카오톡|페이스북|네이버 블로그$|블로그 홈|목록)/;
+
+/** 문장 경계 — 소수점·날짜의 마침표는 끝이 아니다. 아주 긴 문장은 공백에서 자른다. 오프셋을 돌려준다 */
+export function sentenceRanges(text: string, maxLen = 320): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  let start = 0;
+  const push = (s: number, e: number) => {
+    while (s < e && /\s/.test(text[s]!)) s += 1;
+    let end = e;
+    while (end > s && /\s/.test(text[end - 1]!)) end -= 1;
+    if (end - s < 2) return;
+    if (end - s <= maxLen) { out.push([s, end]); return; }
+    // 긴 덩어리(문장 부호 없는 블로그 글)는 공백에서 나눈다
+    let cur = s;
+    while (end - cur > maxLen) {
+      let cut = text.lastIndexOf(' ', cur + maxLen);
+      if (cut <= cur + 40) cut = cur + maxLen;
+      out.push([cur, cut]);
+      cur = cut;
+      while (cur < end && /\s/.test(text[cur]!)) cur += 1;
+    }
+    if (end - cur >= 2) out.push([cur, end]);
+  };
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (ch === '\n') { push(start, i); start = i + 1; continue; }
+    if (ch !== '.' && ch !== '!' && ch !== '?' && ch !== '。') continue;
+    const prev = text[i - 1] || '';
+    const next = text[i + 1] || '';
+    if (ch === '.' && /\d/.test(prev) && /\d/.test(next)) continue;   // 4.35 · 2026.9.16
+    if (next && !/[\s"'”’)\]]/.test(next)) continue;                    // 문장 안의 마침표(www.fsc, 1.039)
+    push(start, i + 1);
+    start = i + 1;
+  }
+  push(start, text.length);
+  return out;
+}
+
+const normKey = (s: string) => s.replace(/[\s"'“”‘’.,!?·()[\]]/g, '').toLowerCase();
+
 /**
  * Writer 용 근거 글자. 품질순으로 예산(글자)을 나눠 준다 — "상위 N개"로 자르지 않는다.
  * 공식 자료는 **앞자리와 큰 몫**을 먼저 받는다(뉴스 뒤에서 잘려 나가지 않게).
+ *
+ * v3.8.753 — 앞 N자를 자르지 않고 **조건·예외·수치를 말하는 문장**을 고른다.
+ * 실측(run 1b7d92): 블로그 두 편의 700자 뒤에 무기여 구간·특별중도해지 시 혜택 유지·우대형 기준이 있었는데
+ * 앞 700자(소개문)만 전달됐고, 2단계에서는 예산(11,000자)에 밀려 두 문서가 통째로 빠졌다.
+ *   · 1차(보장): 문서마다 점수 높은 문장부터 작은 몫(공식 900 · 그 밖 360자)을 준다 — 넓게 덮는다
+ *   · 2차(채움): 남은 예산을 점수순으로 돌아가며 준다 — 종류별 상한(공식 2600 · 뉴스 1800 · 웹 1200 · 블로그 700)은 그대로
+ *   · 같은 말(정규화해 같은 문장)은 두 번 넣지 않는다. 자격 상한·혜택 제외 구간·특별 절차는 낱말이 비슷해도 다른 문장이라 따로 남는다
+ *   · 발췌는 원문 문장 그대로다(오프셋을 selection 에 남긴다). 문장을 만들거나 요약하지 않는다
+ * 예산(budgetChars)은 늘리지 않는다 — 같은 예산 안에서 보존율을 올리는 것이 목적이다.
  */
-export function renderEvidence(items: EvidenceItem[], budgetChars = 12000): { text: string; used: EvidenceItem[] } {
+export function renderEvidence(items: EvidenceItem[], budgetChars = 12000): { text: string; used: EvidenceItem[]; selection: RenderSelection[] } {
   const ordered = [...items].sort((a, b) => (Number(b.isOfficial) - Number(a.isOfficial)) || 0);
+  // 종류별 상한 — 블로그 700→900: 실측(run 1b7d92)에서 조건·예외 문장이 700자 밖에 있었다. 총예산은 그대로다
+  const capOf = (item: EvidenceItem) => (item.isOfficial ? 2600 : item.sourceType === 'news' ? 1800 : item.sourceType === 'web' ? 1200 : item.sourceType === 'knowledge' ? 500 : 900);
+  const seen = new Set<string>();
+
+  type Cand = { range: [number, number]; text: string; score: number; key: string; values: string[] };
+  /** 이미 전달된 값(수치·날짜) — 같은 날짜를 되풀이하는 문장보다 새 값을 말하는 문장이 먼저다 */
+  const seenValues = new Set<string>();
+  const valuesOf = (text: string) => (text.match(VALUE_WORDS) || []).map((v) => v.replace(/\s+/g, ''));
+  const adjusted = (c: Cand): number => {
+    if (c.values.length === 0) return c.score;
+    const fresh = c.values.filter((v) => !seenValues.has(v)).length;
+    if (fresh === 0) return c.score * 0.7;                      // 값은 있는데 전부 이미 전달된 값 — 되풀이
+    return c.score + 1.5 * Math.min(2, fresh);                  // 새 값 하나당 +1.5 (최대 +3)
+  };
+  const state = ordered.map((item) => {
+    const topic = distinctiveTokens(item.mainKeyword || '');
+    const ranges = sentenceRanges(item.cleanedText);
+    const cands: Cand[] = ranges.map(([s, e], i) => {
+      const text = item.cleanedText.slice(s, e);
+      let score = Math.min(4, (text.match(CONDITION_WORDS) || []).length) + 2 * Math.min(3, (text.match(VALUE_WORDS) || []).length)
+        + 2 * Math.min(2, (text.match(EXCEPTION_WORDS) || []).length);
+      if (topic.some((t) => text.includes(t))) score += 1;
+      if (i === 0) score += 0.5;
+      if (SHELL_LINE.test(text)) score -= 3;
+      // 스펙 나열(✔·▪·: 가 줄줄이)은 기본 소개다 — 새 조건을 말하는 문장보다 뒤로
+      if ((text.match(/[✔✓▪■◆▶·]|\s:\s/g) || []).length >= 4) score *= 0.6;
+      // 밀도로 세운다 — 스펙을 줄줄이 늘어놓은 긴 문장 하나가 짧은 예외 문장 셋을 밀어내지 않게
+      const cand: Cand = { range: [s, e], text, score: score / (1 + text.length / 200), key: normKey(text), values: valuesOf(text) };
+      return cand;
+    }).filter((c) => c.key.length >= 6);
+    cands.sort((a, b) => b.score - a.score);
+    return { item, head: evidenceHeader(item), cap: capOf(item), cands, picked: [] as Cand[], chars: 0, headerCharged: false, maxScore: cands[0]?.score ?? 0 };
+  });
+
+  let left = budgetChars;
+  /** 정해진 후보 하나를 넣어 본다 — 문서 상한·전체 예산을 넘으면 넣지 않는다 */
+  const tryPickCand = (st: typeof state[number], next: Cand): boolean => {
+    const len = next.text.trim().length;
+    if (st.chars + len > st.cap) { st.cands = st.cands.filter((c) => c !== next); return false; }
+    const headCost = st.headerCharged ? 0 : st.head.length + 1 + (left === budgetChars ? 0 : 2);
+    const joinCost = st.picked.length ? 5 : 0;
+    const cost = headCost + joinCost + len;
+    if (cost > left) return false;
+    st.picked.push(next); seen.add(next.key); for (const v of next.values) seenValues.add(v);
+    st.chars += len; st.headerCharged = true; left -= cost;
+    return true;
+  };
+  /** 1차용 — 점수순 다음 후보를 몫까지 */
+  const tryPick = (st: typeof state[number], quota: number): boolean => {
+    if (st.chars >= Math.min(quota, st.cap)) return false;
+    for (const next of st.cands) {
+      if (st.picked.includes(next) || seen.has(next.key)) continue;
+      if (tryPickCand(st, next)) return true;
+      if (!st.cands.includes(next)) continue;   // 상한 때문에 뺀 후보 — 다음 후보로
+      return false;                              // 예산 부족
+    }
+    return false;
+  };
+
+  // 1차 — 문서마다 핵심 문장 몫을 먼저 (공식은 큰 몫). 조건·수치가 한 줄도 없는 문서(검색 요약만 있는 것 등)는 2차로 미룬다 —
+  //   머리줄(~150자)이 본문보다 긴 문서 14건이 예산을 먼저 먹으면 정작 조건을 말하는 문서가 밀린다(실측 run 1b7d92)
+  for (const st of state) {
+    // 검색 요약만 있는 문서(본문 없음)는 2차로 — 요약 한 줄에 머리줄 150자를 먼저 쓰면 본문 있는 문서의 조건 문장이 밀린다
+    if (!st.item.isOfficial && (st.maxScore < 1.2 || !st.item.hasBody)) continue;
+    const quota = st.item.isOfficial ? 900 : 300;
+    while (tryPick(st, quota)) { /* 몫을 채운다 */ }
+  }
+  // 2차 — 남은 예산을 **문장 점수순**으로. 돌아가며 주면 검색 요약 한 줄짜리 문서의 머리줄이 조건 문장을 밀어낸다
+  // 문서 안에서도 "아직 전달되지 않은 값" 을 말하는 문장을 먼저 — 후보 순서를 그때그때 다시 세운다
+  const nextOf = (st: typeof state[number]) => {
+    const open = st.cands.filter((c) => !st.picked.includes(c) && !seen.has(c.key));
+    if (open.length === 0) return undefined;
+    return open.reduce((best, c) => (adjusted(c) > adjusted(best) ? c : best), open[0]!);
+  };
+  for (;;) {
+    if (left <= 150) break;
+    const ranked = state
+      .map((st) => ({ st, next: nextOf(st) }))
+      .filter((x) => x.next && x.st.chars < x.st.cap)
+      .sort((a, b) => adjusted(b.next!) - adjusted(a.next!));
+    let picked = false;
+    for (const { st, next } of ranked) { if (tryPickCand(st, next!)) { picked = true; break; } }
+    if (!picked) break;
+  }
+
   const used: EvidenceItem[] = [];
   const blocks: string[] = [];
-  let left = budgetChars;
-  for (const item of ordered) {
-    const head = evidenceHeader(item);
-    const share = item.isOfficial ? 2600 : item.sourceType === 'news' ? 1800 : item.sourceType === 'web' ? 1200 : 700;
-    const room = Math.min(share, left - head.length - 2);
-    if (room < 120) continue;
-    const body = item.cleanedText.slice(0, room);
-    blocks.push(`${head}\n${body}`);
-    used.push(item);
-    left -= head.length + body.length + 2;
-    if (left < 300) break;
+  const selection: RenderSelection[] = [];
+  for (const st of state) {
+    if (st.picked.length === 0) {
+      selection.push({ id: st.item.id, delivered: false, chars: 0, ranges: [], reason: st.cands.length === 0 ? 'no-usable-sentence' : 'budget' });
+      continue;
+    }
+    const ranges = st.picked.map((c) => c.range).sort((a, b) => a[0] - b[0]);
+    const merged: Array<[number, number]> = [];
+    for (const r of ranges) {
+      const last = merged[merged.length - 1];
+      if (last && /^\s*$/.test(st.item.cleanedText.slice(last[1], r[0]))) last[1] = r[1]; else merged.push([r[0], r[1]]);
+    }
+    const body = merged.map(([s, e]) => st.item.cleanedText.slice(s, e).trim()).join(' (…) ');
+    blocks.push(`${st.head}\n${body}`);
+    used.push(st.item);
+    selection.push({ id: st.item.id, delivered: true, chars: body.length, ranges: merged });
   }
-  return { text: blocks.join('\n\n'), used };
+  let text = blocks.join('\n\n');
+  // 안전망 — 결합 비용 추정이 어긋나 예산을 넘으면 마지막 블록부터 뺀다 (예산은 약속이다)
+  while (text.length > budgetChars && blocks.length > 1) {
+    blocks.pop(); const dropped = used.pop()!;
+    const sel = selection.find((s) => s.id === dropped.id)!; sel.delivered = false; sel.chars = 0; sel.ranges = []; sel.reason = 'budget';
+    text = blocks.join('\n\n');
+  }
+  return { text, used, selection };
 }

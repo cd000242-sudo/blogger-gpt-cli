@@ -1638,7 +1638,7 @@ export async function generateUltimateMaxModeArticleFinal(
     }
     pipelineStatus.mark('GROUNDING', gate.status, gateMod.describeGate(gate));
     // 🧾 v3.8.752 — CLEAN 뒤 근거 장부 1단계: 후보·채택·탈락(사유)·관문·Writer 에게 갈 렌더. 스니펫과 본문은 항목의 cleanedText 그대로
-    trace.snapshot('evidence.stage1', { candidates: evidenceCandidates, items: evidenceItems, rejected: evidenceRejected, gate, renderText: evidenceRender.text, renderUsedIds: (evidenceRender.used || []).map((u: any) => u?.id) }, { note: '제목 생성 전' });
+    trace.snapshot('evidence.stage1', { candidates: evidenceCandidates, items: evidenceItems, rejected: evidenceRejected, gate, renderText: evidenceRender.text, renderUsedIds: (evidenceRender.used || []).map((u: any) => u?.id), renderSelection: evidenceRender.selection }, { note: '제목 생성 전 · renderSelection = 문서별 전달 구간(원문 오프셋)·제외 이유' });
 
     /**
      * 🧾 RESEARCH PACKET — 제목보다 먼저. 수치·날짜는 코드가 뽑고, 사실·자격·조건은 LLM 1회로 정리한 뒤 근거와 대조한다.
@@ -3050,7 +3050,7 @@ ${quoted}
     } catch { /* 진단 실패는 생성을 막지 않는다 */ }
     (globalThis as any).__lastEvidenceDebug = { queries: require('../naver-search-client').getNaverCallLog(), channels: require('../naver-search-client').summarizeNaverChannels(), items: evidenceItems, rejected: evidenceRejected, packet: researchPacket, gate, titleAudit: titleGateResult };
     // 🧾 v3.8.752 — 근거 2단계(제목 뒤 보탠 것 포함)와 값을 다시 뽑은 패킷
-    trace.snapshot('evidence.stage2', { items: evidenceItems, rejected: evidenceRejected, gate, stats: evidenceLedgerStats, queries: (globalThis as any).__lastEvidenceDebug.queries, channels: (globalThis as any).__lastEvidenceDebug.channels, titleAudit: titleGateResult }, { note: '제목 확정 뒤' });
+    trace.snapshot('evidence.stage2', { items: evidenceItems, rejected: evidenceRejected, gate, stats: evidenceLedgerStats, queries: (globalThis as any).__lastEvidenceDebug.queries, channels: (globalThis as any).__lastEvidenceDebug.channels, titleAudit: titleGateResult, renderText: evidenceRender.text, renderUsedIds: (evidenceRender.used || []).map((u: any) => u?.id), renderSelection: evidenceRender.selection }, { note: '제목 확정 뒤 · Writer 에게 가는 근거 블록 = renderText' });
     trace.snapshot('packet.refreshed', { packet: researchPacket, text: researchPacketText }, { note: '수치·날짜 재추출 뒤(LLM 문장은 그대로)' });
     pipelineStatus.mark('WRITER', gate.status === 'GROUNDING_OK' && researchPacket.status !== 'EMPTY' ? 'WRITER_READY' : 'WRITER_READY_WEAK',
       gate.status === 'GROUNDING_OK' ? '' : '근거가 모자랍니다 — 근거 밖의 수치·일정은 쓰지 않도록 지시합니다');
