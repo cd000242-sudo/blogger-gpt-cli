@@ -18,7 +18,9 @@ export interface DerivedCheck {
    * 'abs-diff' = 근거값 두 개의 차액 · 'hypothetical-diff' = 같은 블록의 명시적 가정(예시 기준값)에서 나온 차액(v3.8.759)
    * 'hypothetical-input' = 가정 표지가 붙은 기준값 자체(v3.8.760) · 'hypothetical-apply' = 검증된 비율·차액 규칙을 기준값에 한 번 적용한 값(v3.8.760)
    */
-  kind: 'abs-diff' | 'hypothetical-diff' | 'hypothetical-input' | 'hypothetical-apply';
+  kind: 'abs-diff' | 'hypothetical-diff' | 'hypothetical-input' | 'hypothetical-apply' | 'evidence-diff' | 'evidence-rate';
+  /** v3.8.767 — 'DERIVED_FROM_EVIDENCE' = 근거 값의 한 단계 계산(derived-arithmetic) · 'HYPOTHETICAL' = 가정 입력. 없으면 verdict 로 읽는다(derivedRole) */
+  role?: 'DERIVED_FROM_EVIDENCE' | 'HYPOTHETICAL';
   sentence: string;
   claim: string;
   item: string;

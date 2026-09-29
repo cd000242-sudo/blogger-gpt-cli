@@ -1,5 +1,6 @@
 import { containsValueToken, normalizeForMatch } from './number-token';
 import { resolveDerivedDifferences, resolveHypotheticalValues, type DerivedCheck } from './derived-difference';
+import { resolveEvidenceArithmetic } from './derived-arithmetic';
 import { extractRanges, rangesOf, sameRange, isRangeBound, boundTokens } from './range-value';
 
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
@@ -82,17 +83,28 @@ const VALUE_PATTERNS = [
   //   대조 없이 지나갔다(억 은 이미 `억(?:\s*원)?` 로 허용돼 있었다). 숫자와 단위 사이 공백만 허용한다(셀은 태그로 갈려 toPlainText 가 공백 하나로 바꾸므로 경계를 넘지 않는다).
   //   숫자부: 예전 `\d{1,3}(?:,\d{3})*` 는 쉼표 없는 4자리 이상("3600만 원")에서 뒤 세 자리("600만 원")만 뽑았다(재생에서 000만원·600만원 위반으로 드러남).
   //   쉼표 묶음이거나 통째 숫자, 그리고 앞이 숫자·쉼표·소수점이 아니어야 한다.
-  /(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:만\s*원|원|억(?:\s*원)?|%p|퍼센트\s*포인트|%|퍼센트|명|건|개월|개|주|시간|일|세|회)/g,
+  // v3.8.767 — 시각의 분(20:30 의 30)은 값의 시작이 아니다(앞이 콜론) · 숫자와 단위 사이 공백은 줄바꿈(칸·블록 경계)을 넘지 않는다
+  /(?<![\d.,:])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[^\S\n]*(?:만\s*원|원|억(?:\s*원)?|%p|퍼센트\s*포인트|%|퍼센트|명|건|개월|개|주|시간|일|세|회)/g,
 ];
 
+/**
+ * v3.8.767 — 칸·블록 경계를 지운 채 이어 붙이지 않는다.
+ * 실측(run 69f928): `<td>20:30</td></tr></tbody></table><blockquote>주차 요금은…` 이 "20:30 주차 요금은" 이 되어
+ * "30주"(기간)라는 없는 값이 뽑혔고, 그 한 값 때문에 주차 절 970자가 통째로 지워졌다.
+ * 칸 끝은 " | ", 줄·문단·표·목록·인용 끝과 <br> 은 줄바꿈으로 남긴다 — 문장 분리기는 줄바꿈에서 끊고, 값 패턴은 줄바꿈을 넘지 않는다.
+ */
 function toPlainText(value: string): string {
   return String(value || '')
+    .replace(/<\/(?:td|th)\s*>/gi, ' | ')
+    .replace(/<br\s*\/?>|<\/(?:p|div|li|tr|table|thead|tbody|tfoot|caption|blockquote|h[1-6]|ul|ol|dl|dt|dd|section|article|figure|figcaption)\s*>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/\s+/g, ' ')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/[^\S\n]*\|[^\S\n]*(?=\n|$)/g, '')
+    .replace(/\s*\n\s*/g, '\n')
     .trim();
 }
 
@@ -249,8 +261,10 @@ export function extractValueTokens(value: string): string[] { return extractExac
 
 function extractExactValues(value: string): string[] {
   const values = new Set<string>();
+  // v3.8.767 — 태그가 남은 글도 칸·블록 경계를 살린 평문으로 읽는다(경계 너머 글자와 붙은 값을 만들지 않는다)
+  const text = /<[a-z/][^>]*>/i.test(String(value || '')) ? toPlainText(value) : String(value || '');
   for (const pattern of VALUE_PATTERNS) {
-    const matches = String(value || '').match(pattern) || [];
+    const matches = text.match(pattern) || [];
     for (const match of matches) values.add(normalize(match));
   }
   return [...values].filter(Boolean);
@@ -351,6 +365,12 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
     // v3.8.757 — 직접 근거가 없는 값이라도 같은 블록의 표로 검산되는 단순 차액이면 지원된 것으로 본다(검산 기록은 derived 로 남긴다)
     if (unsupported.length > 0 && evidence.blockHtml) {
       const { resolved, checks } = resolveDerivedDifferences(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
+      derivedOut?.push(...checks);
+      unsupported = unsupported.filter((value) => !resolved.has(value));
+    }
+    // v3.8.767 — 근거 값 두 개의 한 단계 계산(|a−b| · a×r% · a×(1−r%))은 같은 문장·같은 표에 피연산자가 있고 같은 근거 문서에 함께 있으면 지원한다(DERIVED_FROM_EVIDENCE)
+    if (unsupported.length > 0 && evidence.blockHtml) {
+      const { resolved, checks } = resolveEvidenceArithmetic(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
       derivedOut?.push(...checks);
       unsupported = unsupported.filter((value) => !resolved.has(value));
     }
@@ -528,7 +548,26 @@ function sanitizeFactUnsafeHtmlMasked(html: string, outerEvidence: FactEvidence)
    * 이미 값은 도려낸 상태이므로 그 결과를 쓴다 — 빈 글보다 낫다.
    */
   if (hasAnchor(tagged)) return stripUnsafeValuesPreservingMarkup(tagged, evidence);
-  return '';
+  return narrowestRemoval(tagged, evidence, keepVerifiedSentences);
+}
+
+/**
+ * v3.8.767 — 근거 없는 주장 1개 ≠ 절 전체 무효.
+ * 실측(run 69f928): 가짜 값 "30주" 하나 때문에 이 자리까지 와서 `''` 가 돌아갔고, 주차 절 970자(위치·요금·초과 10분당 800원)가 통째로 사라졌다.
+ * 태그별 정리를 지나고도 남은 위반은 태그(p·li·td …) 밖 맨 글자에 있다 — 그 조각만 문장 단위로 지운다.
+ * 태그 안 문장은 이미 문장 단위로 정리됐다. 값만 도려내 반토막 문장을 남기지는 않는다(v3.8.619 "연 4." 사고).
+ * 그래도 검사가 안 끝나거나(태그를 걸친 조각) 글자가 하나도 안 남으면 그때만 블록을 버린다. 새 호출 없음.
+ */
+function narrowestRemoval(tagged: string, evidence: FactEvidence, keepVerifiedSentences: (block: string) => string): string {
+  const passes = (html: string) => inspectFactIntegrity(html, evidence).status === 'passed';
+  const bare = tagged.replace(/(<[^>]*>)|([^<]+)/g, (_all, tag: string, text: string) => {
+    if (tag) return tag;
+    if (!String(text || '').trim() || passes(text)) return text;
+    const kept = keepVerifiedSentences(text);
+    return kept ? ` ${kept} ` : ' ';
+  });
+  if (!passes(bare) || !toPlainText(bare).replace(/[|\s]/g, '')) return '';
+  return bare.replace(/\s{2,}/g, ' ').trim();
 }
 
 function mergeReports(reports: Array<{ report: FactIntegrityReport; location: string }>): FactIntegrityReport {

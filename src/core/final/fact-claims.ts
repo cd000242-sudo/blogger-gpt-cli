@@ -18,7 +18,9 @@ export type ClaimKind = 'date' | 'range' | 'amount' | 'percent' | 'count' | 'ran
 /** at — 태그를 걷은 글 안의 위치(주어 낱말을 찾는 데만 쓴다) */
 export interface Claim { text: string; kind: ClaimKind; keys: string[]; at?: number }
 /** via 'range-endpoint' — 근거의 범위 표기(하한~상한)의 한쪽 끝으로 뒷받침됨. range 는 그 범위와 바로 앞 문맥(주어·조건·상태 낱말)을 그대로 넘긴다 */
-export interface SupportedClaim { claim: string; sourceIds: string[]; via?: 'range-endpoint'; range?: { raw: string; lower: number; upper: number; unit: string; context: string } }
+export interface SupportedClaim { claim: string; sourceIds: string[]; via?: 'range-endpoint' | 'derived'; range?: { raw: string; lower: number; upper: number; unit: string; context: string }; operation?: string }
+/** v3.8.767 — 앞 단계(사실 필터)가 근거 값으로 한 단계 검산해 둔 값(DERIVED_FROM_EVIDENCE). 글자로는 근거에 없지만 계산으로 뒷받침된다 */
+export interface DerivedSupport { claim: string; operation: string; sourceIds: string[] }
 export interface ClaimCheck { supported: SupportedClaim[]; unsupported: string[] }
 export interface LedgerItem { id: string; text: string }
 
@@ -84,7 +86,8 @@ export function ledgerFromItems(items: LedgerItem[]): LedgerItem[] {
  * 값 주장을 근거와 대조한다. 뒷받침된 것은 어느 근거(id)에 있었는지 함께 돌려준다.
  * 연도만 있는 주장은 대조하지 않는다.
  */
-export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new Date()): ClaimCheck {
+export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new Date(), derived: ReadonlyArray<DerivedSupport> = []): ClaimCheck {
+  const derivedByValue = new Map(derived.map((d) => [norm(d.claim), d]));
   const normalized = ledger.map((l) => ({ id: l.id, text: l.text.includes(' ') || l.text.includes(',') ? norm(l.text) : l.text }));
   const all = normalized.map((l) => l.text).join('\n');
   const year = String(kstYear(now));
@@ -100,6 +103,8 @@ export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new 
       // 범위의 **두 끝 값만** 같은 값으로 인정한다(13.8% 같은 중간값은 아님). 날짜는 대상이 아니다. 주어 낱말이 있으면 범위 바로 앞 문맥에 그 낱말이 있어야 한다.
       const endpoint = ENDPOINT_KINDS.has(c.kind) ? rangeEndpointSupport(c, src, ranges || (ranges = rangeRefs(normalized))) : null;
       if (endpoint) { supported.push(endpoint); continue; }
+      const d = derivedByValue.get(norm(c.text));
+      if (d) { supported.push({ claim: c.text, sourceIds: d.sourceIds, via: 'derived', operation: d.operation }); continue; }
       unsupported.push(c.text);
       continue;
     }
