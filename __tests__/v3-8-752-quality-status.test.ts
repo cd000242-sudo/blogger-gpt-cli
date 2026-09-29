@@ -64,7 +64,11 @@ describe('v3.8.752 품질 상태 여섯 개념 분리', () => {
     const src = read('src/core/final/orchestration.ts');
     expect(src).toContain("publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';");
     expect(src).toContain("qualityConverged = runFinalQa\n      ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true\n      : hardGatesAllPass;");
-    expect(src).toContain("recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || ''), qualityLoopOn)");
+    // v3.8.769 — 발행 창구 인자는 publishEnforced(= 루프 ON 또는 현재 상태 모순). 상태 모순이 없으면 qualityLoopOn 과 같다
+    expect(src).toContain("recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || ''), publishEnforced)");
+    expect(src).toContain('const publishEnforced = qualityLoopOn || !criticalGate.pass;');
+    // 상태 모순으로 막히는 글은 루프 OFF 여도 "보류" 로 표시한다(참고 판정이라고 쓰지 않는다)
+    expect(summarizeQualityStatus({ ...base, qualityLoopOn: false, critiqueReport: null, hardGatesAllPass: false, qualityConverged: false, publishDecision: 'MANUAL_REVIEW', manualReviewReason: 'CRITICAL_STATE_PASS', holdEnforced: true }).publishStatus).toBe('PUBLISH_HELD');
     // OFF 는 관문이 실패해도 참고 판정 — 막지 않는다 (v3.8.747 그대로)
     const offFail = summarizeQualityStatus({ ...base, qualityLoopOn: false, critiqueReport: null, hardGatesAllPass: false, qualityConverged: false, publishDecision: 'MANUAL_REVIEW', manualReviewReason: 'EVIDENCE_GATE_PASS' });
     expect(offFail.publishStatus).toBe('PUBLISH_ALLOWED_ADVISORY');

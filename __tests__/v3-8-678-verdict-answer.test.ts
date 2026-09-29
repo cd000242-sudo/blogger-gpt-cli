@@ -93,7 +93,8 @@ describe('v3.8.678 확실한 답 — 답 상자 판정문 · 의문 겹침 · �
     const g = read('src/core/final/generation.ts');
     expect(g).toContain('**판정문으로 쓴다** (v3.8.678)');
     // v3.8.681 — 생성 단계에서 한 번에: 요약 호출이 제목과 약속 조각을 받아 조각마다 판정문 한 문장씩
-    expect(g).toContain('export async function generateSummaryTableFinal(allContent: string, opts: { title?: string | undefined; promises?: string[] | undefined } = {})');
+    // v3.8.769 — 같은 호출이 현재 상태(criticalStates)도 받는다. 제목·약속 조각을 받는다는 단언은 그대로
+    expect(g).toMatch(/export async function generateSummaryTableFinal\(allContent: string, opts: \{ title\?: string \| undefined; promises\?: string\[\] \| undefined(?:; criticalStates\?: CriticalState\[\] \| undefined)? \} = \{\}\)/);
     expect(g).toContain('**answer 는 조각마다 판정문 한 문장씩**');
     expect(g).toContain('${promiseBlock}');
     expect(o).toContain("titlePromises(String(h1 || '')) as string[]");

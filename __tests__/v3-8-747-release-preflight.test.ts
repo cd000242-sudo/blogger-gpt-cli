@@ -38,8 +38,10 @@ describe('① Publish Gate — OFF 는 참고, ON 은 차단', () => {
   });
   it('⭐ orchestration 은 enforced 에 qualityLoopOn 을 넘기고, 장부에 publishHoldEnforced/qualityLoopEnabled 를 남긴다', () => {
     const orch = read('src/core/final/orchestration.ts');
-    expect(orch).toMatch(/recordPublishDecision\(html, publishDecision, manualReviewReason, String\(h1 \|\| ''\), qualityLoopOn\)/);
-    expect(orch).toContain('publishHoldEnforced: qualityLoopOn');
+    // v3.8.769 — enforced = 품질 루프 ON 또는 현재 상태와 반대 안내(CRITICAL_STATE_PASS 실패). 상태 모순이 없으면 예전 그대로 qualityLoopOn
+    expect(orch).toContain('const publishEnforced = qualityLoopOn || !criticalGate.pass;');
+    expect(orch).toMatch(/recordPublishDecision\(html, publishDecision, manualReviewReason, String\(h1 \|\| ''\), publishEnforced\)/);
+    expect(orch).toContain('publishHoldEnforced: publishEnforced');
     expect(orch).toContain('qualityLoopEnabled: qualityLoopOn');
     expect(orch).toMatch(/품질 관문 참고\(품질 루프 OFF · 발행은 막지 않음\)/);
   });
