@@ -4043,7 +4043,7 @@ ${quoted}
     try {
       const { alignArticleDecisionSemantics } = await import('./decision-semantics');
       const semBefore = trace.snapshot('draft.before-decision-semantics', allSectionsObj);
-      const sem = alignArticleDecisionSemantics(allSectionsObj, bodyValidation.evidence.context || '');
+      const sem = alignArticleDecisionSemantics(allSectionsObj, bodyValidation.evidence.context || '', { dimensions: decisionDimensions });
       const weakened = sem.changes.filter((c) => c.action === 'weakened');
       if (weakened.length > 0) {
         const semBeforeText = draftPlain(allSectionsObj);

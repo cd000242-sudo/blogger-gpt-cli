@@ -19,7 +19,7 @@ const plain = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&
 const compactAmount = (s: string) => String(s || '').replace(/\s+/g, '').replace(/,/g, '');
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** 숫자+단위 — 금액·거리·시간·횟수. 값 자체는 어떤 것이든 좋다(역할만 본다) */
-const VALUE_SRC = '(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*(?:만\\s*원|억\\s*원|원|km|시간|분|일|회|개월|명|건|%|퍼센트)';
+const VALUE_SRC = '(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*(?:만\\s*원|억\\s*원|원|km|시간|분|일|회|개월|명|건|%|퍼센트|TB|GB|MB|kg|㎡|평)';
 /** 값을 공백·쉼표에 너그럽게 찾는 정규식 조각 */
 const loose = (value: string) => compactAmount(value).split('').map((c) => (/[\d]/.test(c) ? c : esc(c))).join('[\\s,]*');
 
@@ -47,11 +47,22 @@ const HADA = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*([가-힣]{1,4})�
 /** 그 밖의 요구 꼴 — 잡되 안전한 치환이 없어 기록만 */
 const OTHER = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*[가-힣]{1,6}(?:어야|아야|려야|워야)\\s*(?:한다|합니다|해요)`, 'g');
 
-export interface StrengthenedHit { value: string; match: string; kind: 'known' | 'hada' | 'other' }
+/**
+ * v3.8.761 — 실측(run b8cdb4)의 새 문형: "70만원 납입을 유지할 여력이 있다면", "70만원을 낼 수 있는 소득 흐름이라면", "70만원을 꾸준히 납입할 수 있으면",
+ * "70만원 유지 가능하면", "70만원 저축이 흔들리지 않는다면", "X 납입이 가능해야". 값을 "낼 수 있는 능력" 조건으로 쓰는 꼴(ABILITY) — 근거가 상한이면 요구 조건이 아니다.
+ */
+const ABILITY_VERB = '(?:납입|저축|적립|이용|사용|주행|투자|결제|유지)';
+const ABILITY = new RegExp(`((?:월|매월|매달|연|매년|하루|1일)\\s*)?(${VALUE_SRC})(?:을|를|이|은|는)?\\s*(?:${ABILITY_VERB}(?:을|를|이|은|는)?\\s*)?(?:계속|꾸준히|실제로|매달|매월)?\\s*(?:(?:유지|납입|저축|넣|낼|채우|채워|이용|사용|주행)[가-힣]{0,3}\\s*)?(?:여력|가능|수\\s*있|흔들리지\\s*않|부담(?:되|스럽)지\\s*않)[가-힣\\s]{0,10}?(?:다면|으면|면|라면|경우(?:에|라면)?|해야|어야|아야)`, 'g');
+/** 명시적 계산 가정 — "매월 X를 실제로 넣는다고 가정하면 총납입액은" 은 조건이 아니라 계산이다(허용) */
+const CALC_ASSUMPTION = /가정|예를\s*들어|예컨대|이라고\s*(?:놓|치|보|하)|넣는다고\s*하면|낸다고\s*하면|총\s*납입|원금은/;
+
+export interface StrengthenedHit { value: string; match: string; kind: 'known' | 'hada' | 'other' | 'ability' }
 export function findStrengthened(sentence: string): StrengthenedHit[] {
   const s = plain(sentence);
   const out: StrengthenedHit[] = [];
-  for (const m of s.matchAll(KNOWN)) out.push({ value: m[2]!, match: m[0], kind: 'known' });
+  if (CALC_ASSUMPTION.test(s)) return out;
+  for (const m of s.matchAll(ABILITY)) out.push({ value: m[2]!, match: m[0], kind: 'ability' });
+  for (const m of s.matchAll(KNOWN)) if (!out.some((o) => o.match.includes(m[2]!))) out.push({ value: m[2]!, match: m[0], kind: 'known' });
   for (const m of s.matchAll(HADA)) if (!out.some((o) => o.match.includes(m[1]!))) out.push({ value: m[1]!, match: m[0], kind: 'hada' });
   for (const m of s.matchAll(OTHER)) if (!out.some((o) => o.match.includes(m[1]!))) out.push({ value: m[1]!, match: m[0], kind: 'other' });
   return out;
@@ -60,15 +71,31 @@ export function findStrengthened(sentence: string): StrengthenedHit[] {
 /** 근거상 상한(MAXIMUM)이고 요구(REQUIRED/MINIMUM)가 아닌 값인가 */
 export const isMaximumOnly = (r: RoleEvidence): boolean => r.roles.includes('MAXIMUM') && !r.roles.includes('REQUIRED') && !r.roles.includes('MINIMUM');
 
-/** 한 문장을 약화한다. 바꿀 수 없으면 after 없이 flagged */
-export function weakenSentence(sentence: string, evidence: string): { after: string; changes: Array<{ value: string; roles: ValueRole[]; action: 'weakened' | 'flagged'; reason: string }> } {
+/**
+ * 한 문장을 약화한다. 바꿀 수 없으면 after 없이 flagged.
+ * @param dimensions v3.8.761 — 이 글에 실제로 있는 다른 판단축(예: 핵심 질문의 "남은 기간"). 있으면 상한 하나로 결론을 만들지 않게 조건을 병렬로 남긴다. 하드코딩 아님(호출부가 계획에서 준다)
+ */
+export function weakenSentence(sentence: string, evidence: string, options: { dimensions?: string[] } = {}): { after: string; changes: Array<{ value: string; roles: ValueRole[]; action: 'weakened' | 'flagged'; reason: string }> } {
   const changes: Array<{ value: string; roles: ValueRole[]; action: 'weakened' | 'flagged'; reason: string }> = [];
   let after = sentence;
+  const dims = (options.dimensions || []).filter(Boolean);
   for (const hit of findStrengthened(sentence)) {
     const role = valueRoles(evidence, hit.value);
     if (!isMaximumOnly(role)) continue;                                                   // 근거에 요구 조건이 있으면(또는 역할을 모르면) 손대지 않는다
     if (new RegExp(`최대\\s*${loose(hit.value)}`).test(plain(sentence))) continue;           // 이미 상한으로 말한다
     const v = compactAmount(hit.value);
+    if (hit.kind === 'ability') {
+      const finance = /납입|저축|적립|유지|넣|낼|채우|채워|원/.test(hit.match) || /원$/.test(v);
+      const verb = (hit.match.match(/(이용|사용|주행|투자|결제)/) || [])[1];
+      const tail = (hit.match.match(/(다면|으면|면|라면|경우(?:에|라면)?|해야|어야|아야)$/) || ['', '다면'])[1] || '다면';
+      const ending = /해야|어야|아야/.test(tail) ? '있어야' : `있${tail === '으면' || tail === '면' ? '으면' : tail === '라면' ? '다면' : tail.startsWith('경우') ? '는 경우' : '다면'}`;
+      const replacement = finance
+        ? `최대 ${v} 한도 안에서 실제 납입 가능액${dims.length ? ` · ${dims.join(' · ')}` : ''}을 함께 보고 납입을 이어갈 수 ${ending}`
+        : `최대 ${v}까지 ${verb || '이용'}할 수 ${ending}`;
+      after = after.replace(hit.match, replacement);
+      changes.push({ value: v, roles: role.roles, action: 'weakened', reason: `근거는 ${v} 을 상한으로만 말한다(${role.hits[0] || ''}) — 낼 수 있어야 하는 조건이 아니다` });
+      continue;
+    }
     if (hit.kind === 'known') {
       const period = (hit.match.match(/^(월|매월|매달|연|매년|하루|1일)\s*/) || [])[1];
       const replacement = `${period ? `${period} ` : ''}최대 ${v}까지 납입할 수 있고`;
@@ -88,13 +115,13 @@ export function weakenSentence(sentence: string, evidence: string): { after: str
 const HADA_ONE = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*([가-힣]{1,4})해야(?:만)?\\s*(한다|합니다|해요|함)`);
 
 /** HTML 블록 안의 문장들을 태그를 살린 채 약화한다 — 태그 밖 글자에서만 치환한다 */
-export function weakenHtml(html: string, evidence: string, location: string): { html: string; changes: SemanticChange[] } {
+export function weakenHtml(html: string, evidence: string, location: string, options: { dimensions?: string[] } = {}): { html: string; changes: SemanticChange[] } {
   const changes: SemanticChange[] = [];
   const out = String(html || '').replace(/(<[^>]*>)|([^<]+)/g, (_all, tag: string, text: string) => {
     if (tag) return tag;
     const sentences = String(text || '').split(/(?<=[.!?])\s+/);
     return sentences.map((s) => {
-      const r = weakenSentence(s, evidence);
+      const r = weakenSentence(s, evidence, options);
       for (const c of r.changes) changes.push({ location, sentence: plain(s), ...c, ...(c.action === 'weakened' ? { after: plain(r.after) } : {}) });
       return r.after;
     }).join(' ');
@@ -104,11 +131,11 @@ export function weakenHtml(html: string, evidence: string, location: string): { 
 
 interface ArticleLike { introduction?: string; conclusion?: string; sections?: Array<{ takeaway?: string; h3Sections?: Array<{ content?: string }> }> }
 /** 글 전체(서론·절 본문·takeaway·결론) — 표 칸·제목은 판단문이 아니라 건드리지 않는다 */
-export function alignArticleDecisionSemantics<T extends ArticleLike>(article: T, evidence: string): SemanticArticleResult<T> {
+export function alignArticleDecisionSemantics<T extends ArticleLike>(article: T, evidence: string, options: { dimensions?: string[] } = {}): SemanticArticleResult<T> {
   const changes: SemanticChange[] = [];
   const run = (html: string | undefined, location: string): string | undefined => {
     if (!html) return html;
-    const r = weakenHtml(html, evidence, location);
+    const r = weakenHtml(html, evidence, location, options);
     changes.push(...r.changes);
     return r.html;
   };

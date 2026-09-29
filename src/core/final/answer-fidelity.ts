@@ -15,6 +15,7 @@
 import { containsValueToken, normalizeForMatch } from './number-token';
 import { comparisonSubjects, isComparisonTopic } from './source-scope';
 import { FAQ_Q_STOP } from './reader-retention';
+import { weakenSentence } from './decision-semantics';
 
 export interface FidelityChange { rule: 'limit-as-condition' | 'absolute-adverb' | 'unsupported-value'; before: string; after: string; detail: string }
 export interface FidelityResult { text: string; changes: FidelityChange[] }
@@ -42,7 +43,7 @@ export const splitFidelitySentences = (text: string): string[] => plain(text).sp
 /**
  * 요약 문장(답 상자·판정문)을 본문에 맞춘다. 본문보다 약해지는 수정만 한다.
  */
-export function alignSummaryToBody(summary: string, body: string): FidelityResult {
+export function alignSummaryToBody(summary: string, body: string, options: { dimensions?: string[] } = {}): FidelityResult {
   const changes: FidelityChange[] = [];
   const bodyNorm = normalizeForMatch(plain(body));
   const sentences = splitFidelitySentences(summary).map((sentence) => {
@@ -55,6 +56,12 @@ export function alignSummaryToBody(summary: string, body: string): FidelityResul
       changes.push({ rule: 'limit-as-condition', before: whole, after, detail: `본문은 ${amount.replace(/\s+/g, '')} 을 최대 한도로만 말한다 — 유지 조건이 아니다` });
       return after;
     });
+    // 1b. v3.8.761 — 새 문형("X 납입을 유지할 여력이 있다면", "X를 낼 수 있는 소득 흐름이라면")은 decision-semantics 의 역할 판정을 그대로 쓴다(본문이 "최대 X" 로 말할 때만)
+    try {
+      const w = weakenSentence(s, body, options);
+      for (const c of w.changes.filter((x) => x.action === 'weakened')) changes.push({ rule: 'limit-as-condition', before: s, after: w.after, detail: c.reason });
+      s = w.after;
+    } catch { /* 역할 판정 실패는 넘어간다 */ }
     // 2. 본문에 없는 절대 부사
     s = s.replace(ABSOLUTE, (whole) => {
       const word = whole.trim();
