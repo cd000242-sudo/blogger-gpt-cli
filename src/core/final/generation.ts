@@ -2225,7 +2225,21 @@ JSON만 출력:
         } else {
           // 🧾 v3.8.752 — 보강 전후(문장 diff) — "보강이 무엇을 바꿨나" 를 처음으로 남긴다
           const boostBeforeText = JSON.stringify(allSectionsObj);
+          const boostBeforeObj = allSectionsObj;
           allSectionsObj = candidate;
+          /**
+           * v3.8.760 — 보강이 그 절의 고유 판단 기준을 지웠으면 되살린다(decision-retention). 실측(run d7a142 011→014): [구간 반복] 손질이
+           * "가입 시점에 따라 남은 기간은 다르므로 …" 문장을 지웠고 글 어디에도 그 관점이 남지 않았다. 같은 뜻이 남아 있으면 건드리지 않는다. 호출 0회.
+           */
+          try {
+            const { retainDecisionPoints } = await import('./decision-retention');
+            const kept = retainDecisionPoints(boostBeforeObj, allSectionsObj);
+            runTrace.event('writer.boost.retained', { checked: kept.checked, restored: kept.restored.map((r) => ({ h2: r.h2, h3: r.h3, sentence: r.sentence, lost: r.lost, survived: r.survived })) });
+            if (kept.restored.length) {
+              allSectionsObj = kept.article;
+              onLog?.(`[PROGRESS] 65% - 🧷 보강이 지운 고유 판단 기준 ${kept.restored.length}문장을 되살렸습니다`);
+            }
+          } catch (retainErr) { console.warn('[generateAllSections] 판단 기준 보존 스킵:', (retainErr as Error)?.message); }
           (globalThis as any).__lastDraftAudit = { before: draftAudit.findings.length, after: audited.findings.length };
           onLog?.(`[PROGRESS] 65% - ✅ 본문 보강 반영 (${beforeLen}자 → ${afterLen}자)`);
           runTrace.change('writer.boost', { fn: 'generateAllSectionsFinal/boost', before: parsedDraftSnap, after: runTrace.snapshot('writer.draft.boosted', candidate), beforeText: boostBeforeText, afterText: JSON.stringify(candidate), reason: `초안 감사 ${draftAudit.findings.length}→${audited.findings.length}건 · 실 위반 ${threadBefore.length}건`, judgeable: true });
