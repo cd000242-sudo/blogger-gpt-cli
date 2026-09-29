@@ -77,8 +77,9 @@ describe('P1-B 판단문의 상한→요구 조건 왜곡 — 값의 역할은 �
     const v = viewOf(R1);
     expect(valueRoles(v.evidence.context, '70만원').roles).toEqual(['MAXIMUM']);
     const sem = alignArticleDecisionSemantics(R1.draft018, v.evidence.context);
-    expect(sem.changes.map((c) => [c.location, c.action])).toEqual([['introduction', 'weakened'], ['conclusion', 'weakened'], ['section.1.h3.0.content', 'weakened']]);
-    for (const c of sem.changes) { expect(c.after).toContain('최대 70만원까지 납입할 수 있고'); expect(c.after).not.toMatch(/70만원(?:을| 납입을)? 유지/); }
+    // v3.8.761: 능력 조건 문형("납입할 수 있으면" 등)까지 잡으므로 세 곳보다 많이 나온다 — 처음 세 곳은 그대로 포함
+    expect(sem.changes.map((c) => [c.location, c.action])).toEqual(expect.arrayContaining([['introduction', 'weakened'], ['conclusion', 'weakened'], ['section.1.h3.0.content', 'weakened']]));
+    for (const c of sem.changes) { expect(c.after).toMatch(/최대 70만원(?:까지 납입할 수 있고| 한도 안에서)/); expect(c.after).not.toMatch(/70만원(?:을| 납입을)? 유지/); }
     expect(bodyText(sem.article)).not.toMatch(/70만원(?:을| 납입을)? 유지(?:하며|할 수 있고)/);
     expect(bodyText(sem.article)).toContain('청년도약계좌를 계속 보유하는 편이 낫습니다');               // 판정 자체는 그대로
     expect(alignArticleDecisionSemantics(R2.draft018, viewOf(R2).evidence.context).changes).toEqual([]);
