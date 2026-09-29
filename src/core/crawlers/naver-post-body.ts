@@ -30,6 +30,9 @@
  */
 export const DEFAULT_MAX_BODY_CHARS = 1200;
 
+// v3.8.754 — 발췌(위 상한)와 별도로 정제 본문을 보존한다. 실측(run 1b7d92): 무기여 구간·특별중도해지 문장이 1,200자 뒤에 있었다
+import { retainText } from './evidence-clean';
+
 /**
  * 이 정도는 나와야 "본문을 찾았다" 고 본다 (사이드바·댓글 영역과 구분).
  * 호출부(content-crawler)가 쓰던 100자 기준과 맞춰 잡는다 — 더 높이면 짧은 글이
@@ -121,6 +124,10 @@ export interface NaverPostBody {
   container: string;
   /** 자르기 전 원래 길이 */
   rawLength: number;
+  /** v3.8.754: 본문 전체(보존 상한 RETAINED_TEXT_CHARS 까지). text 는 이것의 앞부분 발췌다 */
+  fullText?: string;
+  /** v3.8.754: fullText 가 보존 상한에서 잘렸으면 그 위치, 아니면 null */
+  truncatedAt?: number | null;
 }
 
 /**
@@ -154,9 +161,10 @@ export function extractNaverPostBody(
       text: text.slice(0, Math.max(1, maxChars)),
       container: String(pattern),
       rawLength: text.length,
+      ...retainText(text),   // v3.8.754 — 발췌와 보존 본문 분리(실측: 1,200자 뒤 무기여 구간 문장이 로컬에서도 사라졌다)
     };
   }
 
   if (!best || best.rawLength < MIN_ACCEPTABLE_CHARS) return null;
-  return { ...best, text: best.text.slice(0, Math.max(1, maxChars)) };
+  return { ...best, text: best.text.slice(0, Math.max(1, maxChars)), ...retainText(best.text) };
 }

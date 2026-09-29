@@ -1582,14 +1582,21 @@ export async function generateUltimateMaxModeArticleFinal(
         // 사용자가 직접 준 주소·유료 검색 요약은 관련도를 묻지 않는다 — 사람이 골랐거나 이 키워드로 물은 답이다
         const trusted = manualUrls.includes(post.url) || src.startsWith('factcheck-');
         const tag = /news/.test(src) ? '뉴스' : /official/.test(src) ? '공식' : /blog/.test(src) ? '블로그' : '웹';
-        const cleaned = cleanEvidenceText(post.content);
+        /**
+         * v3.8.754 — 근거 장부는 추출기가 **보존한 본문**(fullText, 1,200자 발췌 뒤쪽 포함)으로 판정·선택한다.
+         * 실측(run 1b7d92): 무기여 구간·특별중도해지 문장이 발췌 뒤에 있어 장부에 아예 없었다.
+         * 모델에게 가는 양은 renderEvidence 예산(11,000)이 정하므로 여기서 늘어나도 프롬프트는 안 늘어난다.
+         * relevantPosts.content 는 예전처럼 발췌 길이로 묶는다 — 다른 소비자(CTA 추출 등)의 입력을 바꾸지 않는다.
+         */
+        const cleaned = cleanEvidenceText(post.fullText || post.content);
         const verdict = evidenceMod.judgeEvidence({
           title: String(post.title || ''), url: String(post.originalLink || post.url || ''), tag, query: keyword,
           text: cleaned.text, pubDate: post.pubDate || null, hasBody: post.hasBody === true || cleaned.cleanLength > 600,
+          ...(post.fullText ? { truncatedAt: post.fullTextTruncatedAt ?? null } : {}),
         }, trusted ? '' : keyword);
         if (verdict.item) {
           evidenceCandidates.push({ ...verdict.item, mainKeyword: keyword });
-          relevantPosts.push({ ...post, content: cleaned.text });
+          relevantPosts.push({ ...post, content: post.fullText ? cleaned.text.slice(0, String(post.content || '').length) : cleaned.text });
         } else if (verdict.rejected) {
           evidenceRejected.push(verdict.rejected);
         }

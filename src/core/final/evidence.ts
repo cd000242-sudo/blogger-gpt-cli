@@ -40,6 +40,8 @@ export interface EvidenceItem {
   /** 본문을 실제로 긁었는가 (아니면 검색 요약뿐이다) */
   hasBody: boolean;
   cleanedText: string;
+  /** v3.8.754 — cleanedText 가 보존 상한에서 잘렸으면 그 위치. null = 완전(또는 스니펫). 잘린 자료를 완전한 원문으로 표시하지 않기 위한 표시 */
+  truncatedAt?: number | null;
 }
 
 export interface RejectedEvidence {
@@ -186,6 +188,8 @@ export interface EvidenceDraft {
   pubDate?: unknown; hasBody?: boolean; promise?: string;
   /** 검색 요약(description). 본문을 긁어 text 가 본문으로 바뀌어도 관련도는 요약까지 함께 본다 */
   snippet?: string;
+  /** v3.8.754 — text 가 보존 상한(RETAINED_TEXT_CHARS)에서 잘렸으면 그 위치. null = 안 잘림, 없음 = 모름(스니펫 등) */
+  truncatedAt?: number | null;
 }
 
 /**
@@ -216,6 +220,7 @@ export function judgeEvidence(draft: EvidenceDraft, mainKeyword: string): { item
       pubDate: toKstDate(draft.pubDate), retrievedAt: new Date().toISOString(),
       sourceType: kind.sourceType, isOfficial: kind.isOfficial, query: draft.query,
       relevanceScore: relevance, promiseRelevanceScore: promiseRel, hasBody: !!draft.hasBody, cleanedText: text,
+      truncatedAt: draft.truncatedAt ?? null,
     },
   };
 }

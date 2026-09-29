@@ -30,6 +30,13 @@ function hasNaverSearchKeys(naverClientId?: string, naverClientSecret?: string):
 export interface CrawledContent {
   title: string;
   content: string;
+  /**
+   * v3.8.754 — 추출기가 보존한 정제 본문 전체(RETAINED_TEXT_CHARS 까지). content 는 이것의 앞부분 발췌(1,200자)다.
+   * 근거 장부만 이걸 읽는다 — 모델에게 가는 양은 문장 선택기의 예산이 정한다.
+   */
+  fullText?: string;
+  /** v3.8.754 — fullText 가 보존 상한에서 잘렸으면 그 위치, 아니면 null */
+  fullTextTruncatedAt?: number | null;
   source: string;
   platform: 'naver' | 'tistory' | 'blogspot' | 'wordpress' | 'rss' | 'cse' | 'brunch' | 'velog' | 'medium' | 'google-news' | 'daum-news';
   relevance: number;
@@ -1299,6 +1306,7 @@ ${contents.slice(0, 10).map((c, i) => `
         console.log(`[NAVER-NEWS] 📄 본문 확보 ${body.rawLength}자 → ${body.text.length}자: ${String(item.title).slice(0, 30)}`);
         item.content = body.text;
         (item as any).hasBody = true;
+        if (body.fullText) { item.fullText = body.fullText; item.fullTextTruncatedAt = body.truncatedAt ?? null; }   // v3.8.754 보존 본문
         // 검색 API 가 날짜를 안 준 문서(웹문서)는 문서에 적힌 게시일을 쓴다. 못 찾으면 null 그대로
         if (!(item as any).pubDate && body.publishedAt) (item as any).pubDate = body.publishedAt;
       } catch {
@@ -1528,6 +1536,9 @@ ${contents.slice(0, 10).map((c, i) => `
 
       // 본문 내용 추출 (플랫폼별 최적화)
       let content = '';
+      /** v3.8.754 — 발췌(content) 뒤쪽까지 보존한 정제 본문. 네이버 추출기가 돌려줄 때만 있다 */
+      let retainedFull: string | undefined;
+      let retainedTruncatedAt: number | null = null;
 
       if (platform === 'naver') {
         /**
@@ -1544,6 +1555,7 @@ ${contents.slice(0, 10).map((c, i) => `
         if (body) {
           console.log(`[NAVER] 📄 본문 추출 ${body.rawLength}자 → ${body.text.length}자 사용`);
           content = body.text;
+          if (body.fullText) { retainedFull = this.cleanHTMLContent(body.fullText); retainedTruncatedAt = body.truncatedAt ?? null; }
         }
       } else {
         // 일반적인 블로그 추출
@@ -1577,6 +1589,7 @@ ${contents.slice(0, 10).map((c, i) => `
       return {
         title,
         content,
+        ...(retainedFull ? { fullText: retainedFull, fullTextTruncatedAt: retainedTruncatedAt } : {}),
         source: url,
         platform: platform as any,
         relevance: this.calculateRelevance(title + ' ' + content, topic, keywords),

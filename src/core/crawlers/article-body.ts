@@ -109,6 +109,10 @@ export interface ArticleBody {
   cleanLength?: number;
   /** v3.8.734: 문서에 적힌 게시일(서울 기준 YYYY-MM-DD). 못 찾으면 null */
   publishedAt?: string | null;
+  /** v3.8.754: 정제 본문 전체(보존 상한 RETAINED_TEXT_CHARS 까지). text 는 이것의 앞부분 발췌다 */
+  fullText?: string;
+  /** v3.8.754: fullText 가 보존 상한에서 잘렸으면 그 위치, 아니면 null */
+  truncatedAt?: number | null;
 }
 
 /**
@@ -150,15 +154,19 @@ export function extractArticleBody(
    * 정제 뒤에 본문이 너무 줄면(원래 껍데기뿐이던 것) 추출 실패로 본다.
    */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { cleanEvidenceText, describeClean } = require('./evidence-clean');
+  const { cleanEvidenceText, describeClean, retainText } = require('./evidence-clean');
   const cleaned = cleanEvidenceText(best.text);
   if (cleaned.cleanLength < MIN_ACCEPTABLE_CHARS) return null;
   if (process.env['DEBUG_EVIDENCE'] === '1' || cleaned.removedLines > 0) console.log(describeClean('article', cleaned));
+  // v3.8.754 — 발췌(maxChars)와 보존 본문을 분리한다. 실측(run 1b7d92): 1,200자 뒤 조건 문장이 로컬에서도 사라졌다
+  const retained = retainText(cleaned.text);
   return {
     text: cleaned.text.slice(0, Math.max(1, maxChars)),
     rawLength: best.text.length,
     cleanLength: cleaned.cleanLength,
     publishedAt: extractPublishedDate(source),
+    fullText: retained.fullText,
+    truncatedAt: retained.truncatedAt,
   };
 }
 

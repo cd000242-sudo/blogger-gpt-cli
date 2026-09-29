@@ -20,6 +20,26 @@ export interface CleanResult {
   removedLines: number;
 }
 
+/**
+ * v3.8.754 — 수집한 정제 본문을 **로컬에 보존하는** 상한. 모델에게 보내는 발췌 상한(기사·블로그 1,200 · 기관 900)과는 다른 것이다.
+ *
+ * 실측(run 1b7d92): 블로그 두 편의 무기여 구간·특별중도해지 문장이 1,200자 뒤에 있었는데 추출기가 잘라 버려
+ * 로컬에도 남지 않았다. 발췌 정책 때문에 원문까지 잃지 않도록, 추출기는 정제 본문을 이 상한까지 따로 돌려준다.
+ *
+ * 무제한은 아니다 — 이 본문은 후보마다 실행 캡처(evidence.stage1/2 스냅샷)에 그대로 실린다.
+ *   6,000자 = 발췌의 5배. 기관 페이지 실측 2,017자·일반 블로그 글을 통째로 덮고, 후보 30건이면 스냅샷당 최대 18만 자다.
+ *   문장 선택기의 문서별 상한(공식 2,600 · 블로그 900)보다 훨씬 커서 선택에 쓸 문장이 모자라지 않는다.
+ * 상한에 걸리면 truncatedAt 에 잘린 위치를 남긴다 — 잘린 자료를 완전한 원문이라고 표시하지 않는다.
+ */
+export const RETAINED_TEXT_CHARS = 6000;
+
+export interface RetainedText { fullText: string; truncatedAt: number | null }
+
+export function retainText(text: unknown, cap: number = RETAINED_TEXT_CHARS): RetainedText {
+  const s = String(text ?? '');
+  return s.length > cap ? { fullText: s.slice(0, cap), truncatedAt: cap } : { fullText: s, truncatedAt: null };
+}
+
 /** 줄 전체가 이 모양이면 껍데기다 */
 const SHELL_LINE: RegExp[] = [
   /^(advertisement|ad|sponsored|광고|AD)$/i,

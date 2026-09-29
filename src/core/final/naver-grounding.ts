@@ -279,6 +279,8 @@ export async function fetchGrounding(
   const mainKeyword = String(options.mainKeyword || query).trim();
   const promise = options.promise ? String(options.promise) : undefined;
   const pageDates = new Map<string, string | null>();
+  /** v3.8.754 — 추출기가 보존한 정제 본문(900자 발췌 뒤쪽 포함). 근거 장부에만 쓰고, 프롬프트에 실리는 rendered 는 여전히 발췌다 */
+  const pageFull = new Map<string, { text: string; truncatedAt: number | null }>();
   const rejected: RejectedEvidence[] = [];
   const accepted: Array<Omit<EvidenceItem, 'id'>> = [];
 
@@ -301,6 +303,7 @@ export async function fetchGrounding(
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const doc = await require('../crawlers/official-page-body').fetchPageDocument(url, BODY_CHARS);
       if (doc) pageDates.set(url, doc.publishedAt ?? null);   // 문서에 적힌 게시일 — 못 찾으면 null 그대로
+      if (doc?.fullText) pageFull.set(url, { text: doc.fullText, truncatedAt: doc.truncatedAt ?? null });
       return doc ? doc.text : null;
     });
 
@@ -314,12 +317,14 @@ export async function fetchGrounding(
    */
   const keep = (it: any, tag: string, rendered: string, body: string): string => {
     const url = bodyUrlOf(it);
+    const full = body ? pageFull.get(url) : undefined;   // v3.8.754 — 장부엔 보존 본문, 프롬프트(rendered)엔 발췌
     const draft: EvidenceDraft = {
       title: stripTags(it?.title), url, tag, query,
-      text: body || stripTags(it?.description),
+      text: (full && full.text) || body || stripTags(it?.description),
       snippet: stripTags(it?.description),
       pubDate: it?.pubDate || it?.postdate || pageDates.get(url) || null,
       hasBody: !!body,
+      ...(full ? { truncatedAt: full.truncatedAt } : {}),
       ...(promise ? { promise } : {}),
     };
     const verdict = judgeEvidence(draft, mainKeyword);
