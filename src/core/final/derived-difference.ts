@@ -12,18 +12,36 @@
  */
 import { containsValueToken, normalizeForMatch } from './number-token';
 
-export interface DerivedOperand { label: string; value: string; unit: string; sourceIds: string[] }
+export interface DerivedOperand { label: string; value: string; unit: string; sourceIds: string[]; /** v3.8.759 — 피연산자의 출처: 근거 장부 ID 가 있으면 'evidence', 같은 블록의 명시적 가정이면 'hypothetical' */ origin?: 'evidence' | 'hypothetical' }
 export interface DerivedCheck {
-  kind: 'abs-diff';
+  /** 'abs-diff' = 근거값 두 개의 차액 · 'hypothetical-diff' = 같은 블록의 명시적 가정(예시 기준값)에서 나온 차액(v3.8.759) */
+  kind: 'abs-diff' | 'hypothetical-diff';
   sentence: string;
   claim: string;
   item: string;
   operands: DerivedOperand[];
   operation: string;
   result: string;
-  verdict: 'verified' | 'mismatch' | 'unverifiable';
+  /** 'hypothetical' = 계산은 맞지만 입력이 가정이라 사실로 승격하지 않는다(EXPLICIT_HYPOTHETICAL_DERIVATION) */
+  verdict: 'verified' | 'mismatch' | 'unverifiable' | 'hypothetical';
   reason: string;
+  /** hypothetical-diff 일 때 가정을 선언한 구절(블록 안) */
+  hypothesis?: string;
 }
+
+/**
+ * v3.8.759 — 명시적 가정 예시의 단순 차액.
+ * 실측(run fba7e9 017): "원래 월 100만원을 받을 예정이라면 1년 조기수령은 월 94만원입니다." 뒤의 "1년 조기수령은 월 6만원 감소로 계산합니다." 가
+ * 근거에 6만원이 없다는 이유로 지워졌다. 100만원은 예시 기준값(가정), 94만원은 같은 블록의 예시 값, 6 = |100 − 94|.
+ * 허용: +·−·절대 차이 · 같은 블록 · 같은 단위 · 입력이 근거로 확인됐거나 그 블록이 명시적 예시로 선언한 값.
+ * 금지: 복리·세금·할인·수익률·시뮬레이션·문서 간 혼합·추천 판단. 결과는 'hypothetical' 로만 남기고 사실로 승격하지 않는다.
+ */
+const HYPOTHESIS_MARK = /(?:원래|기본|예시|가정|예를\s*들어|예컨대)/;
+const HYPOTHESIS_BASE = /(?:원래|기본\s*수령액|기본|예시|가정|예를\s*들어|예컨대)[^.]{0,30}?(\d[\d,]*(?:\.\d+)?)\s*(만\s*원|억\s*원|원)/g;
+const EXAMPLE_BLOCK = /(?:이|위|아래)\s*예시|예시(?:는|입니다|이다|로|를)|가정(?:하면|해\s*보면|한\s*경우)|예를\s*들어/;
+const HYPO_CUE = /감소|줄어|감액|차이|차액|증가|늘어|더\s*(?:많|적|크|작)/;
+const FORBIDDEN_OP = /복리|세금|세후|세전|할인|수익률|이자율|시뮬레이션|추천|유리|불리/;
+const ITEM_CUE = /(\d+\s*(?:년|개월|주|일|회|차))/;
 
 const DIRECTION_MORE = /더\s*(?:많|크|높|길)/;
 const DIRECTION_LESS = /더\s*(?:적|작|낮|짧)|덜/;
@@ -79,7 +97,6 @@ export function resolveDerivedDifferences(
   const checks: DerivedCheck[] = [];
   if (!blockHtml) return { resolved, checks };
   const tables = parseTables(blockHtml);
-  if (tables.length === 0) return { resolved, checks };
   // 문장 분리기는 표의 칸 글자(마침표 없음)를 뒤따르는 문장 **앞**에 붙인다 — 앞머리의 칸 글자를 순서대로 벗겨 낸 실제 문장에서만 단서·방향을 읽는다
   let text = plain(sentence);
   let pos = 0;
@@ -88,7 +105,10 @@ export function resolveDerivedDifferences(
     if (text.startsWith(cell, pos)) pos += cell.length; else break;
   }
   text = text.slice(pos).trim();
-  if (!DIFF_CUE.test(text)) return { resolved, checks };
+  const hypotheses = findHypotheses(blockHtml);
+  const tableEligible = tables.length > 0 && DIFF_CUE.test(text);
+  const hypoEligible = hypotheses.length > 0 && HYPO_CUE.test(text) && !FORBIDDEN_OP.test(text);
+  if (!tableEligible && !hypoEligible) return { resolved, checks };
   const period = periodOf(text);
   const wantsMore = DIRECTION_MORE.test(text);
   const wantsLess = !wantsMore && DIRECTION_LESS.test(text);
@@ -97,7 +117,7 @@ export function resolveDerivedDifferences(
     const claim = parseAmount(token);
     if (!claim) continue;
     let best: DerivedCheck | null = null;
-    for (const table of tables) {
+    for (const table of tableEligible ? tables : []) {
       for (const row of table.rows) {
         const item = row[0] || '';
         const rowText = row.join(' ');
@@ -130,8 +150,87 @@ export function resolveDerivedDifferences(
       }
       if (best) break;
     }
+    if (!best && hypoEligible) {
+      const h = resolveFromHypotheses(text, token, claim, hypotheses, blockHtml, tables, evidenceContext, isSupported);
+      if (h) { if (h.verdict === 'hypothetical') best = h; else checks.push(h); }
+    }
     if (best) { resolved.set(token, best); checks.push(best); }
     else if (!checks.some((c) => c.claim === token)) checks.push({ kind: 'abs-diff', sentence: text, claim: token, item: '', operands: [], operation: '', result: '', verdict: 'unverifiable', reason: '같은 블록의 표에서 같은 단위·항목의 두 값을 찾지 못함' });
   }
   return { resolved, checks };
+}
+
+interface Hypothesis { base: { num: number; unit: string; token: string }; clause: string }
+
+/** 블록이 선언한 가정 기준값들 — "원래 월 100만원을 받을 예정이라면" · 표 머리글 "원래 월 100만원일 때" · "기본 수령액이 월 100만원인 경우" */
+function findHypotheses(blockHtml: string): Hypothesis[] {
+  const textOf = plain(blockHtml);
+  const out: Hypothesis[] = [];
+  for (const m of textOf.matchAll(HYPOTHESIS_BASE)) {
+    const unit = UNIT_NORM[m[2]!.replace(/\s+/g, '')] || '';
+    const num = Number(m[1]!.replace(/,/g, ''));
+    if (!unit || !Number.isFinite(num)) continue;
+    if (out.some((h) => h.base.num === num && h.base.unit === unit)) continue;
+    const start = textOf.lastIndexOf('.', m.index || 0) + 1;
+    const end = textOf.indexOf('.', (m.index || 0) + m[0].length);
+    out.push({ base: { num, unit, token: `${m[1]!.replace(/,/g, '')}${unit}` }, clause: textOf.slice(start, end < 0 ? undefined : end + 1).trim().slice(0, 160) });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+/** 블록 문장들(표 밖) — 피연산자가 놓인 문장이 가정을 명시했는지 보기 위해 */
+const sentencesOf = (blockHtml: string): string[] => plain(String(blockHtml || '').replace(/<table[\s\S]*?<\/table>/gi, ' ')).split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+
+function resolveFromHypotheses(
+  text: string,
+  token: string,
+  claim: { num: number; unit: string; token: string },
+  hypotheses: Hypothesis[],
+  blockHtml: string,
+  tables: Array<{ headers: string[]; rows: string[][] }>,
+  evidenceContext: string,
+  isSupported: (t: string) => boolean,
+): DerivedCheck | null {
+  const item = (text.match(ITEM_CUE) || [])[1]?.replace(/\s+/g, '') || '';
+  if (!item) return null;
+  const blockIsExample = EXAMPLE_BLOCK.test(plain(blockHtml));
+  // 같은 항목(예: "1년")을 말하는 곳의 같은 단위 값들 — 표 행(머리글이 가정을 말하거나 근거 확인) · 문장(가정 명시·예시 블록·근거 확인)
+  const candidates: Array<{ value: { num: number; unit: string; token: string }; where: string; origin: 'evidence' | 'hypothetical' }> = [];
+  for (const table of tables) for (const row of table.rows) {
+    if (!(row[0] || '').replace(/\s+/g, '').includes(item)) continue;
+    row.slice(1).forEach((cell, i) => {
+      const v = parseAmount(cell);
+      if (!v || v.unit !== claim.unit) return;
+      const header = table.headers[i + 1] || '';
+      if (isSupported(v.token)) candidates.push({ value: v, where: `표 ${row[0]} · ${header}`, origin: 'evidence' });
+      else if (HYPOTHESIS_MARK.test(header) || blockIsExample) candidates.push({ value: v, where: `표 ${row[0]} · ${header}`, origin: 'hypothetical' });
+    });
+  }
+  for (const s of sentencesOf(blockHtml)) {
+    if (s === text || !s.replace(/\s+/g, '').includes(item)) continue;
+    for (const m of s.matchAll(AMOUNT)) {
+      const v = parseAmount(m[0]);
+      if (!v || v.unit !== claim.unit) continue;
+      if (hypotheses.some((h) => h.base.num === v.num)) continue;                           // 기준값 자체는 피연산자 후보가 아니다
+      if (isSupported(v.token)) candidates.push({ value: v, where: s.slice(0, 80), origin: 'evidence' });
+      else if (HYPOTHESIS_MARK.test(s) || blockIsExample) candidates.push({ value: v, where: s.slice(0, 80), origin: 'hypothetical' });
+    }
+  }
+  if (candidates.length === 0) return null;
+  let firstMismatch: DerivedCheck | null = null;
+  for (const h of hypotheses) {
+    if (h.base.unit !== claim.unit) continue;
+    for (const c of candidates) {
+      const diff = Math.abs(h.base.num - c.value.num);
+      const operands: DerivedOperand[] = [
+        { label: '가정 기준값', value: h.base.token, unit: h.base.unit, sourceIds: [], origin: 'hypothetical' },
+        { label: item, value: c.value.token, unit: c.value.unit, sourceIds: c.origin === 'evidence' ? sourceIdsOf(evidenceContext, c.value.token) : [], origin: c.origin },
+      ];
+      const base: DerivedCheck = { kind: 'hypothetical-diff', sentence: text, claim: token, item, operands, operation: `|${h.base.token} − ${c.value.token}|`, result: `${diff}${claim.unit}`, verdict: 'mismatch', reason: '', hypothesis: h.clause };
+      if (Math.abs(diff - claim.num) <= 1e-9) return { ...base, verdict: 'hypothetical', reason: `명시적 가정(${h.base.token} 기준)의 단순 차액 — 계산은 맞지만 사실로 승격하지 않음(EXPLICIT_HYPOTHETICAL_DERIVATION)` };
+      if (!firstMismatch) firstMismatch = { ...base, reason: `가정 기준값과 ${c.where} 의 차이 ${diff}${claim.unit} ≠ 주장 ${token}` };
+    }
+  }
+  return firstMismatch;
 }
