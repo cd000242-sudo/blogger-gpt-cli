@@ -40,7 +40,10 @@ export interface ResearchPacket {
   conflictingInformation: SourcedClaim[];
   readerQuestions: string[];
   actualSearchSuggestions: string[];
-  sourceMap: Array<{ id: string; title: string; domain: string; url: string; pubDate: string | null; sourceType: string; isOfficial: boolean }>;
+  /** v3.8.753 — delivered:false 는 문장이 인용했지만 이번 Writer 근거 블록에는 들어가지 않은 문서 */
+  sourceMap: Array<{ id: string; title: string; domain: string; url: string; pubDate: string | null; sourceType: string; isOfficial: boolean; delivered?: boolean }>;
+  /** v3.8.753 — 문장이 인용했는데 장부 어디에도 없는 id. 비슷한 문서로 바꾸지 않고 여기 남긴다 */
+  unresolvedSourceIds?: string[];
   /** OK = LLM 정리까지 됨 · CODE_ONLY = 코드 추출만 · EMPTY = 근거 없음 */
   status: 'OK' | 'CODE_ONLY' | 'EMPTY';
   notes: string[];
@@ -248,6 +251,28 @@ export function groundClaims(claims: any[], items: EvidenceItem[]): { kept: Sour
     kept.push({ claim: claim.slice(0, 260), sourceIds: ids });
   }
   return { kept, dropped };
+}
+
+/**
+ * v3.8.753 — 패킷의 sourceMap 이 **문장과 실제 전달 자료의 연결**을 정확히 말하게 한다.
+ * 갱신(refreshPacketValues)은 sourceMap 을 "이번에 Writer 에게 준 문서" 로만 다시 만들었다. 그래서 1단계에서 인용한
+ * 문서가 2단계 렌더 예산에서 밀리면 sourceMap 에서 사라지고, 같은 번호가 다른 문서를 뜻하게 됐다(실제 run E11).
+ *   · 전달된 문서: delivered 생략(true)
+ *   · 문장이 인용했지만 전달되지 않은 문서: 장부에서 찾아 delivered:false 로 넣는다
+ *   · 장부 어디에도 없는 id: 추측 연결하지 않고 unresolvedSourceIds 와 notes 에 남긴다. 문장은 손대지 않는다
+ */
+export function reconcilePacketSources(packet: ResearchPacket, allItems: EvidenceItem[], deliveredIds: Set<string>): ResearchPacket {
+  const byId = new Map(allItems.map((i) => [i.id, i]));
+  const cited = new Set<string>();
+  for (const key of CLAIM_KEYS) for (const c of ((packet as any)[key] || []) as SourcedClaim[]) for (const id of c.sourceIds || []) cited.add(String(id));
+  const entry = (i: EvidenceItem, delivered: boolean) => ({ id: i.id, title: i.title, domain: i.domain, url: i.url, pubDate: i.pubDate, sourceType: i.sourceType, isOfficial: i.isOfficial, ...(delivered ? {} : { delivered: false }) });
+  const delivered = allItems.filter((i) => deliveredIds.has(i.id)).map((i) => entry(i, true));
+  const undelivered = [...cited].filter((id) => !deliveredIds.has(id) && byId.has(id)).map((id) => entry(byId.get(id)!, false));
+  const unresolved = [...cited].filter((id) => !byId.has(id)).sort();
+  const notes = [...packet.notes.filter((n) => !n.startsWith('출처 대조:'))];
+  if (undelivered.length) notes.push(`출처 대조: 문장이 인용했지만 Writer 근거 블록에 없는 문서 ${undelivered.length}건 (${undelivered.map((s) => s.id).join(', ')})`);
+  if (unresolved.length) notes.push(`출처 대조: 장부에 없는 인용 id ${unresolved.length}건 (${unresolved.join(', ')}) — 대체하지 않음`);
+  return { ...packet, sourceMap: [...delivered, ...undelivered], unresolvedSourceIds: unresolved, notes };
 }
 
 export type CallModel = (prompt: string, opts?: { json?: boolean }) => Promise<string>;

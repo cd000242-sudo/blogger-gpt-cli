@@ -231,28 +231,68 @@ export function qualityOf(item: Omit<EvidenceItem, 'id'>, todayKst: string): num
   return Math.round(TYPE_WEIGHT[item.sourceType] * (0.5 + 0.5 * item.relevanceScore) * recency * body * 1000) / 1000;
 }
 
-const canonical = (url: string) => String(url || '').replace(/^https?:\/\/(www\.|m\.)?/i, '').replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
+/** 추적용 파라미터 — 문서를 가리키지 않는다. 그 밖의 쿼리(newsId·idxno·docId …)는 **문서 식별자**라 지우지 않는다 */
+const TRACKING_PARAM = /^(utm_[a-z]+|fbclid|gclid|igshid|ref|source|campaign|from|share|_ga|mc_cid|mc_eid)$/i;
+
+/**
+ * v3.8.753 — 같은 문서를 가리키는 주소끼리만 합친다.
+ * 예전엔 `?` 뒤를 통째로 지워 `policyNewsView.do?newsId=A` 와 `?newsId=B` 가 한 문서가 됐다(실제 run 의 korea.kr·kbanker 가 그런 꼴이다).
+ * 이제 추적 파라미터만 걷고 나머지 쿼리는 정렬해 남긴다. www/m 접두·fragment·꼬리 슬래시는 예전처럼 같은 문서로 본다.
+ */
+export function canonicalUrl(url: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    const host = u.hostname.toLowerCase().replace(/^(www|m)\./, '');
+    const params = [...u.searchParams.entries()].filter(([k]) => !TRACKING_PARAM.test(k)).sort(([a], [b]) => a.localeCompare(b));
+    const query = params.length ? `?${params.map(([k, v]) => `${k}=${v}`).join('&')}` : '';
+    return `${host}${u.pathname.replace(/\/$/, '')}${query}`.toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\/(www\.|m\.)?/i, '').replace(/#.*$/, '').replace(/\/$/, '').toLowerCase();
+  }
+}
 const titleKey = (t: string) => String(t || '').replace(/[^가-힣A-Za-z0-9]/g, '').slice(0, 28);
 
 /**
  * 모은 근거를 하나의 장부로 — 중복(같은 주소·같은 제목의 전재 기사)을 걷고, 품질순으로 세우고, ID 를 붙인다.
  * 같은 기사면 본문이 있는 쪽·날짜가 있는 쪽을 남긴다.
+ *
+ * v3.8.753 — `registry`(문서 키 → id)를 주면 **같은 문서는 실행 내내 같은 id** 를 갖는다.
+ * 실제 run(1b7d92): 1단계 E11(금융위 87370) 을 인용한 패킷 문장이 2단계 재정렬 뒤 E11=asiatime 기사로 바뀐 채 Writer 까지 갔다.
+ * id 는 순번이 아니라 문서 이름표다 — 정렬은 품질순이어도 이름표는 옮기지 않는다. 등록부를 안 주면 예전처럼 순번을 매긴다.
  */
-export function assembleEvidence(candidates: Array<Omit<EvidenceItem, 'id'>>, todayKst: string): EvidenceItem[] {
+export function assembleEvidence(candidates: Array<Omit<EvidenceItem, 'id'>>, todayKst: string, registry?: Map<string, string>): EvidenceItem[] {
   const byKey = new Map<string, Omit<EvidenceItem, 'id'>>();
+  const groupKey = new Map<Omit<EvidenceItem, 'id'>, string>();
   for (const c of candidates) {
-    const key = canonical(c.url) || titleKey(c.title);
+    const key = canonicalUrl(c.url) || titleKey(c.title);
     const tk = `t:${titleKey(c.title)}`;
     const prev = byKey.get(key) || byKey.get(tk);
-    if (!prev) { byKey.set(key, c); if (titleKey(c.title).length >= 12) byKey.set(tk, c); continue; }
+    if (!prev) { byKey.set(key, c); groupKey.set(c, key); if (titleKey(c.title).length >= 12) byKey.set(tk, c); continue; }
     const better = (Number(c.hasBody) - Number(prev.hasBody)) || (Number(!!c.pubDate) - Number(!!prev.pubDate)) || (c.cleanedText.length - prev.cleanedText.length);
-    if (better > 0) { for (const [k, v] of byKey) if (v === prev) byKey.set(k, c); }
+    if (better > 0) { for (const [k, v] of byKey) if (v === prev) byKey.set(k, c); groupKey.set(c, groupKey.get(prev) || key); }
   }
   const unique = [...new Set(byKey.values())];
-  return unique
+  const sorted = unique
     .map((it) => ({ it, q: qualityOf(it, todayKst) }))
     .sort((a, b) => b.q - a.q)
-    .map(({ it }, i) => ({ ...it, id: `E${String(i + 1).padStart(2, '0')}` }));
+    .map(({ it }) => it);
+  if (!registry) return sorted.map((it, i) => ({ ...it, id: `E${String(i + 1).padStart(2, '0')}` }));
+  const taken = new Set(registry.values());
+  let next = 1;
+  const allocate = (): string => {
+    let id = `E${String(next).padStart(2, '0')}`;
+    while (taken.has(id)) { next += 1; id = `E${String(next).padStart(2, '0')}`; }
+    taken.add(id); next += 1;
+    return id;
+  };
+  return sorted.map((it) => {
+    const key = groupKey.get(it) || canonicalUrl(it.url) || titleKey(it.title);
+    let id = registry.get(key);
+    if (!id) { id = allocate(); registry.set(key, id); }
+    return { ...it, id };
+  });
 }
 
 /** Writer 에게 보이는 머리줄 — 날짜·도메인·주소를 **떼지 않는다** */

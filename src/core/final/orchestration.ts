@@ -1603,10 +1603,15 @@ export async function generateUltimateMaxModeArticleFinal(
 
     let evidenceItems: any[] = [];
     let gate: any = null;
-    let evidenceRender: { text: string; used: any[] } = { text: '', used: [] };
+    let evidenceRender: { text: string; used: any[]; selection?: any[] } = { text: '', used: [] };
+    /**
+     * v3.8.753 — 문서 키 → id 등록부. run 하나에 하나. 재검색·재정렬·중복 제거 뒤에도 같은 문서는 같은 id 다.
+     * 실측(run 1b7d92): 1단계 E11(금융위 87370) 을 인용한 패킷 문장이 2단계에서 E11=asiatime 기사로 바뀐 채 Writer 까지 갔다.
+     */
+    const evidenceIdRegistry = new Map<string, string>();
     /** 후보 → 중복 제거·품질순 ID → 관문 평가 → Writer 용 렌더 */
     const refreshEvidence = (titleForGate: string): void => {
-      evidenceItems = evidenceMod.assembleEvidence(evidenceCandidates, todayKst);
+      evidenceItems = evidenceMod.assembleEvidence(evidenceCandidates, todayKst, evidenceIdRegistry);
       gate = gateMod.evaluateEvidence(evidenceItems, keyword, titleForGate);
       evidenceRender = evidenceMod.renderEvidence(evidenceItems, 11000);
     };
@@ -1660,6 +1665,14 @@ export async function generateUltimateMaxModeArticleFinal(
       const code = packetMod.buildCodePacket({ mainKeyword: keyword, title: String(researchPacket.topic || keyword), items: evidenceRender.used, readerQuestions: demandSignals.userQuestions, searchSuggestions: demandSignals.searchQueries });
       // 748 — 값을 다시 뽑았으니 출처 표시(LLM_PACKET/DETERMINISTIC_RECOVERY/CODE_ONLY)도 다시 단다
       researchPacket = packetMod.markValueOrigins({ ...researchPacket, numbers: code.numbers, dates: code.dates, sourceMap: code.sourceMap, status: researchPacket.status === 'EMPTY' && code.status !== 'EMPTY' ? code.status : researchPacket.status });
+      /**
+       * v3.8.753 — sourceMap 은 "문장이 인용한 문서 ↔ 이번에 전달한 문서" 를 정확히 말해야 한다.
+       * 인용됐지만 렌더 예산에서 밀린 문서는 delivered:false 로 남기고, 장부에 없는 id 는 대체하지 않고 기록한다.
+       */
+      researchPacket = packetMod.reconcilePacketSources(researchPacket, evidenceItems, new Set(evidenceRender.used.map((u: any) => u.id)));
+      if ((researchPacket.unresolvedSourceIds || []).length || researchPacket.sourceMap.some((s: any) => s.delivered === false)) {
+        trace.event('packet.sources', { unresolved: researchPacket.unresolvedSourceIds || [], undelivered: researchPacket.sourceMap.filter((s: any) => s.delivered === false).map((s: any) => `${s.id} ${s.url}`) });
+      }
       researchPacketText = packetMod.renderPacket(researchPacket);
     };
     pipelineStatus.mark('RESEARCH', researchPacket.status === 'OK' ? 'RESEARCH_OK' : researchPacket.status === 'EMPTY' ? 'RESEARCH_EMPTY' : 'RESEARCH_WEAK',
