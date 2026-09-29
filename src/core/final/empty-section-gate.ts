@@ -37,6 +37,11 @@ export interface EmptySectionResult {
   /** 수리에 실패한 핵심 절 — 하나라도 있으면 EMPTY_SECTION_PASS = false */
   unresolved: Array<{ sectionIndex: number; h2: string; reason: string }>;
   calls: number;
+  /**
+   * v3.8.767 — 수리가 새로 쓴 글과 그 값 대조 결과(실측 run 69f928: 이 경로가 주차 절을 새로 썼는데 run-trace 에 흔적이 없었다).
+   * 채택 여부와 상관없이 모델이 돌려준 본문을 남긴다. values = 본문의 값과 뒷받침한 근거 ID.
+   */
+  outputs: Array<{ sectionIndex: number; h2: string; h3Index: number; reason: string; content: string; accepted: boolean; verdict: string; values: Array<{ claim: string; sourceIds: string[] }>; unsupported: string[] }>;
 }
 
 const MIN_BODY_CHARS = 30;
@@ -171,7 +176,11 @@ const INTRO_RULES = `당신은 빈 도입부 하나만 채우는 작성자입니
  */
 export async function repairEmptySections(article: any, deps: RepairDeps): Promise<{ article: any; result: EmptySectionResult }> {
   const findings = findEmptySections(article, deps.title, deps.intentQuestions || []);
-  const result: EmptySectionResult = { findings, repaired: [], removed: [], unresolved: [], calls: 0 };
+  const result: EmptySectionResult = { findings, repaired: [], removed: [], unresolved: [], calls: 0, outputs: [] };
+  const record = (sectionIndex: number, h2: string, h3Index: number, reason: string, content: string, why: string | null) => {
+    const claims = checkClaims(content, deps.ledger);
+    result.outputs.push({ sectionIndex, h2, h3Index, reason, content, accepted: !why, verdict: why || '값 대조·길이·질문 답 통과', values: claims.supported.map((s) => ({ claim: s.claim, sourceIds: s.sourceIds })), unsupported: claims.unsupported });
+  };
   // 도입부는 한 문장짜리도 있다 — 절 본문(30자) 보다 낮은 문턱. 정말 빈 것("", 태그만, 자리표시자)만 잡는다
   const introText = bodyText(String(article?.introduction || ''));
   const introEmpty = introText.replace(/\s/g, '').length < 12 || PLACEHOLDER_RE.test(introText);
@@ -185,6 +194,7 @@ export async function repairEmptySections(article: any, deps: RepairDeps): Promi
       const parsed = readJson(await deps.callModel(prompt, { json: true })); result.calls += 1;
       const content = String(parsed?.introduction || '').replace(/<h[1-3]\b[^>]*>[\s\S]*?<\/h[1-3]>\s*/gi, '').trim();
       const why = verifyRepair(content, deps.ledger, '', deps.title);
+      record(-1, '(도입)', -1, '도입부 비어 있음', content, why);
       if (why) { result.unresolved.push({ sectionIndex: -1, h2: '(도입)', reason: why }); deps.onLog?.(`🕳️ 도입부 수리 실패 — 자동 발행하지 않습니다: ${why}`); }
       else { introduction = content; result.repaired.push({ sectionIndex: -1, h2: '(도입)', chars: bodyText(content).length }); deps.onLog?.(`🕳️ 도입부 수리 완료 (${bodyText(content).length}자 · 값 대조 통과)`); }
     } catch (err: any) { if ((err as any)?.canceled) throw err; result.unresolved.push({ sectionIndex: -1, h2: '(도입)', reason: `수리 호출 실패: ${String(err?.message || err).slice(0, 80)}` }); }
@@ -218,6 +228,7 @@ export async function repairEmptySections(article: any, deps: RepairDeps): Promi
       const row = rows.find((r) => Number(r?.index) === i);
       const content = String(row?.content || '').replace(/<h3\b[^>]*>[\s\S]*?<\/h3>\s*/gi, '').trim();
       const why = verifyRepair(content, deps.ledger, f.answersTo, f.h2);
+      record(f.sectionIndex, f.h2, i, `핵심 절 빈칸 — ${f.coreReason}`, content, why);
       if (why) { failures.push(`[${f.h3Titles[i]}] ${why}`); continue; }
       section.h3Sections[i] = { ...section.h3Sections[i], content };
     }

@@ -71,6 +71,8 @@ import { normalizeTableNotation } from './table-notation';
 import { buildAnswerBlock } from './answer-block';
 // v3.8.759: 답 상자·요약표·FAQ 가 본문보다 강해지지 않게 (실행은 await import — 실패해도 발행을 막지 않는다)
 import type { FidelityChange, FaqConsistencyNote } from './answer-fidelity';
+import type { EmptyFinding } from './empty-section-gate';
+import type { ProvenanceEntry } from './content-provenance';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
@@ -1747,6 +1749,9 @@ export async function generateUltimateMaxModeArticleFinal(
       ...evidenceItems.map((i: any) => ({ id: i.id, text: `${i.title} ${i.cleanedText}` })),
       { id: 'PACKET', text: researchPacketText },
     ]);
+    /** v3.8.767 — 사실 필터가 근거 값으로 한 단계 검산한 값(DERIVED_FROM_EVIDENCE)과 명시적 가정 값. 본문 관문·계보 추적이 같은 기록을 쓴다 */
+    const derivedLedger: Array<{ claim: string; operation: string; sourceIds: string[] }> = [];
+    const hypotheticalLedger: string[] = [];
     let titleGateResult: any = null;
     /** 비평이 제목 문제를 지적했을 때 다시 만들 수 있게 — 제목 생성 분기 안에서 채운다 */
     let makeTitleRef: (directive: string) => Promise<string> = async () => String(h1 || '');
@@ -3153,6 +3158,8 @@ ${quoted}
 
     /** 유료 검색 요약(퍼플렉시티 등) — 아래에서 factEvidence.context 가 장부로 덮이기 전에 떼어 둔다 */
     const paidFactContext = String(factEvidence.context || '');
+    const paidFactSourceUrls: string[] = [...(factEvidence.sourceUrls || [])];
+    const paidFactProvider = String(factEvidence.provider || '');
 
     const scopedPrimary = sourceScope ? crawledPosts.filter((p) => isScopedOfficialSource(p.url, sourceScope)) : [];
     const groundingReference = buildGroundingReference({
@@ -3210,8 +3217,13 @@ ${quoted}
      */
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { buildValidationEvidence, describeValidationInput } = require('./validation-evidence');
+    // v3.8.767 — 팩트체크 요약은 인용 주소(문단 안 또는 요약의 검증 주소 목록)가 있는 문단만 검사 근거로 쓴다. 주소 없는 요약 값은 원고에 들어갈 계보가 없다
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { factcheckWithLineage } = require('./content-provenance');
+    const paidWithLineage: { context: string; dropped: number } = factcheckWithLineage(paidFactContext, paidFactSourceUrls);
+    if (paidWithLineage.dropped) onLog?.(`[PROGRESS] 44% - 🧬 팩트체크 요약 중 출처 주소가 없는 문단 ${paidWithLineage.dropped}개는 검사 근거에서 뺍니다`);
     const validationView = () => buildValidationEvidence(evidenceItems, factEvidence, {
-      paidContext: paidFactContext,
+      paidContext: paidWithLineage.context,
       briefFacts: sourceScope ? scopedPrimary.map((p) => `[공식 공고 원문] ${p.title}\n[출처 URL] ${p.url}\n${p.content}`).join('\n\n') : reportBriefFacts,
       officialBlock,
       deliveredIds: new Set<string>((evidenceRender.used || []).map((u: any) => String(u?.id || ''))),
@@ -4104,6 +4116,14 @@ ${quoted}
     } else {
       onLog?.(`[PROGRESS] 74% - [FACT] 근거 일치 검사 통과 (${factIntegrityReport.checkedClaims}개 문장 확인)`);
     }
+    // v3.8.767 — 남은 원고에서 검산으로 지원된 값(역할: DERIVED_FROM_EVIDENCE)과 가정 값(HYPOTHETICAL)을 따로 모은다 — 사실(FACT)과 섞지 않는다
+    for (const d of factIntegrityReport.derived || []) {
+      if (d.verdict === 'verified' && !derivedLedger.some((x) => x.claim === d.claim)) derivedLedger.push({ claim: d.claim, operation: d.operation, sourceIds: [...new Set(d.operands.flatMap((o) => o.sourceIds))] });
+      if (d.verdict === 'hypothetical' && !hypotheticalLedger.includes(d.claim)) hypotheticalLedger.push(d.claim);
+    }
+    if ((factIntegrityReport.derived || []).length) {
+      trace.event('derived-values', { checks: (factIntegrityReport.derived || []).map((d) => ({ claim: d.claim, role: d.role || (d.verdict === 'verified' ? 'DERIVED_FROM_EVIDENCE' : d.verdict === 'hypothetical' ? 'HYPOTHETICAL' : null), kind: d.kind, operation: d.operation, operands: d.operands.map((o) => ({ value: o.value, sourceIds: o.sourceIds, origin: o.origin || 'evidence' })), result: d.result, verdict: d.verdict, reason: d.reason })) });
+    }
 
     /**
      * v3.8.760 — 판단문의 값 역할 왜곡(P1-B, decision-semantics). 근거가 상한("월 최대 X")으로만 말한 값을 본문이 요구 조건("X 을 유지할 수 있고")으로
@@ -4228,6 +4248,9 @@ ${quoted}
     if (contentMode !== 'shopping' && contentMode !== 'paraphrasing') {
       try {
         const { repairEmptySections } = require('./empty-section-gate');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const esModelSnap = require('./model-use').snapshotModels();
+        const esInput = allSectionsObj;   // 수리는 새 객체를 돌려준다(원본 불변) — 빈 절이 있을 때만 전 상태를 스냅샷한다
         const es = await repairEmptySections(allSectionsObj, {
           title: String(h1 || ''), mainKeyword: keyword,
           intentQuestions: [String(articleThread?.question || '')].filter(Boolean),
@@ -4237,6 +4260,17 @@ ${quoted}
         });
         allSectionsObj = es.article;
         emptySectionResult = es.result;
+        /**
+         * v3.8.767 — 빈 절 수리도 원고를 바꾸는 경로다. 실측(run 69f928): 사실 필터가 비운 주차 절을 이 경로가 새로 썼는데 run-trace 에 흔적이 없었다.
+         * 입력(왜 빈 절인가)·출력(모델이 쓴 본문 전체)·값 대조 결과·모델·호출 수를 남긴다. 수리 본문도 값 대조(checkClaims)를 지나야 채택된다.
+         */
+        if (es.result.findings.length || es.result.outputs.length) {
+          const esBefore = trace.snapshot('draft.before-empty-section', esInput);
+          trace.event('empty-section.input', { artifact: esBefore, findings: es.result.findings.map((f: EmptyFinding) => ({ sectionIndex: f.sectionIndex, h2: f.h2, emptyH3Indexes: f.emptyH3Indexes, core: f.core, reason: f.core ? f.coreReason : '선택 절(지움)', answersTo: f.answersTo })), evidenceSnapshot: 'evidence.stage2', packet: 'packet.refreshed' });
+          const esAfter = trace.snapshot('draft.after-empty-section', allSectionsObj);
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          trace.change('empty-section', { fn: 'repairEmptySections', before: esBefore, after: esAfter, reason: `빈 절 ${es.result.findings.length}개 · 수리 ${es.result.repaired.length} · 제거 ${es.result.removed.length} · 미해결 ${es.result.unresolved.length}`, model: require('./model-use').modelsSince(esModelSnap), calls: es.result.calls, outputs: es.result.outputs, removed: es.result.removed, unresolved: es.result.unresolved });
+        }
         if (es.result.findings.length) onLog?.(`[PROGRESS] 75% - 🕳️ 빈 절 관문: 발견 ${es.result.findings.length} · 수리 ${es.result.repaired.length} · 제거(선택 절) ${es.result.removed.length} · 미해결 ${es.result.unresolved.length} · 호출 ${es.result.calls}`);
       } catch (esErr: any) {
         if ((esErr as any)?.canceled === true) throw esErr;
@@ -7510,7 +7544,27 @@ ${conclusionHTML}
     const judgeCtaText = (visibleArticle && visibleArticle.ctaText) || ctas.map((c) => `${c.hookingMessage || c.hook || ''} [${c.buttonText || c.text || ''}] ${c.url || ''}`).join('\n');
     const judgeSummaryText = (visibleArticle && visibleArticle.summaryText) || [String(summaryTable.answer || ''), ...(summaryTable.headers || []), ...(summaryTable.rows || []).map((r: string[]) => r.join(' | '))].join('\n');
     const judgeBodyText = visibleArticle && visibleArticle.sections.length > 0 ? require('./visible-article').visiblePlainText(visibleArticle) : articleTextForAux;
-    bodyClaimCheck = (() => { try { return require('./fact-claims').checkClaims(judgeBodyText, claimLedger()); } catch { return { supported: [], unsupported: [] }; } })();
+    // v3.8.767 — 사실 필터가 근거 값으로 한 단계 검산한 값(DERIVED_FROM_EVIDENCE)은 글자로 근거에 없어도 뒷받침된 값이다
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    bodyClaimCheck = (() => { try { return require('./fact-claims').checkClaims(judgeBodyText, claimLedger(), new Date(), derivedLedger); } catch { return { supported: [], unsupported: [] }; } })();
+    /**
+     * 🧬 v3.8.767 — 최종 본문의 값마다 계보. 실측(run 19fb30): 447km·545km 가 근거 ID 없이 팩트체크 요약에서 들어왔고 아무 검사도 km 를 읽지 않았다.
+     * 계보 없는 값(NONE)은 지우지 않고 검수 대상으로 남긴다(로그·캡처). 호출 0회.
+     */
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const prov = require('./content-provenance');
+      const entries: ProvenanceEntry[] = prov.traceProvenance(judgeBodyText, {
+        ledger: claimLedger(), derived: derivedLedger, hypothetical: hypotheticalLedger,
+        factcheck: { provider: paidFactProvider, query: sourceScope ? `${keyword} ${sourceScope.agency} 공식 공고` : keyword, paragraphs: prov.splitFactcheck(paidFactContext, paidFactSourceUrls) },
+      });
+      const counts = prov.summarizeProvenance(entries);
+      trace.event('provenance', { counts, entries });
+      const orphan = entries.filter((e) => e.kind === 'NONE');
+      const viaFactcheck = entries.filter((e) => e.kind === 'FACTCHECK_SOURCE');
+      if (viaFactcheck.length) onLog?.(`[PROGRESS] 96% - 🧬 팩트체크 요약에서 온 값 ${viaFactcheck.length}개(근거 ID 없음 · 인용 주소로 추적): ${viaFactcheck.slice(0, 4).map((e) => e.claim).join(', ')}`);
+      if (orphan.length) onLog?.(`[PROGRESS] 96% - ⚠️ 계보 없는 값 ${orphan.length}개 — 검수 대상: ${orphan.slice(0, 5).map((e) => e.claim).join(', ')}`);
+    } catch (provErr) { console.warn('[PROVENANCE] 스킵:', String((provErr as Error)?.message || provErr).slice(0, 80)); }
 
     if (runFinalQa && !finalJudge) {
       try {
