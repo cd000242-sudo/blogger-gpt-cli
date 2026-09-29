@@ -117,8 +117,8 @@ describe('배선 — 발행 흐름을 바꾸지 않는다', () => {
     expect(orchestration).toContain('checkFabrication');
   });
 
-  it('재료는 근거 장부(factEvidence.context)를 쓴다', () => {
-    expect(orchestration).toContain('checkFabrication(factEvidence.context');
+  it('재료는 근거 장부를 쓴다 — v3.8.755 부터 Writer 와 같은 채택 장부 보기(validationView)', () => {
+    expect(orchestration).toContain('checkFabrication(validationView().evidence.context');
   });
 
   it('검사가 터져도 생성이 멈추지 않는다', () => {

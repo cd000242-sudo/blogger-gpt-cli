@@ -3099,6 +3099,20 @@ ${quoted}
      * 들어오기 시작하면 중복이 상한을 그대로 먹어 **정작 볼 자료가 밀려난다.**
      * 사용자 요구는 "비용 최소" 이므로 중복을 없애 같은 예산에 더 많은 근거를 넣는다.
      */
+    /**
+     * 🧾 v3.8.755 — 검사기용 근거 보기. Writer 가 받은 채택 장부(evidenceItems: 안정 ID·보존 본문)로 검사 문맥을 만든다.
+     * 실측(run f607bc): 본문 필터 문맥이 발췌본(groundingReference)이라 Writer 가 정당하게 쓴 우대형 조건을 지웠다.
+     * 프롬프트용 factEvidence.context 는 그대로 둔다(프롬프트·비용 불변). 장부가 비면 예전 문맥으로 돌아간다(basis legacy-excerpt).
+     * 호출 시점의 장부를 읽는다 — 뒤 단계(약속 근거 보강)에서 장부가 자라도 같은 보기를 본다.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { buildValidationEvidence, describeValidationInput } = require('./validation-evidence');
+    const validationView = () => buildValidationEvidence(evidenceItems, factEvidence, {
+      paidContext: paidFactContext,
+      briefFacts: sourceScope ? scopedPrimary.map((p) => `[공식 공고 원문] ${p.title}\n[출처 URL] ${p.url}\n${p.content}`).join('\n\n') : reportBriefFacts,
+      officialBlock,
+      deliveredIds: new Set<string>((evidenceRender.used || []).map((u: any) => String(u?.id || ''))),
+    });
     const ledgerCoversSources = groundingReference.length > (factEvidence.context || '').length;
     if (ledgerCoversSources) {
       factEvidence = {
@@ -3950,18 +3964,22 @@ ${quoted}
     }
 
     // A prompt is not enough: verify the returned JSON before any FAQ, image, or publishing work begins.
-    let factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, factEvidence);
+    // v3.8.755 — 검사 문맥은 Writer 가 받은 채택 장부(validationView). 호출 직전의 실제 입력을 캡처에 남긴다(문맥 본문은 장부 스냅샷이 갖고 있다)
+    const bodyValidation = validationView();
+    const draftPlain = (obj: any): string => [String(obj?.introduction || ''), ...(obj?.sections || []).flatMap((s: any) => (s?.h3Sections || []).map((h: any) => String(h?.content || ''))), String(obj?.conclusion || '')].join('\n');
+    const factBefore = trace.snapshot('draft.before-fact-filter', allSectionsObj);
+    trace.event('fact-filter.input', describeValidationInput(bodyValidation, { fn: 'inspectArticleFactIntegrity/sanitizeArticleFactClaims', artifact: factBefore, evidenceSnapshot: 'evidence.stage2' }));
+    if (!bodyValidation.complete || bodyValidation.basis !== 'ledger') onLog?.(`[PROGRESS] 74% - ⚠️ [FACT] 검사 근거 불완전(${bodyValidation.basis}${bodyValidation.droppedIds.length ? ` · 빠진 문서 ${bodyValidation.droppedIds.length}` : ''}) — 근거 없음 판정은 "발췌에서 못 찾음" 일 수 있음`);
+    let factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyValidation.evidence);
     if (factIntegrityReport.status === 'blocked') {
       onLog?.(`[PROGRESS] 74% - [FACT] 근거와 일치하지 않는 주장 ${factIntegrityReport.violations.length}건을 제거 후 재검사합니다.`);
       // 🧾 v3.8.752 — 로그는 "2건 제거" 라고만 했다. 무엇을 지웠는지(전후·위반 목록)를 남긴다
-      const draftPlain = (obj: any): string => [String(obj?.introduction || ''), ...(obj?.sections || []).flatMap((s: any) => (s?.h3Sections || []).map((h: any) => String(h?.content || ''))), String(obj?.conclusion || '')].join('\n');
-      const factBefore = trace.snapshot('draft.before-fact-filter', allSectionsObj);
       const factBeforeText = draftPlain(allSectionsObj);
       const violationsBefore = factIntegrityReport.violations.map((v: any) => ({ location: v.location, kind: v.kind, detail: v.detail }));
-      allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, factEvidence);
+      allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, bodyValidation.evidence);
       const factAfter = trace.snapshot('draft.after-fact-filter', allSectionsObj);
-      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true });
-      factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, factEvidence);
+      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true, contextSha1: bodyValidation.contextSha1, basis: bodyValidation.basis, complete: bodyValidation.complete });
+      factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyValidation.evidence);
 
       if (factIntegrityReport.status === 'blocked') {
         const firstIssue = factIntegrityReport.violations[0];
@@ -3983,7 +4001,7 @@ ${quoted}
     //   현재: H2/H3와 동일하게 sanitizeFactUnsafeHeading으로 "근거 미확인 토큰만" 도려낸다.
     //         전부 도려내져 남는 게 없을 때만 키워드로 폴백.
     if (!payload.useKeywordAsTitle) {
-      const sanitizedH1 = sanitizeFactUnsafeHeading(h1, factEvidence, keyword);
+      const sanitizedH1 = sanitizeFactUnsafeHeading(h1, validationView().evidence, keyword);   // v3.8.755 — 본문과 같은 채택 장부 보기
       if (sanitizedH1 && sanitizedH1 !== h1) {
         /**
          * ⚠️ v3.8.619 — 제목이 통째로 키워드가 되는 건 **조용히 넘어갈 일이 아니다.**
@@ -4216,7 +4234,7 @@ ${quoted}
     //   측정·경고만 한다 — 발행을 막지도, 재작성을 걸지도 않는다.
     try {
       const { checkFabrication } = require('../fabrication-check');
-      const fab = checkFabrication(factEvidence.context || '', articleTextForAux);
+      const fab = checkFabrication(validationView().evidence.context || '', articleTextForAux);   // v3.8.755 — 채택 장부 보기(발췌본이 아니라)
       if (fab.checked && fab.findings.length > 0) {
         onLog?.(`[PROGRESS] 45% - 🚨 지어냄 의심 ${fab.findings.length}건 / 검증 대상 ${fab.totalClaims}건`);
         for (const warning of fab.warnings) onLog?.(`   - ${warning}`);
@@ -4396,7 +4414,10 @@ ${quoted}
     const summaryFactText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
     // 🧾 v3.8.752 — 요약표(질문·답·근거 줄 포함)의 LLM 원본. 답 상자의 재료가 여기서 나온다
     const summaryRawSnap = trace.snapshot('summary-table.raw', summaryTable, { note: 'generateSummaryTableFinal 반환' });
-    if (inspectFactIntegrity(summaryFactText, factEvidence).status === 'blocked') {
+    // v3.8.755 — 요약표 정리도 본문 필터와 같은 채택 장부 보기를 쓴다(본문에서 살린 값을 여기서 다시 지우지 않게). 입력을 캡처에 남긴다
+    const tableValidation = validationView();
+    trace.event('summary-table.fact-filter.input', describeValidationInput(tableValidation, { fn: 'inspectFactIntegrity/sanitizeFactUnsafeHtml', artifact: summaryRawSnap, evidenceSnapshot: 'evidence.stage2' }));
+    if (inspectFactIntegrity(summaryFactText, tableValidation.evidence).status === 'blocked') {
       const summaryBeforeText = summaryFactText;
       const rowsBefore = (summaryTable.rows || []).map((row) => [...row]);
       /**
@@ -4405,15 +4426,15 @@ ${quoted}
        */
       summaryTable = {
         ...summaryTable,
-        headers: (summaryTable.headers || []).map((value) => sanitizeFactUnsafeHtml(value, factEvidence)),
-        rows: rowsBefore.map((row) => row.map((value, ci) => sanitizeFactUnsafeHtml(value, ci === 0 ? factEvidence : { ...factEvidence, subjectHint: String(row[0] || '') }))),
+        headers: (summaryTable.headers || []).map((value) => sanitizeFactUnsafeHtml(value, tableValidation.evidence)),
+        rows: rowsBefore.map((row) => row.map((value, ci) => sanitizeFactUnsafeHtml(value, ci === 0 ? tableValidation.evidence : { ...tableValidation.evidence, subjectHint: String(row[0] || '') }))),
       };
       const clearedCells = rowsBefore.flatMap((row, ri) => row.map((before, ci) => ({ row: String(row[0] || `행 ${ri + 1}`), before: String(before || ''), after: String(summaryTable.rows?.[ri]?.[ci] ?? '') }))
         .filter((c) => c.before.trim() && !c.after.trim()));
       if (clearedCells.length) onLog?.(`[PROGRESS] 70% - 🧹 요약표 정리로 비운 칸 ${clearedCells.length}개: ${clearedCells.map((c) => `${c.row}: "${c.before.slice(0, 40)}"`).join(' · ')} — 근거에 없는 값으로 판정됨(맞는 값이면 근거 표기·전달을 의심)`);
       const sanitizedSummaryText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
       trace.change('summary-table.fact-filter', { fn: 'sanitizeFactUnsafeHtml', before: summaryRawSnap, after: trace.snapshot('summary-table.filtered', summaryTable), beforeText: summaryBeforeText, afterText: sanitizedSummaryText, reason: '요약표 근거 불일치 정리', clearedCells, judgeable: true });
-      if (inspectFactIntegrity(sanitizedSummaryText, factEvidence).status === 'blocked') {
+      if (inspectFactIntegrity(sanitizedSummaryText, tableValidation.evidence).status === 'blocked') {
         // v3.8.323: 크롤링이 항상 완벽하지 않음 → 발행 차단 대신 경고만 남기고 진행 (사용자 보고: "크롤링이 정확하지 않은 것 같아")
         onLog?.('[PROGRESS] 70% - ⚠️ [FACT] 요약표 근거 부족 감지 (경고만 남기고 발행 진행)');
         console.warn('[FACT] 요약표 근거 부족 — 경고 강등:', { sanitizedSummaryText: sanitizedSummaryText.slice(0, 200) });

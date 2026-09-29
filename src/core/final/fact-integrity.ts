@@ -101,6 +101,27 @@ const PRIOR_VALUE = /\d[\d.]*\s*(?:%p|%|만\s*원|원|억|만)/g;
 const SENTENCE_BREAK = /[.!?。]/;
 /** 값 바로 뒤(12자 안)의 부정 — "12%가 적용되지 않는다"·"12%를 받지 못한다"·"12%가 아니라" */
 const NEGATION_AFTER = /^.{0,12}?(?:않|못|아니|제외|미적용)/;
+/** 값 바로 뒤 괄호의 이름표 — "6%(일반형) 또는 12%(우대형)". 이 꼴은 괄호 안 낱말이 그 값의 주어다 (v3.8.755, 실측 run f607bc E24) */
+const POSTFIX_LABEL = /^\s*\(\s*(우대형|일반형|신규|기존|1차|2차|3차|지방|수도권|특별|가입자|재직자|취업자|소상공인|청년형|일반)/;
+/** 직전 값에 붙은 괄호 이름표 — 다음 값의 주어 조각에서 뺀다 */
+const PRIOR_POSTFIX = /^\s*\([^)]{0,12}\)/;
+
+/**
+ * 주어 대조용 정규화 — normalizeForMatch 와 달리 **괄호·쉼표를 남긴다.**
+ * "6%(일반형) 또는 12%(우대형)" 와 "일반형 6%, 우대형 12%" 는 괄호를 지우면 같은 글자가 되어 가를 수 없다.
+ * 숫자 안의 쉼표(3,600)만 지워 값 토큰(3600만)과 맞춘다.
+ */
+function normalizeForSubject(value: string): string {
+  return String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/(\d),(?=\d)/g, '$1')
+    .replace(/퍼센트\s*포인트/g, '%p')
+    .replace(/퍼센트/g, '%')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
 
 /**
  * v3.8.753 — 값이 이름표의 유형 낱말 곁에 있는가. 이름표에 유형 낱말이 없으면 판단하지 않는다(null).
@@ -126,13 +147,20 @@ function nearSubject(normalizedValue: string, contextText: string, subjectHint: 
     const after = contextText.slice(m.index + m[0].length, m.index + m[0].length + SUBJECT_WINDOW);
     const sentenceAfter = after.split(SENTENCE_BREAK)[0] || '';
     if (NEGATION_AFTER.test(sentenceAfter)) continue;
+    // "12%(우대형)" — 값 뒤 괄호의 이름표가 곧 주어. 앞쪽 조각은 보지 않는다
+    const postfix = sentenceAfter.match(POSTFIX_LABEL);
+    if (postfix) {
+      if (rivals.has(postfix[1]!)) continue;
+      if (hinted.has(postfix[1]!)) return true;
+      continue;
+    }
     let cut = 0;
     for (let i = before.length - 1; i >= 0; i -= 1) if (SENTENCE_BREAK.test(before[i]!)) { cut = i + 1; break; }
     const sentenceBefore = before.slice(cut);
     let segment = sentenceBefore;
     PRIOR_VALUE.lastIndex = 0;
     let pv: RegExpExecArray | null;
-    while ((pv = PRIOR_VALUE.exec(sentenceBefore)) !== null) segment = sentenceBefore.slice(pv.index + pv[0].length);
+    while ((pv = PRIOR_VALUE.exec(sentenceBefore)) !== null) segment = sentenceBefore.slice(pv.index + pv[0].length).replace(PRIOR_POSTFIX, '');
     let qualifiers = segment.match(SUBJECT_QUALIFIER) || [];
     if (qualifiers.length === 0) {
       const tail = sentenceAfter.slice(0, 12).match(SUBJECT_QUALIFIER);          // "12% 우대형" 처럼 바로 뒤에 붙은 이름표
@@ -274,7 +302,8 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   const contextText = isNumeric ? normalizeForMatch(evidence.context || '') : normalize(evidence.context || '');
   if (!has(contextText)) return false;
   // v3.8.753 — 이름표에 유형 낱말이 있으면 그 곁의 값만 인정한다(다른 상품·다른 유형의 같은 숫자 차단)
-  if (isNumeric && evidence.subjectHint && nearSubject(normalizedValue, contextText, evidence.subjectHint) === false) return false;
+  //   v3.8.755 — 주어 대조는 괄호를 남긴 정규화로 한다("6%(일반형) 또는 12%(우대형)" 을 가르기 위해)
+  if (isNumeric && evidence.subjectHint && nearSubject(normalizedValue, normalizeForSubject(evidence.context || ''), evidence.subjectHint) === false) return false;
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 
