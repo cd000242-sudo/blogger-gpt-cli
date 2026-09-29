@@ -3978,7 +3978,7 @@ ${quoted}
       const violationsBefore = factIntegrityReport.violations.map((v: any) => ({ location: v.location, kind: v.kind, detail: v.detail }));
       allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, bodyValidation.evidence);
       const factAfter = trace.snapshot('draft.after-fact-filter', allSectionsObj);
-      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true, contextSha1: bodyValidation.contextSha1, basis: bodyValidation.basis, complete: bodyValidation.complete });
+      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true, contextSha1: bodyValidation.contextSha1, basis: bodyValidation.basis, complete: bodyValidation.complete, derived: factIntegrityReport.derived || [] });
       factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyValidation.evidence);
 
       if (factIntegrityReport.status === 'blocked') {

@@ -1,4 +1,5 @@
 import { containsValueToken, normalizeForMatch } from './number-token';
+import { resolveDerivedDifferences, type DerivedCheck } from './derived-difference';
 
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
 
@@ -14,6 +15,11 @@ export interface FactEvidence {
    * 유형 낱말이 없는 이름표는 예전과 같다(값 존재만 본다).
    */
   subjectHint?: string;
+  /**
+   * v3.8.757 — 문장이 속한 블록(h3 content 등)의 HTML. "20만 원 차이" 같은 파생 차액은 같은 블록의 표에서
+   * 두 피연산자를 찾아 검산한다. 없으면 검사 대상 HTML 자체를 블록으로 본다.
+   */
+  blockHtml?: string;
 }
 
 export type FactIntegrityViolationKind =
@@ -31,6 +37,8 @@ export interface FactIntegrityReport {
   status: 'passed' | 'blocked';
   checkedClaims: number;
   violations: FactIntegrityViolation[];
+  /** v3.8.757 — 파생 차액 검산 기록(검증·불일치·확인 불가). 캡처용 */
+  derived?: DerivedCheck[];
 }
 
 export interface FactIntegrityArticle {
@@ -311,7 +319,7 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 
-function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrityViolation[] {
+function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: DerivedCheck[]): FactIntegrityViolation[] {
   const violations: FactIntegrityViolation[] = [];
   const exactValues = extractExactValues(sentence);
   const institutions = extractInstitutions(sentence);
@@ -321,7 +329,13 @@ function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrit
   const valuesToVerify = sensitive ? exactValues : inherentlyTimeSensitiveValues;
 
   if (valuesToVerify.length > 0) {
-    const unsupported = valuesToVerify.filter((value) => !isSupportedToken(value, evidence, evidenceIsStrong));
+    let unsupported = valuesToVerify.filter((value) => !isSupportedToken(value, evidence, evidenceIsStrong));
+    // v3.8.757 — 직접 근거가 없는 값이라도 같은 블록의 표로 검산되는 단순 차액이면 지원된 것으로 본다(검산 기록은 derived 로 남긴다)
+    if (unsupported.length > 0 && evidence.blockHtml) {
+      const { resolved, checks } = resolveDerivedDifferences(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
+      derivedOut?.push(...checks);
+      unsupported = unsupported.filter((value) => !resolved.has(value));
+    }
     if (unsupported.length > 0) {
       violations.push({
         kind: 'unsupported_exact_value',
@@ -347,12 +361,16 @@ function inspectSentence(sentence: string, evidence: FactEvidence): FactIntegrit
 
 export function inspectFactIntegrity(html: string, evidence: FactEvidence): FactIntegrityReport {
   const sentences = splitSentences(html);
-  const violations = sentences.flatMap((sentence) => inspectSentence(sentence, evidence));
+  // v3.8.757 — 블록 문맥(표)을 문장 검사에 넘긴다. 호출부가 안 주면 검사 대상 HTML 자체가 블록이다
+  const blockEvidence: FactEvidence = evidence.blockHtml ? evidence : { ...evidence, blockHtml: String(html || '') };
+  const derived: DerivedCheck[] = [];
+  const violations = sentences.flatMap((sentence) => inspectSentence(sentence, blockEvidence, derived));
 
   return {
     status: violations.length > 0 ? 'blocked' : 'passed',
     checkedClaims: sentences.length,
     violations,
+    ...(derived.length ? { derived } : {}),
   };
 }
 
@@ -426,8 +444,10 @@ export function sanitizeFactUnsafeHtml(html: string, evidence: FactEvidence): st
   return urls.length === 0 ? out : out.replace(URL_SLOT, (_m, i: string) => urls[Number(i)] ?? '');
 }
 
-function sanitizeFactUnsafeHtmlMasked(html: string, evidence: FactEvidence): string {
+function sanitizeFactUnsafeHtmlMasked(html: string, outerEvidence: FactEvidence): string {
   const withoutMetaBoilerplate = String(html || '').replace(FACT_META_BOILERPLATE_PATTERN, '').replace(/\s{2,}/g, ' ').trim();
+  // v3.8.757 — 문장·칸 단위로 다시 검사할 때도 블록(표 포함) 문맥을 잃지 않는다: "20만 원 차이" 는 같은 블록의 표로 검산된다
+  const evidence: FactEvidence = outerEvidence.blockHtml ? outerEvidence : { ...outerEvidence, blockHtml: withoutMetaBoilerplate };
   if (inspectFactIntegrity(withoutMetaBoilerplate, evidence).status === 'passed') return withoutMetaBoilerplate;
 
   /**
@@ -491,10 +511,12 @@ function mergeReports(reports: Array<{ report: FactIntegrityReport; location: st
   const violations = reports.flatMap(({ report, location }) =>
     report.violations.map((violation) => ({ ...violation, location })),
   );
+  const derived = reports.flatMap(({ report }) => report.derived || []);
   return {
     status: violations.length > 0 ? 'blocked' : 'passed',
     checkedClaims: reports.reduce((sum, item) => sum + item.report.checkedClaims, 0),
     violations,
+    ...(derived.length ? { derived } : {}),
   };
 }
 
