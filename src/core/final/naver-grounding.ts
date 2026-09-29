@@ -565,8 +565,23 @@ export async function fetchGrounding(
     //   갈래·표시·집계는 그대로 [웹] 이다(기관 문서는 웹 갈래라는 기존 계약 유지) — 바뀌는 것은 본문 예산의 순서뿐.
     const topicsForOfficial = options.officialPlan?.subjects?.length ? options.officialPlan.subjects
       : sourceScope?.subjects?.length ? sourceScope.subjects : (isComparisonTopic(mainKeyword) ? comparisonSubjects(mainKeyword) : [mainKeyword]);
-    const isOfficialOnTopic = (it: any) => isOfficialDestination(bodyUrlOf(it)) && topicsForOfficial.some((t) => matchesTopic(`${stripTags(it?.title)} ${stripTags(it?.description)}`, t));
-    let officialFirst = webUsableAll.filter(isOfficialOnTopic).slice(0, OFFICIAL_RESERVE);
+    /**
+     * v3.8.760 — 공식 후보 점수(P1-F). 실측(run fba7e9): 공식 페이지 제목은 "노령연금", 검색어는 "조기수령" — 제목·요약의 주제어 일치(matchesTopic)만 보면
+     * 그 페이지가 후보에서 빠지고, 같은 기관의 홈·FAQ 도 같은 이유로 빠지거나 들어온다. 제목 일치(3점) 다음으로, 요약이 주제어 하나를 담고
+     * **핵심 질문 표지(OFFICIAL_NEEDS 의 일정·조건)** 를 설명하면 후보(2점)로 남긴다. 기관만 같고 요약이 다른 얘기면 0점. 동의어 사전은 없다.
+     */
+    type SearchItem = { title?: string; description?: string; link?: string; originallink?: string };
+    const officialScore = (it: SearchItem): number => {
+      if (!isOfficialDestination(bodyUrlOf(it))) return 0;
+      const title = stripTags(it?.title || ''); const desc = stripTags(it?.description || '');
+      const text = `${title} ${desc}`;
+      if (topicsForOfficial.some((t) => matchesTopic(text, t))) return 3;
+      const anyTopicTerm = topicsForOfficial.some((t) => t.split(/\s+/).filter((w) => w.length >= 2 && !GENERIC_TERMS.has(w)).some((w) => text.includes(w)));
+      const needHit = OFFICIAL_NEEDS.some((n: OfficialNeed) => n.core && n.markers.test(desc));
+      return anyTopicTerm && needHit ? 2 : 0;
+    };
+    const isOfficialOnTopic = (it: SearchItem) => officialScore(it) > 0;
+    let officialFirst = webUsableAll.filter(isOfficialOnTopic).sort((a, b) => officialScore(b) - officialScore(a)).slice(0, OFFICIAL_RESERVE);
 
     /**
      * 🧭 v3.8.758 — 현재 회차와 조건부 보강(기본 꺼짐).
