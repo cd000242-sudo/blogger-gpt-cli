@@ -16,6 +16,7 @@
  */
 import { buildJudgeContext, judgePacketValue, type CoreContext, type PacketValueReason, citiesIn } from './core-values';
 import type { ResearchPacket, SourcedClaim, SourcedValue } from './research-packet';
+import { renderCoreQuestions } from './core-questions';
 
 export type ViewTier = 'CORE' | 'SUPPORTING' | 'CONTEXT_ONLY';
 export type ViewVerdict = 'KEEP' | 'DEMOTE' | 'DROP_FROM_WRITER_VIEW';
@@ -138,6 +139,8 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
     ...section('배경 — 지난해·지난 회차·이미 지난 일정 (현재 기준으로 쓰지 마세요. 쓰려면 "지난해에는" 처럼 시점을 붙입니다)', background),
     ...section('근거끼리 다른 점 — 섞어 쓰지 마세요', conflicts.map(line)),
     ...section('검색자가 실제로 물은 것', (packet.readerQuestions || []).map((q) => `- ${q}`)),
+    // v3.8.761 — 코드가 계획한 핵심 판단 질문(전환·비교형에서 남은 기간 등). 없으면 빈 절
+    ...(packet.coreQuestions && packet.coreQuestions.some((q) => q.applicable) ? renderCoreQuestions(packet.coreQuestions) : []),
     ...section('실제 자동완성(연관 검색어)', (packet.actualSearchSuggestions || []).length ? [`- ${packet.actualSearchSuggestions.join(' / ')}`] : []),
     ...(packet.status === 'EMPTY' ? ['⚠️ 확인된 근거가 없습니다. 금액·날짜·기간·자격조건을 구체적으로 쓰지 말고, 공식 창구에서 확인하라고 안내하세요.'] : []),
   ].join('\n');

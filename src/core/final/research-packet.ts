@@ -40,6 +40,8 @@ export interface ResearchPacket {
   conflictingInformation: SourcedClaim[];
   readerQuestions: string[];
   actualSearchSuggestions: string[];
+  /** v3.8.761 — 코드가 계획한 핵심 판단 질문(core-questions.planCoreQuestions). 없으면 렌더하지 않는다 */
+  coreQuestions?: Array<{ id: string; question: string; principle: string; dimension: string; applicable: boolean; reason: string }>;
   /** v3.8.753 — delivered:false 는 문장이 인용했지만 이번 Writer 근거 블록에는 들어가지 않은 문서 */
   sourceMap: Array<{ id: string; title: string; domain: string; url: string; pubDate: string | null; sourceType: string; isOfficial: boolean; delivered?: boolean }>;
   /** v3.8.753 — 문장이 인용했는데 장부 어디에도 없는 id. 비슷한 문서로 바꾸지 않고 여기 남긴다 */

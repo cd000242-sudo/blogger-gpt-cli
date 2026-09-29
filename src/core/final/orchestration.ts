@@ -44,6 +44,9 @@ import { guardFacts, buildGroundingReference } from './fact-guard';
 import { findStructureIssues, describeStructureIssues } from './structure-guard';
 // v3.8.575: 이미 쓰는 네이버 키로 근거를 넓히고 낡음을 본다 (추가 비용 없음)
 import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness, describeOfficialShortfall } from './naver-grounding';
+// v3.8.761: 핵심 판단 질문 계획·coverage 와 최종 권위 재검사 — 마지막 LLM 재작성이 앞의 결정론 검사를 무효화하지 못하게
+import { planCoreQuestions, coverCoreQuestions, isCoreAnswerSentence, type CoreQuestion } from './core-questions';
+import { runFinalAuthority } from './final-authority';
 // v3.8.730: 공고형 글은 주관기관을 먼저 정하고 그 밖의 자료를 뺀다 (사장님 실측: LH 공고 글에 HUG·매물 시세가 섞였다)
 import { deriveSourceScope, selectScopedSources, sourceMatchesScope, isScopedOfficialSource, buildSourceScopeDirective, hasOfficialSource } from './source-scope';
 // 748 (A): 지식iN 질문은 키워드 실체에 대고 거른 뒤에만 패킷·소제목·실로 간다 (경주 APEC live: "국내 여름 휴양지" 가 실이 됐다)
@@ -1668,6 +1671,20 @@ export async function generateUltimateMaxModeArticleFinal(
       } : {}),
     });
     const packetModel = require('./model-use').modelsSince(packetModelSnap);
+    /**
+     * 🧭 v3.8.761 — 핵심 판단 질문(코드 계획). 실측(run b8cdb4): 전환·비교 글인데 "기존 가입자의 남은 기간" 질문이 초안부터 없었다.
+     * 전환 의도 + 진행 중인 계약 대상일 때만 REMAINING_TERM 질문을 패킷에 싣는다(자동차·여행지 비교엔 안 붙는다). 호출 0회.
+     */
+    const coreQuestionsPlan: CoreQuestion[] = (() => {
+      try {
+        const plan = planCoreQuestions({ keyword, searchIntent: String(researchPacket?.searchIntent || ''), readerQuestions: demandSignals.userQuestions, evidenceText: evidenceRender.text });
+        researchPacket = { ...researchPacket, coreQuestions: plan };
+        trace.event('core-questions.plan', { questions: plan });
+        if (plan.some((q) => q.applicable)) onLog?.(`[PROGRESS] 38% - 🧭 핵심 판단 질문 계획: ${plan.filter((q) => q.applicable).map((q) => q.id).join(', ')}`);
+        return plan;
+      } catch (cqErr) { console.warn('[CORE-Q] 계획 스킵:', String((cqErr as Error)?.message || cqErr).slice(0, 80)); return []; }
+    })();
+    const decisionDimensions = coreQuestionsPlan.filter((q) => q.applicable).map((q) => q.dimension);
     let researchPacketText: string = packetMod.renderPacket(researchPacket);
     trace.snapshot('packet.raw', { packet: researchPacket, text: researchPacketText, model: packetModel }, { note: 'RAW_PACKET — LLM 정리 직후' });
     /** 2단계에서 근거가 늘면 수치·날짜·출처표만 다시 뽑는다 — 문장(LLM 정리)은 그대로, 호출 0회 */
@@ -3696,6 +3713,15 @@ ${quoted}
     );
     const draftModel = require('./model-use').modelsSince(draftModelSnap);
     trace.snapshot('draft.returned', allSectionsObj, { note: 'generateAllSectionsFinal 반환(보강·takeaway 반영 뒤)' });
+    // v3.8.761 — 좋은 지시를 받았다고 답한 것이 아니다: 계획한 핵심 질문을 초안이 실제로 답했는지 잰다(ANSWERED/PARTIAL/MISSING). MISSING 을 새 호출로 채우지 않는다
+    try {
+      if (coreQuestionsPlan.some((q) => q.applicable)) {
+        const coverage = coverCoreQuestions(JSON.stringify(allSectionsObj), coreQuestionsPlan);
+        trace.event('core-questions.coverage', { stage: 'draft', coverage });
+        const missing = coverage.filter((c) => c.status === 'MISSING').map((c) => c.id);
+        onLog?.(`[PROGRESS] 66% - 🧭 핵심 질문 coverage(초안): ${coverage.map((c) => `${c.id}=${c.status}`).join(' · ')}${missing.length ? ' — 이번 실행에서는 자동으로 채우지 않습니다' : ''}`);
+      }
+    } catch { /* coverage 측정 실패는 넘어간다 */ }
     trace.meta({ draftModel });
 
     // 🧬 v3.8.390: 자기중복 관측 — **차단하지 않는다.** 재고만 하고 발행은 그대로 진행한다.
