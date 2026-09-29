@@ -4010,6 +4010,25 @@ ${quoted}
       onLog?.(`[PROGRESS] 74% - [FACT] 근거 일치 검사 통과 (${factIntegrityReport.checkedClaims}개 문장 확인)`);
     }
 
+    /**
+     * v3.8.760 — 판단문의 값 역할 왜곡(P1-B, decision-semantics). 근거가 상한("월 최대 X")으로만 말한 값을 본문이 요구 조건("X 을 유지할 수 있고")으로
+     * 쓰면 그 문장만 약화한다. 실측(run d7a142) 서론·결론·2절. 답 상자·요약표·FAQ 는 answer-fidelity 가 따로 본다. 호출 0회·문장 단위·절 재작성 없음.
+     */
+    try {
+      const { alignArticleDecisionSemantics } = await import('./decision-semantics');
+      const semBefore = trace.snapshot('draft.before-decision-semantics', allSectionsObj);
+      const sem = alignArticleDecisionSemantics(allSectionsObj, bodyValidation.evidence.context || '');
+      const weakened = sem.changes.filter((c) => c.action === 'weakened');
+      if (weakened.length > 0) {
+        const semBeforeText = draftPlain(allSectionsObj);
+        allSectionsObj = sem.article;
+        trace.change('decision-semantics', { fn: 'alignArticleDecisionSemantics', before: semBefore, after: trace.snapshot('draft.after-decision-semantics', allSectionsObj), beforeText: semBeforeText, afterText: draftPlain(allSectionsObj), reason: `상한을 요구 조건으로 쓴 문장 ${weakened.length}건 약화`, changes: sem.changes, judgeable: true });
+        onLog?.(`[PROGRESS] 74% - ⚖️ 상한을 유지 조건처럼 쓴 문장 ${weakened.length}건을 약화했습니다${sem.changes.length > weakened.length ? ` (치환 불가 ${sem.changes.length - weakened.length}건은 기록만)` : ''}`);
+      } else if (sem.changes.length > 0) {
+        trace.event('decision-semantics', { changes: sem.changes });
+      }
+    } catch (semErr) { console.warn('[DECISION-SEMANTICS] 스킵:', String((semErr as Error)?.message || semErr).slice(0, 100)); }
+
     // v3.8.368: 제목이 통째로 키워드로 되돌아가던 버그 fix
     //   과거: 제목에서 키워드를 뺀 나머지에 근거 미확인 값이 하나라도 있으면 h1 = keyword 로 전체 교체.
     //         generateH1TitleFinal은 프롬프트에서 "2026년"을 제목 맨 앞에 넣으라고 지시하는데,
