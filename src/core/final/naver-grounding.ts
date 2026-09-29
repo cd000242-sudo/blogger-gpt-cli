@@ -37,7 +37,7 @@
  */
 
 import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust';
-import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, isComparisonTopic, comparisonSubjects, type SourceScope } from './source-scope';
+import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, isComparisonTopic, comparisonSubjects, roundOf, type SourceScope } from './source-scope';
 import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceDraft } from './evidence';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
@@ -141,6 +141,22 @@ export interface GroundingResult {
    * 시도했는지·예산에 밀렸는지·실패했는지 저장자료로 가를 수 없었다. snippet-only 와 fetch 실패를 구분한다.
    */
   fetchLog?: FetchAttempt[];
+  /** v3.8.758 — 공식자료 상태(기관 매핑 없는 주제 포함) */
+  officialStatus?: OfficialStatus;
+}
+
+/**
+ * v3.8.758 — 이 주제의 공식자료가 어떤 상태로 끝났는가. "못 찾음" 을 "공식적으로 없음" 으로 바꾸지 않기 위한 기록.
+ *   body: 본문 확보 · snippet-only: 결과엔 있으나 본문 미수집(예산) · fetch-failed: 접근 실패 · round-mismatch: 다른 회차 문서뿐 ·
+ *   not-in-results: 결과 자체에 없음
+ */
+export interface OfficialStatus {
+  needed: boolean;
+  currentRound: string | null;
+  candidates: Array<{ url: string; title: string; round: string | null; status: 'body' | 'snippet-only' | 'fetch-failed' | 'round-mismatch' | 'file-url' }>;
+  /** 현재 회차(알 수 있으면)의 공식 본문을 확보했는가 */
+  sufficient: boolean;
+  boost: { enabled: boolean; wouldTrigger: boolean; triggered: boolean; queries: string[]; added: number; reason: string };
 }
 
 export interface FetchAttempt {
@@ -280,7 +296,13 @@ function latestYearIn(text: string): number {
 export async function fetchGrounding(
   keyword: string,
   naverSearch: NaverSearchFn,
-  options: { display?: number; fetchBody?: FetchBodyFn; sourceScope?: SourceScope; mainKeyword?: string; promise?: string } = {},
+  options: {
+    display?: number; fetchBody?: FetchBodyFn; sourceScope?: SourceScope; mainKeyword?: string; promise?: string;
+    /** v3.8.758 — 공식자료 조사 계획(official-research-plan). 기관 매핑이 없는 주제의 조건부 보강에 쓴다 */
+    officialPlan?: { queries: string[]; subjects: string[] };
+    /** v3.8.758 — 조건부 보강 스위치. 기본 꺼짐 — 켜지 않으면 검색 수는 예전과 같고 '보강했다면' 만 기록한다 */
+    officialBoost?: { enabled: boolean; maxQueries?: number };
+  } = {},
 ): Promise<GroundingResult> {
   const empty: GroundingResult = {
     text: '', newsCount: 0, webCount: 0, officialCount: 0, blogCount: 0, skippedBlogs: 0,
@@ -517,11 +539,56 @@ export async function fetchGrounding(
      */
     //   비교 글("A vs B")이면 한쪽 대상만 다루는 공식 페이지도 주제에 맞는다 — 키워드 전체가 아니라 대상별로 댄다.
     //   갈래·표시·집계는 그대로 [웹] 이다(기관 문서는 웹 갈래라는 기존 계약 유지) — 바뀌는 것은 본문 예산의 순서뿐.
-    const topicsForOfficial = sourceScope?.subjects?.length ? sourceScope.subjects : (isComparisonTopic(mainKeyword) ? comparisonSubjects(mainKeyword) : [mainKeyword]);
-    const officialFirst = webUsableAll
-      .filter((it) => isOfficialDestination(bodyUrlOf(it)) && topicsForOfficial.some((t) => matchesTopic(`${stripTags(it?.title)} ${stripTags(it?.description)}`, t)))
-      .slice(0, OFFICIAL_RESERVE);
+    const topicsForOfficial = options.officialPlan?.subjects?.length ? options.officialPlan.subjects
+      : sourceScope?.subjects?.length ? sourceScope.subjects : (isComparisonTopic(mainKeyword) ? comparisonSubjects(mainKeyword) : [mainKeyword]);
+    const isOfficialOnTopic = (it: any) => isOfficialDestination(bodyUrlOf(it)) && topicsForOfficial.some((t) => matchesTopic(`${stripTags(it?.title)} ${stripTags(it?.description)}`, t));
+    let officialFirst = webUsableAll.filter(isOfficialOnTopic).slice(0, OFFICIAL_RESERVE);
+
+    /**
+     * 🧭 v3.8.758 — 현재 회차와 조건부 보강(기본 꺼짐).
+     * 실측(run f607bc): 뉴스는 "2차 모집" 을 말하는데 결과에 있던 공식 페이지는 6월 출시 안내(회차 없음)뿐이었다.
+     * 뉴스 제목·요약에서 가장 많이 나온 회차를 현재 회차로 보고, 그 회차의 공식 페이지가 없으면 "부족" 으로 기록한다.
+     * 보강(officialBoost.enabled)이 켜져 있을 때만 계획된 대상별 검색어를 최대 maxQueries 회 더 보낸다 — 기본 실행의 검색 수는 그대로다.
+     */
+    const roundVotes = new Map<string, number>();
+    for (const it of newsItems) { const r = roundOf(`${stripTags(it?.title)} ${stripTags(it?.description)}`); if (r) roundVotes.set(r, (roundVotes.get(r) || 0) + 1); }
+    const currentRound = [...roundVotes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    const roundOfItem = (it: any) => roundOf(`${stripTags(it?.title)} ${stripTags(it?.description)}`) || null;
+    const officialNeeded = !!options.officialPlan || topicsForOfficial.length > 1;
+    const hasCurrent = officialFirst.some((it) => !currentRound || roundOfItem(it) === currentRound);
+    const boostQueries = (options.officialPlan?.queries || []).slice(0, Math.max(0, options.officialBoost?.maxQueries ?? 1));
+    const boost = { enabled: !!options.officialBoost?.enabled, wouldTrigger: officialNeeded && !hasCurrent && boostQueries.length > 0, triggered: false, queries: [] as string[], added: 0, reason: '' };
+    if (boost.wouldTrigger && boost.enabled) {
+      const seen = new Set(webUsableAll.map((it) => bodyUrlOf(it)));
+      for (const q of boostQueries) {
+        boost.triggered = true; boost.queries.push(q);
+        const extra = await naverSearch('webkr', { query: q, display }, { cache: true }).catch(() => ({ ok: false, items: [] as any[] }));
+        for (const it of usable(extra?.ok ? extra.items : [], (x) => !isUserGeneratedUrl(String(x?.link || '')))) {
+          const url = bodyUrlOf(it);
+          if (!url || seen.has(url) || !isOfficialOnTopic(it)) continue;
+          seen.add(url); webUsableAll.push(it); boost.added += 1;
+        }
+      }
+      officialFirst = webUsableAll.filter(isOfficialOnTopic)
+        .sort((a, b) => Number(roundOfItem(b) === currentRound) - Number(roundOfItem(a) === currentRound))   // 현재 회차 문서를 앞에
+        .slice(0, OFFICIAL_RESERVE);
+      boost.reason = boost.added ? `보강 검색으로 공식 후보 ${boost.added}건 추가` : '보강 검색에도 이 주제의 공식 후보 없음';
+    } else if (boost.wouldTrigger) {
+      boost.reason = '현재 회차의 공식 본문 후보가 없음 — 보강은 승인 전이라 실행하지 않음';
+    } else {
+      boost.reason = hasCurrent && officialFirst.length ? '공식 후보 있음' : officialNeeded ? '보강 계획 없음' : '공식 조사 불필요';
+    }
     const officialFirstParts = officialFirst.length > 0 ? await enrich(officialFirst, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft)) : [];
+    const officialStatus: OfficialStatus = {
+      needed: officialNeeded, currentRound,
+      candidates: officialFirst.map((it) => {
+        const url = bodyUrlOf(it); const rec = [...fetchLog].reverse().find((f) => f.url === url); const round = roundOfItem(it);
+        const status = rec?.reason === 'ok' ? 'body' : rec?.reason === 'fetch-failed' ? 'fetch-failed' : rec?.reason === 'file-url' ? 'file-url' : 'snippet-only';
+        return { url, title: stripTags(it?.title), round, status: currentRound && round && round !== currentRound ? 'round-mismatch' : status };
+      }),
+      sufficient: false, boost,
+    };
+    officialStatus.sufficient = officialStatus.candidates.some((c) => c.status === 'body' && (!currentRound || c.round === currentRound));
     const reservedUrls = new Set(officialFirst.map((it) => bodyUrlOf(it)));
     const webUsable = webUsableAll.filter((it) => !reservedUrls.has(bodyUrlOf(it)));   // 앞에서 먼저 읽은 공식 페이지는 뺀다
 
@@ -649,7 +716,7 @@ export async function fetchGrounding(
       blogCount: blogParts.length,
       skippedBlogs: Math.max(0, blogSeen.length - blogTop.length),
       breakingEvent,
-      items: accepted, rejected, query, fetchLog,
+      items: accepted, rejected, query, fetchLog, officialStatus,
     };
   } catch {
     return empty;

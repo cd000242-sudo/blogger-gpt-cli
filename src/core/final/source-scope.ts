@@ -64,7 +64,7 @@ const plain = (s: unknown) => String(s || '').replace(/<[^>]*>/g, ' ').replace(/
 const host = (url: string) => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } };
 const within = (url: string, domain: string) => host(url) === domain || host(url).endsWith(`.${domain}`);
 export const isScopedOfficialSource = (url: string, scope: SourceScope) => within(url, scope.domain);
-const roundOf = (text: string) => text.match(/(?:제\s*)?(\d+)\s*차(?:\b|[^0-9]|$)/)?.[1];
+export const roundOf = (text: string) => text.match(/(?:제\s*)?(\d+)\s*차(?:\b|[^0-9]|$)/)?.[1];
 
 /**
  * 출처 범위를 정한다. 없으면 undefined — 그러면 아무것도 걸러지지 않는다.

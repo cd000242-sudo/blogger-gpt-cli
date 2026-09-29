@@ -1537,8 +1537,21 @@ export async function generateUltimateMaxModeArticleFinal(
     let groundingStats: { newsCount: number; webCount: number; officialCount: number } | null = null;
     const evidenceCandidates: any[] = [];
     const evidenceRejected: any[] = [];
+    /**
+     * 🧭 v3.8.758 — 공식자료 조사 계획(호출 0회). 기관 매핑이 없는 주제(실측: 청년미래적금 VS 청년 도약계좌)도 대상별 검색어를 갖는다.
+     * 보강 검색은 OFFICIAL_BOOST=1(또는 payload.officialBoost) 일 때만 최대 1회 — 기본 실행의 검색 수는 그대로다.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { buildOfficialResearchPlan } = require('./official-research-plan');
+    const officialPlan = buildOfficialResearchPlan(keyword, sourceScope);
+    const officialBoost = { enabled: process.env['OFFICIAL_BOOST'] === '1' || (payload as any).officialBoost === true, maxQueries: 1 };
+    trace.event('grounding.official-plan', { plan: officialPlan, boost: officialBoost });
     try {
-      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}) });
+      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost });
+      if ((g as any).officialStatus && (g as any).officialStatus.needed && !(g as any).officialStatus.sufficient) {
+        const st = (g as any).officialStatus;
+        onLog?.(`[PROGRESS] 40% - ⚠️ 핵심 공식자료 부족: 현재 회차 ${st.currentRound ? `${st.currentRound}차` : '미확인'} · 공식 후보 ${st.candidates.length}건(${st.candidates.map((c: any) => c.status).join(',') || '없음'}) · ${st.boost.reason}. "공식적으로 없음" 이 아니라 "확보 못 함" 이다`);
+      }
       naverGrounding = g.text;
       evidenceCandidates.push(...(g.items || []));
       evidenceRejected.push(...(g.rejected || []));
@@ -1546,7 +1559,7 @@ export async function generateUltimateMaxModeArticleFinal(
       if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
       groundingStats = g;
       // 🧾 v3.8.757 — 본문 수집 시도(예산 미시도·첨부·실패·성공)를 남긴다. 공식 페이지가 스니펫만 남은 이유를 저장자료로 가르기 위해
-      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], scope: sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
+      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], officialStatus: (g as any).officialStatus || null, scope: sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
       const summary = describeGrounding(g);
       console.log(`[GROUNDING] ${summary}`);
       if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
