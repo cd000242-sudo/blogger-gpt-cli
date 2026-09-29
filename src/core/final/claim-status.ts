@@ -12,10 +12,11 @@ import { containsValueToken, normalizeForMatch } from './number-token';
 import { extractValueTokens } from './fact-integrity';
 import { rewriteSentence, metaOf, isDisclaimer } from './claim-status-rewrite';
 
-export type ClaimStatus = 'CURRENT_CONFIRMED' | 'FUTURE_CONFIRMED' | 'PAST' | 'PLANNED' | 'ESTIMATED' | 'PROPOSED' | 'CONDITIONAL' | 'UNKNOWN';
+/** UNSPECIFIED(765) — 값은 근거에 있지만 상태를 말하는 문장이 없다(각주·표 칸·머리말 조각뿐). 현재 확정의 근거가 아니다 */
+export type ClaimStatus = 'CURRENT_CONFIRMED' | 'FUTURE_CONFIRMED' | 'PAST' | 'PLANNED' | 'ESTIMATED' | 'PROPOSED' | 'CONDITIONAL' | 'UNKNOWN' | 'UNSPECIFIED';
 /** 확정성 — 높을수록 강한 주장. 패킷·본문은 근거보다 높아질 수 없다 */
-export const STATUS_STRENGTH: Record<ClaimStatus, number> = { CURRENT_CONFIRMED: 5, FUTURE_CONFIRMED: 4, PAST: 4, PLANNED: 3, ESTIMATED: 2, PROPOSED: 2, CONDITIONAL: 1, UNKNOWN: 0 };
-export const STATUS_LABEL: Record<ClaimStatus, string> = { CURRENT_CONFIRMED: '현재 확정', FUTURE_CONFIRMED: '시행 확정(미래)', PAST: '과거', PLANNED: '예정', ESTIMATED: '추정·예상', PROPOSED: '추진·검토', CONDITIONAL: '조건부', UNKNOWN: '미상' };
+export const STATUS_STRENGTH: Record<ClaimStatus, number> = { CURRENT_CONFIRMED: 5, FUTURE_CONFIRMED: 4, PAST: 4, PLANNED: 3, ESTIMATED: 2, PROPOSED: 2, CONDITIONAL: 1, UNKNOWN: 0, UNSPECIFIED: 0 };
+export const STATUS_LABEL: Record<ClaimStatus, string> = { CURRENT_CONFIRMED: '현재 확정', FUTURE_CONFIRMED: '시행 확정(미래)', PAST: '과거', PLANNED: '예정', ESTIMATED: '추정·예상', PROPOSED: '추진·검토', CONDITIONAL: '조건부', UNKNOWN: '미상', UNSPECIFIED: '상태 미표시' };
 
 const MARKERS: Array<{ status: ClaimStatus; re: RegExp }> = [
   { status: 'CONDITIONAL', re: /(?:통과|확정|승인|시행|개정|도입)\s*(?:시|되면|하면|할\s*경우|될\s*경우|을\s*전제)|을\s*전제로|전제로\s*한다|(?:높아|낮아|늘어|바뀌|바뀌게\s*되|변경되|개편되)(?:면|지면)|경우에\s*한해|우천\s*시|조건이\s*충족되면/ },
@@ -26,9 +27,15 @@ const MARKERS: Array<{ status: ClaimStatus; re: RegExp }> = [
   { status: 'PAST', re: /지난해|작년|당시|이전\s*회차|과거|1차\s*(?:모집|가입)에서는|예전/ },
 ];
 /** 값 바로 앞의 "현재 확정" 표지 — 이 값이 지금 적용되는 값이라는 명시 */
-const EXPLICIT_CURRENT_BEFORE = /(?:현행|현재|지금|올해|이번\s*(?:회차|모집|가입기간)|기존)\s*(?:[가-힣]{0,6}\s*){0,2}$/;
+const EXPLICIT_CURRENT_BEFORE = /(?:현행|현재|지금|올해|이번\s*(?:회차|모집|가입기간)|기존)[)\]]?\s*(?:[가-힣]{0,6}\s*){0,2}$/;
+/** 끝맺는 술어가 있는 문장인가 — 각주·표 칸·머리말 조각("* 매칭비율 : (기존) 12% (개선) 15%")은 없다 */
+const FINITE = /[가-힣](?:다|니다|요|죠)(?=[\s.,!?)"'”’]|$)/;
+/** 새 절·새 항목의 시작 — 상태 상속은 이 경계를 넘지 않는다 */
+const HEADING = /^(?:[IVXⅠ-Ⅻ]+\.\s|\d{1,2}\.\s|[□■◆▶●○]|<[^>]{2,40}>)/;
+const ITEM_MARK = /\[E\d+\]/;
+/** 값의 상태를 정하는 정책 상태 — 예상·추정(값의 성격)과 달리 뒤의 조각·계산 문장이 물려받는다 */
+const POLICY_STATUS: ClaimStatus[] = ['PLANNED', 'PROPOSED', 'CONDITIONAL', 'FUTURE_CONFIRMED'];
 const plain = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim();
-const sentencesOf = (text: string) => plain(text).split(/(?<=[.!?。])\s+|\n/).map((s) => s.trim()).filter((s) => s.length >= 6);
 
 /** 문장의 상태 — 여러 표지가 있으면 가장 약한(확정성이 낮은) 것 */
 export function classifyClaimStatus(sentence: string): { status: ClaimStatus; marker: string } {
@@ -46,40 +53,86 @@ export function classifyClaimStatus(sentence: string): { status: ClaimStatus; ma
 export type ValueQualifier = 'ESTIMATE' | 'TARGET';
 const ESTIMATE_RE = MARKERS.find((m) => m.status === 'ESTIMATED')!.re;
 const qualifierOf = (sentence: string): ValueQualifier | null => (ESTIMATE_RE.test(sentence) ? 'ESTIMATE' : /목표/.test(sentence) ? 'TARGET' : null);
-export interface SourceValueStatus { value: string; status: ClaimStatus; marker: string; sentence: string; explicitCurrent: boolean; qualifier?: ValueQualifier | null }
+/** basis — 이 판정을 준 근거의 종류. inherited 는 앞 문장의 상태를 물려받은 것(statusSource 가 그 문장) */
+export type StatusBasis = 'explicit-current' | 'assertive' | 'marked' | 'inherited' | 'unspecified';
+export interface SourceValueStatus { value: string; status: ClaimStatus; marker: string; sentence: string; explicitCurrent: boolean; qualifier?: ValueQualifier | null; basis?: StatusBasis; statusSource?: string; distance?: number; conflict?: boolean; tie?: boolean }
+
+interface EvidenceSentence { text: string; own: { status: ClaimStatus; marker: string }; fragment: boolean; heading: boolean; item: number; inherited?: { status: ClaimStatus; marker: string; source: string; distance: number } }
+/**
+ * 근거를 문장으로 나누고 문장마다 상태를 매긴다. 끝맺는 술어가 없는 조각(각주·표 칸)은
+ * **같은 문서 안 바로 앞 두 문장까지** 의 정책 상태(계획·추진·조건부·미래 시행)를 물려받는다. 새 문서([E..])·절 머리(Ⅱ.·1.·□·<…>)를 넘지 않는다.
+ * 실측(run 111bcf): 공식 공고의 "예산안이 … 확정될 경우 … 소급 지급할 예정이다." 바로 뒤 각주 "* 우대형 기여금 매칭비율 : (기존) 12% (개선) 15%"
+ * 가 문장 분리로 떨어져 표지 없는 문장이 됐고, 15% 가 현재 확정으로 판정됐다.
+ */
+function evidenceSentences(evidenceContext: string): EvidenceSentence[] {
+  const out: EvidenceSentence[] = [];
+  let item = 0;
+  // 문장 나누기는 sentencesOf 와 같게 하되 짧은 절 머리("Ⅱ.")는 버리지 않고 경계로 남긴다 — 버리면 절을 건너 상태가 이어진다
+  for (const raw of plain(evidenceContext).split(/(?<=[.!?。])\s+|\n/).map((s) => s.trim()).filter(Boolean)) {
+    if (/^(?:[IVXⅠ-Ⅻ]+|\d{1,2})\.$/.test(raw)) { out.push({ text: raw, own: { status: 'CURRENT_CONFIRMED', marker: '' }, fragment: true, heading: true, item }); continue; }
+    if (raw.length < 6) continue;
+    const text = raw;
+    if (ITEM_MARK.test(text)) item += 1;
+    const own = classifyClaimStatus(text);
+    const cur: EvidenceSentence = { text, own, fragment: !FINITE.test(text), heading: HEADING.test(text), item };
+    // 조각(술어 없음)만 물려받는다 — 계산·예상 문장까지 물려받게 하면 옆 문장의 "추진" 이 무관한 예상액에 붙는다(T1 합성 근거에서 확인)
+    const inheritable = cur.fragment && own.status === 'CURRENT_CONFIRMED';
+    if (inheritable && !cur.heading && !ITEM_MARK.test(text)) {
+      for (let d = 1; d <= 2; d += 1) {
+        const prev = out[out.length - d];
+        if (!prev || prev.item !== item) break;
+        const st = POLICY_STATUS.includes(prev.own.status) ? { status: prev.own.status, marker: prev.own.marker, source: prev.text } : prev.inherited;
+        if (st) { cur.inherited = { status: st.status, marker: st.marker, source: st.source, distance: d }; break; }
+        if (prev.heading) break;
+      }
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 /**
  * 근거에서 값의 상태를 읽는다.
  *  · 값 바로 앞에 "현행·현재·올해·기존" 이 붙은 문장이 있으면 CURRENT_CONFIRMED(그 값은 지금 적용되는 값).
- *  · 아니면 표지 있는 문장들 가운데 가장 강한 상태(예: 추진·예정·추정 중 예정).
- *  · 표지 없는 문장만 있으면 CURRENT_CONFIRMED(기본). 근거에 값이 없으면 UNKNOWN.
+ *  · 표지 있는 문장(물려받은 상태 포함)이 있으면, 현재형으로 단언하는 문장이 그보다 **많을 때만** 현재로 본다(흔한 값 보호). 같거나 적으면 표지 쪽.
+ *  · 술어 없는 조각뿐이면 UNSPECIFIED — 현재 확정의 근거가 아니다(765). 근거에 값이 없으면 UNKNOWN.
  * 같은 숫자라도 상태가 다르면 다른 사실이다("현행 12%" 와 "15%로 높이는 방안" 의 15%).
  */
 export function sourceStatusForValue(value: string, evidenceContext: string): SourceValueStatus {
   const token = normalizeForMatch(value);
   const hits: SourceValueStatus[] = [];
   const extraUnit = /(?:km|kg|tb|gb|mb|㎡|평|조원)$/i.test(token);
-  for (const sentence of sentencesOf(evidenceContext)) {
+  for (const es of evidenceSentences(evidenceContext)) {
+    const sentence = es.text;
     const norm = normalizeForMatch(sentence);
     if (extraUnit ? !norm.replace(/\s+/g, '').includes(token.replace(/\s+/g, '')) : !containsValueToken(norm, token)) continue;
     const at = norm.indexOf(token.replace(/\s+/g, ''));
     const before = at >= 0 ? norm.slice(Math.max(0, at - 24), at) : '';
     const explicitCurrent = EXPLICIT_CURRENT_BEFORE.test(before);
-    const c = classifyClaimStatus(sentence);
+    const c = es.own;
     // 조건·가정 표지가 값 **뒤**에 오면(“월 50만원을 납입한다고 가정하면 …”, “예산 통과 시 …”) 그 값은 조건·가정의 입력이지 결과가 아니다 — 그 문장에서는 현재 값으로 본다
     const markerAt = c.marker ? norm.indexOf(normalizeForMatch(c.marker)) : -1;
     const antecedent = /가정|통과|되면|하면|경우|시$/.test(c.marker);
     const inputOfCondition = antecedent && markerAt > at && at >= 0;
-    const status: ClaimStatus = explicitCurrent || inputOfCondition ? 'CURRENT_CONFIRMED' : c.status;
-    hits.push({ value, status, marker: explicitCurrent ? (before.match(/현행|현재|지금|올해|이번|기존/) || [''])[0] : inputOfCondition ? '' : c.marker, sentence: sentence.slice(0, 200), explicitCurrent, qualifier: status === 'CURRENT_CONFIRMED' ? null : qualifierOf(sentence) });
+    const base = { value, sentence: sentence.slice(0, 200), explicitCurrent };
+    if (explicitCurrent) { hits.push({ ...base, status: 'CURRENT_CONFIRMED', marker: (before.match(/현행|현재|지금|올해|이번|기존/) || [''])[0]!, qualifier: null, basis: 'explicit-current' }); continue; }
+    if (inputOfCondition) { hits.push({ ...base, status: 'CURRENT_CONFIRMED', marker: '', qualifier: null, basis: 'assertive' }); continue; }
+    if (es.inherited) { hits.push({ ...base, status: es.inherited.status, marker: es.inherited.marker, qualifier: qualifierOf(sentence), basis: 'inherited', statusSource: es.inherited.source.slice(0, 200), distance: es.inherited.distance }); continue; }
+    if (c.status !== 'CURRENT_CONFIRMED') { hits.push({ ...base, status: c.status, marker: c.marker, qualifier: qualifierOf(sentence), basis: 'marked' }); continue; }
+    hits.push({ ...base, status: es.fragment ? 'UNSPECIFIED' : 'CURRENT_CONFIRMED', marker: '', qualifier: null, basis: es.fragment ? 'unspecified' : 'assertive' });
   }
   if (hits.length === 0) return { value, status: 'UNKNOWN', marker: '', sentence: '', explicitCurrent: false };
   const explicit = hits.find((h) => h.explicitCurrent);
   if (explicit) return explicit;
-  const marked = hits.filter((h) => h.status !== 'CURRENT_CONFIRMED');
-  const unmarked = hits.length - marked.length;
-  // 표지 없는 문장(기본 = 현재)이 표지 있는 문장보다 많거나 같으면 현재 값으로 본다 — 흔한 값(6%·50만원)이 어느 문장의 "계획" 곁에 한 번 나왔다고 예정 값이 되지 않게
-  if (marked.length === 0 || marked.length <= unmarked) return hits.find((h) => h.status === 'CURRENT_CONFIRMED') || hits[0]!;
-  return marked.sort((a, b) => STATUS_STRENGTH[b.status] - STATUS_STRENGTH[a.status])[0]!;
+  const marked = hits.filter((h) => h.basis === 'marked' || h.basis === 'inherited');
+  const assertive = hits.filter((h) => h.basis === 'assertive');
+  // 현재형 단언이 표지 문장보다 많을 때만 현재 — 흔한 값(6%·50만원)이 "계획" 곁에 한 번 나왔다고 예정 값이 되지 않게. 조각(UNSPECIFIED)은 어느 쪽 표도 아니다
+  if (assertive.length > marked.length) return assertive[0]!;
+  // 과거 언급("당시 70%")은 지금도 같은 값일 수 있다 — 동수이고 표지가 전부 과거면 현재 단언 쪽(계획·추진·조건·예상 동수는 표지 쪽: 이번 결함의 계열)
+  if (assertive.length > 0 && assertive.length === marked.length && marked.every((h) => h.status === 'PAST')) return assertive[0]!;
+  // 현재 단언과 표지 문장이 **같은 수** 면 어느 쪽인지 문맥 없이는 모른다 — 현재로 올리지도 않고(765 T9·T10), 자동으로 고치지도 않는다(tie → 검토)
+  if (marked.length > 0) return { ...marked.sort((a, b) => STATUS_STRENGTH[b.status] - STATUS_STRENGTH[a.status])[0]!, conflict: assertive.length > 0, ...(assertive.length > 0 && assertive.length === marked.length ? { tie: true } : {}) };
+  return hits[0]!;
 }
 
 export interface StrengthenedValue { value: string; source: SourceValueStatus; claimStatus: ClaimStatus }
@@ -99,7 +152,8 @@ export function findStrengthenedValues(sentence: string, evidenceContext: string
   const out: StrengthenedValue[] = [];
   for (const value of valueTokensOf(sentence)) {
     const src = sourceStatusForValue(value, evidenceContext);
-    if (src.status === 'UNKNOWN' || src.status === 'CURRENT_CONFIRMED') continue;
+    // tie(현재 단언 = 표지 문장 수)는 문맥이 필요하다 — 자동으로 고치지 않는다(765)
+    if (src.status === 'UNKNOWN' || src.status === 'UNSPECIFIED' || src.status === 'CURRENT_CONFIRMED' || src.tie) continue;
     // 미확정(예정·추진·추정·조건부) → 확정(현재·미래 확정·과거), 또는 미래 확정·과거 → 현재 확정이면 강화
     const strengthened = (isConfirmed(claim.status) && !isConfirmed(src.status)) || (claim.status === 'CURRENT_CONFIRMED' && isConfirmed(src.status));
     if (strengthened) out.push({ value, source: src, claimStatus: claim.status });
@@ -175,7 +229,7 @@ export function annotateHtml(html: string, evidenceContext: string, location = '
   return { html: out, changes };
 }
 
-const STAGE: Record<ClaimStatus, string> = { CURRENT_CONFIRMED: '현재 적용', FUTURE_CONFIRMED: '앞으로 시행', PAST: '과거 기준', PLANNED: '계획 단계', ESTIMATED: '예상치', PROPOSED: '추진·검토 단계', CONDITIONAL: '조건부', UNKNOWN: '상태 미확인' };
+const STAGE: Record<ClaimStatus, string> = { CURRENT_CONFIRMED: '현재 적용', FUTURE_CONFIRMED: '앞으로 시행', PAST: '과거 기준', PLANNED: '계획 단계', ESTIMATED: '예상치', PROPOSED: '추진·검토 단계', CONDITIONAL: '조건부', UNKNOWN: '상태 미확인', UNSPECIFIED: '상태 미표시' };
 /** Writer 보기용 한 줄 — 문장을 못 고친 패킷 항목에만. 자연어뿐(내부 판정명 없음) */
 export function writerStatusHint(values: StrengthenedValue[]): string {
   const parts = [...new Set(values.map((v) => `${v.value} ${STAGE[v.source.status]}${v.source.qualifier === 'ESTIMATE' && v.source.status !== 'ESTIMATED' ? '·예상치' : v.source.qualifier === 'TARGET' ? '·목표치' : ''}`))];

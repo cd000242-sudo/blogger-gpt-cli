@@ -200,7 +200,7 @@ function prefixOf(m: StatusMeta): string | null {
 const LEAD = /^((?:다만|또한|그리고|특히|반면|한편|이때|즉|따라서|그래서|결국|이에 따라)[,\s]+)/;
 
 export interface RewriteResult { action: 'rewritten' | 'flagged'; after: string; reason: string }
-const strength = (s: ClaimStatus) => ({ CURRENT_CONFIRMED: 5, FUTURE_CONFIRMED: 4, PAST: 4, PLANNED: 3, ESTIMATED: 2, PROPOSED: 2, CONDITIONAL: 1, UNKNOWN: 0 } as Record<ClaimStatus, number>)[s];
+const strength = (s: ClaimStatus) => ({ CURRENT_CONFIRMED: 5, FUTURE_CONFIRMED: 4, PAST: 4, PLANNED: 3, ESTIMATED: 2, PROPOSED: 2, CONDITIONAL: 1, UNKNOWN: 0, UNSPECIFIED: 0 } as Record<ClaimStatus, number>)[s];
 
 /**
  * 강해진 문장 하나를 근거의 상태로 고친다. 값마다 그 값이 걸린 첫 술어를 찾고, 한 술어에 걸린 값들은 가장 약한 상태로 한 번만 표현한다.

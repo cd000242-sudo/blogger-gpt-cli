@@ -199,7 +199,8 @@ describe('교차 도메인 MOCK (A~F) · 회귀', () => {
   });
   test('F 금액 · 2편 회귀 — 현재 공식 조건이 괜히 조건부로 약화되지 않는다 · 답 상자·FAQ 변경 0', () => {
     const E2 = evidenceOf(R2);
-    for (const v of ['10년', '6%', '30%', '319만3511원', '519만원', '70%']) expect(['CURRENT_CONFIRMED', 'UNKNOWN']).toContain(sourceStatusForValue(v, E2).status);
+    // 765 — 술어 없는 조각(각주)뿐인 값은 UNSPECIFIED(상태 근거 없음). 약화 대상이 아니라는 점에서 UNKNOWN 과 같다
+    for (const v of ['10년', '6%', '30%', '319만3511원', '519만원', '70%']) expect(['CURRENT_CONFIRMED', 'UNKNOWN', 'UNSPECIFIED']).toContain(sourceStatusForValue(v, E2).status);
     const cs = annotateArticle(R2.draft011, E2);
     expect(cs.changes.filter((c) => /가입기간 10년|30퍼센트|519만원|3,193,511원/.test(c.sentence)).length).toBe(0);
     const fa = runFinalAuthority({ html: R2.htmlFinal, evidence: viewOf(R2), keyword: R2.keyword });
