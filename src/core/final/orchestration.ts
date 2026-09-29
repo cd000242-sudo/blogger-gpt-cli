@@ -62,6 +62,8 @@ import { findEmptyBlocks, describeEmptyBlocks, removeEmptyFaqBlocks, removeEmpty
 import { autoRepairBeforePublish, describeRepairs } from './auto-repair';
 import { normalizeTableNotation } from './table-notation';
 import { buildAnswerBlock } from './answer-block';
+// v3.8.759: 답 상자·요약표·FAQ 가 본문보다 강해지지 않게 (실행은 await import — 실패해도 발행을 막지 않는다)
+import type { FidelityChange, FaqConsistencyNote } from './answer-fidelity';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
@@ -4303,6 +4305,23 @@ ${quoted}
       console.warn('[FAQ-GUARD] 스킵:', String(faqGuardErr?.message || faqGuardErr).slice(0, 100));
     }
 
+    /**
+     * v3.8.759 — FAQ 질문·답변의 중심 대상 일치(answer-fidelity.checkFaqConsistency). 실측(run d7a142): 질문은 "우대형·이직·자격", 답은 도약계좌 금리 구조.
+     * 값 관문(위)은 답의 값만 보므로 이 어긋남을 못 잡는다. 결정론 검사·호출 0회. 어긋난 항목은 개수와 무관하게 뺀다(다른 주제의 답이 빈자리보다 나쁘다).
+     */
+    try {
+      const { checkFaqConsistency } = await import('./answer-fidelity');
+      const consistent = checkFaqConsistency(faqs, keyword);
+      trace.event('faq.consistency', { notes: consistent.notes, dropped: consistent.dropped });
+      if (consistent.dropped > 0) {
+        faqs = consistent.faqs;
+        onLog?.(`[PROGRESS] 68% - ❓ 질문과 다른 대상을 답한 FAQ ${consistent.dropped}개를 뺐습니다`);
+        for (const n of consistent.notes.filter((x: FaqConsistencyNote) => x.action === 'dropped')) console.warn(`[FAQ-CONSISTENCY] dropped: "${n.question}" — ${n.reason}`);
+      }
+    } catch (faqConsErr) {
+      console.warn('[FAQ-CONSISTENCY] 스킵:', String((faqConsErr as Error)?.message || faqConsErr).slice(0, 100));
+    }
+
     // 5. CTA 생성 (manualCtas 우선, 없으면 자동 생성)
     onLog?.('[PROGRESS] 70% - 💰 CTA 버튼 생성 중...');
     let ctas: FinalCTAData[] = [];
@@ -5978,9 +5997,21 @@ ${quoted}
     // v3.8.619 — 표 셀의 "곱하기"는 곱셈 기호로 (사장님: "한글 그대로 적지 말고 X로 표기")
     const summaryCell = (raw: unknown): string => normalizeTableNotation(sanitizeSummaryCell(raw));
     // v3.8.619 — 항목만 있고 값이 빈 줄은 버린다 (실사고: "공통 인상률 | (빈칸)")
-    const cleanedRows = dropValuelessRows(
-      (summaryTable.rows || []).map(row => row.map(summaryCell)),
-    );
+    /**
+     * v3.8.759 — 요약표 칸도 본문보다 강해지면 안 된다(answer-fidelity). 한도→조건 승격·본문에 없는 절대 표현·본문에 없는 값을 칸 단위로 되돌린다.
+     * 빈 칸이 된 줄은 아래 dropValuelessRows 가 뺀다. 호출 0회.
+     */
+    let fidelityRows = (summaryTable.rows || []).map(row => row.map(summaryCell));
+    try {
+      const { alignRowsToBody } = await import('./answer-fidelity');
+      const aligned = alignRowsToBody(fidelityRows, articleTextForAux || '');
+      if (aligned.changes.length > 0) {
+        fidelityRows = aligned.rows;
+        trace.event('summary-table.fidelity', { changes: aligned.changes });
+        onLog?.(`[PROGRESS] 88% - 🧭 요약표 ${aligned.changes.length}칸을 본문 수준으로 되돌렸습니다 (${aligned.changes.map((c: FidelityChange) => c.rule).join(',')})`);
+      }
+    } catch (fidelityErr) { console.warn('[SUMMARY-FIDELITY] 스킵:', String((fidelityErr as Error)?.message || fidelityErr).slice(0, 100)); }
+    const cleanedRows = dropValuelessRows(fidelityRows);
     const cleanedHeaders = (summaryTable.headers || []).map(summaryCell);
     const escapeSummaryAttr = (raw: unknown): string => String(raw ?? '')
       .replace(/&/g, '&amp;')
@@ -6106,6 +6137,20 @@ ${introductionHTML}
         onLog?.(`[PROGRESS] 90% - ℹ️ 답 상자가 판정문이 아닙니다 — ${v.reason}`);
       }
     } catch { /* 조립 실패면 요약 답 그대로 */ }
+    /**
+     * v3.8.759 — 답 상자는 본문의 검증된 조건보다 강해질 수 없다(answer-fidelity.ts).
+     * 실측(run d7a142): 본문 "월 최대 70만원을 납입하는 구조" → 답 "월 70만원을 유지하며 … 유지하는 편이 낫습니다"(한도가 조건이 됐다).
+     * 되돌리기(약화)만 하고 새 문장은 만들지 않는다. 호출 0회.
+     */
+    try {
+      const { alignSummaryToBody } = await import('./answer-fidelity');
+      const aligned = alignSummaryToBody(verdictAnswer, articleTextForAux || '');
+      trace.event('answer-box.fidelity', { before: verdictAnswer, after: aligned.text, changes: aligned.changes });
+      if (aligned.changes.length > 0) {
+        verdictAnswer = aligned.text;
+        onLog?.(`[PROGRESS] 90% - 🧭 답 상자 ${aligned.changes.length}곳을 본문 수준으로 되돌렸습니다 (${aligned.changes.map((c: FidelityChange) => c.rule).join(',')})`);
+      }
+    } catch (fidelityErr) { console.warn('[ANSWER-FIDELITY] 스킵:', String((fidelityErr as Error)?.message || fidelityErr).slice(0, 100)); }
     const answerBlockHtml = buildAnswerBlock({
       keyword,
       question: summaryTable.question,
