@@ -50,13 +50,13 @@ describe('STATUS (T1~T6) — 패킷·본문은 근거보다 확정성을 높일 
     expect(sourceStatusForValue('25%', src).status).not.toBe('CURRENT_CONFIRMED');
     const both = findStrengthenedValues('기여율은 15%로 개선됐고 지방은 25%가 적용됩니다.', src);
     expect(both.map((v) => v.value).sort()).toEqual(['15%', '25%']);
+    // v3.8.764 — 면책문을 덧붙이지 않고 술어를 고친다(두 값이 한 술어·두 술어로 나뉘어도 상태는 한 번)
     const a = annotateText('기여율은 15%로 개선됐고 지방은 25%가 적용됩니다.', src);
-    expect(a.text).toMatch(/다만 근거상 현재 적용 중인 확정 값은 아닙니다\(15% [^,)]+, 25% [^)]+\)\.$/);   // 본문 = 독자용 문장
-    expect(a.text).not.toContain('[상태 주의');
-    expect(annotateText('기여율은 15%로 개선됐고 지방은 25%가 적용됩니다.', src, 'packet').text).toMatch(/\[상태 주의 — 근거 기준 확정 값 아님: 15%: .*25%: /);
+    expect(a.changes.map((c) => c.action)).toEqual(['rewritten']);
+    expect(a.text).not.toMatch(/개선됐|적용됩니다|확정 값은 아닙니다|\[상태 주의/);
     expect(annotateText('기여율은 12%입니다.', src).changes).toEqual([]);
   });
-  test('T7b 두 번 돌아도 주석은 한 번 · 질문 문장은 건너뜀 · Writer 가 옮긴 패킷 주석은 독자용 문장으로 바뀜', () => {
+  test('T7b 두 번 돌아도 결과가 같다 · 질문 문장은 건너뜀 · Writer 가 옮긴 패킷 주석은 지워진다', () => {
     const src = '[E01] 현행 기여율은 12%이다. 개편안은 기여율을 12%에서 15%로 높이는 방안을 담았다.';
     const once = annotateText('기여율은 15%로 개선됐습니다. 다음 문단입니다.', src).text;
     const twice = annotateText(once, src);
@@ -65,7 +65,7 @@ describe('STATUS (T1~T6) — 패킷·본문은 근거보다 확정성을 높일 
     expect(annotateText('기여율 15%는 확정된 값인가요?', src).changes).toEqual([]);
     const leaked = annotateText("기여율은 15%로 개선됐습니다. [상태 주의 — 근거 기준 확정 값 아님: 15%: 추진·검토('방안을 담')]", src).text;
     expect(leaked).not.toContain('[상태 주의');
-    expect(leaked.match(/현재 적용 중인 확정 값은 아닙니다/g)?.length).toBe(1);
+    expect(leaked).not.toContain('개선됐습니다');
   });
 });
 
@@ -78,27 +78,29 @@ describe('live 223b32 — 15%·25%·270만원·2138·2313 의 source → packet 
     expect(['ESTIMATED', 'PROPOSED']).toContain(sourceStatusForValue('2313만원', E1).status);
     for (const v of ['12%', '6%', '7500만원', '50만원']) expect(sourceStatusForValue(v, E1).status).toBe('CURRENT_CONFIRMED');
   });
-  test('PACKET: 라이브 패킷 문장 "15%로 개선됐으며 … 25%이다" 에 상태 주석이 붙고, 값 15%·25% 는 CORE 에서 내려간다', () => {
+  test('PACKET: 라이브 패킷 문장 "15%로 개선됐으며 … 25%이다" 를 근거 상태로 고쳐 쓰고(메타는 따로), 값 15%·25% 는 CORE 에서 내려간다', () => {
     const claim = (R1.packetRaw.facts || []).find((c: any) => /15%/.test(c.claim));
     expect(claim.claim).toContain('개선됐으며');                                                    // BEFORE(라이브)
     const r = annotateClaims([claim], E1);
     expect(r.changed).toBe(1);
-    expect(r.claims[0]!.claim).toMatch(/\[상태 주의 — 근거 기준 확정 값 아님: 15%: (?:예정|추진·검토)\(.*\) · 25%: (?:예정|추진·검토)/);
+    expect(r.claims[0]!.claim).toBe('청년미래적금 우대형 기여금 매칭비율은 기존 12%에서 15%로 개선되고, 지방 중소기업 근무 시 25%가 될 계획이다.');
+    expect(r.claims[0]!.statusNote).toMatch(/\[상태 주의 — 근거 기준 확정 값 아님: 15%: (?:예정|추진·검토)\(.*\) · 25%: (?:예정|추진·검토)/);   // 메타(trace 용)
     const p = annotatePacket(R1.packetRaw, E1);
     expect(p.claimChanges).toBeGreaterThanOrEqual(1);
     const st = Object.fromEntries(p.valueStatuses.map((v) => [v.value, v.status]));
     expect(st['12%']).toBeUndefined(); expect(st['50만원']).toBeUndefined(); expect(st['6%']).toBeUndefined();   // 현재 값은 표시하지 않는다
     const view = buildWriterPacketView(p.packet, { keyword: R1.keyword, title: R1.keyword, h2Titles: [], searchIntent: R1.searchIntent });
-    expect(view.text).toContain('[상태 주의 — 근거 기준 확정 값 아님: 15%');
+    expect(view.text).toContain('15%로 개선되고, 지방 중소기업 근무 시 25%가 될 계획이다.');
+    expect(view.text).not.toMatch(/\[상태 주의|PLANNED|PROPOSED/);
     // 값 목록에 예정·조건부 값이 있으면 핵심 수치(판단 기준)에 오르지 않고 상태 이름표를 단다 — 합성 값으로 확인
     const withPlanned = annotatePacket({ ...R1.packetRaw, numbers: [...(R1.packetRaw.numbers || []), { value: '15%', context: '우대형 기여율 12→15% 추진', sourceIds: ['E02'] }] }, E1);
     expect(withPlanned.valueStatuses.find((v) => v.value === '15%')).toBeDefined();
     const text2 = buildWriterPacketView(withPlanned.packet, { keyword: R1.keyword, title: R1.keyword, h2Titles: [], searchIntent: R1.searchIntent }).text;
     const coreBlock = text2.slice(text2.indexOf('핵심 수치'), text2.indexOf('핵심 날짜') > 0 ? text2.indexOf('핵심 날짜') : undefined);
     expect(coreBlock).not.toMatch(/^- 15% /m);                                                    // 예정 값은 판단 기준 아님
-    expect(text2).toMatch(/- 15% — \[(?:예정|추진·검토) — 현재 확정 값 아님\]/);
+    expect(text2).toMatch(/- 15% — \(근거상 (?:계획 단계|추진·검토 단계) 값, 현재 시행 값 아님\)/);
   });
-  test('WRITER→FINAL: 라이브 본문 문장 3건에 상태 주석, 2138·2313("가정") 은 그대로, 현재 값 문장은 그대로', () => {
+  test('WRITER→FINAL: 라이브 본문 문장 3건을 근거 상태로 고침, 2138·2313("가정") 은 그대로, 현재 값 문장은 그대로', () => {
     const cs = annotateArticle(R1.draft011, E1);
     const flagged = cs.changes.map((c) => c.sentence);
     expect(flagged.some((s) => /15퍼센트로 개선됐습니다/.test(s))).toBe(true);
@@ -107,15 +109,15 @@ describe('live 223b32 — 15%·25%·270만원·2138·2313 의 source → packet 
     expect(flagged.some((s) => /2138만원/.test(s))).toBe(false);                                       // "연 8퍼센트 금리 가정" 이 이미 추정 상태
     expect(flagged.some((s) => /총급여 7500만원 이하/.test(s))).toBe(false);
     expect(flagged.some((s) => /6퍼센트 정부 기여금을 받을 수 있습니다/.test(s))).toBe(false);
-    expect(bodyOf(cs.article)).toContain('15퍼센트로 개선됐습니다. 다만 근거상 현재 적용 중인 확정 값은 아닙니다(15% 계획 단계');
-    expect(bodyOf(cs.article)).not.toContain('[상태 주의');                                             // 독자에게 내부 표지를 보이지 않는다
-    // 초안에서 붙인 문장이 있는 HTML 을 final-authority 가 다시 돌아도 두 번 붙지 않는다
+    expect(bodyOf(cs.article)).toContain('15퍼센트로 개선될 계획입니다.');
+    expect(bodyOf(cs.article)).not.toMatch(/\[상태 주의|확정 값은 아닙니다/);                            // 독자에게 내부 표지·면책문을 보이지 않는다
+    // 초안에서 고친 본문을 final-authority 가 다시 돌아도 또 고치지 않는다
     const again = annotateArticle(cs.article, E1);
     expect(again.changes).toEqual([]);
-    // 최종 HTML 에서도 final-authority 가 같은 주석을 붙인다(늦은 재작성이 지웠을 때의 안전망)
+    // 최종 HTML 에서도 final-authority 가 같은 방식으로 고친다(늦은 재작성이 되돌렸을 때의 안전망)
     const fa = runFinalAuthority({ html: R1.htmlFinal, evidence: viewOf(R1), keyword: R1.keyword });
-    expect(fa.report.status.length).toBeGreaterThanOrEqual(3);
-    expect(plain(fa.html)).toContain('15퍼센트로 개선됐습니다. 다만 근거상 현재 적용 중인 확정 값은 아닙니다(15% 계획 단계');
+    expect(fa.report.status.filter((s) => s.action === 'rewritten').length).toBeGreaterThanOrEqual(3);
+    expect(plain(fa.html)).toContain('15퍼센트로 개선될 계획입니다.');
     expect(fa.report.status.some((s) => /확정 금액인가요\?/.test(s.sentence))).toBe(false);          // 질문은 주장이 아니다
     expect(fa.report.fact.status).toBe('passed');
   });
@@ -207,7 +209,7 @@ describe('교차 도메인 MOCK (A~F) · 회귀', () => {
     expect(fa.report.fact.status).toBe('passed');
   });
   test('하드코딩 없음 — claim-status 코드에 정책 용어·상품명·이번 값이 없다', () => {
-    const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'final', 'claim-status.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+    const code = ['claim-status.ts', 'claim-status-rewrite.ts'].map((f) => fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'final', f), 'utf8')).join(' ').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
     expect(code).not.toMatch(/예산안|2027|청년미래적금|도약계좌|국민연금|15%|25%|270만|소급|2138|2313/);
   });
 });
