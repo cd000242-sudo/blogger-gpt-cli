@@ -33,6 +33,8 @@ export function normalizeForMatch(value: string): string {
     //   실측(run 1b7d92): 요약표의 "납입액의 12퍼센트" 가 근거의 "12%" 와 다른 값으로 판정돼 정상 칸이 비워졌다
     .replace(/퍼센트\s*포인트/g, '%p')
     .replace(/퍼센트/g, '%')
+    // v3.8.756 — 금액 단위 띄어쓰기를 한 꼴로: "90만 원"·"3억 원" = "90만원"·"3억원". 숫자 바로 뒤의 만·억·천 + 원 만 붙인다(문장 전체 공백은 그대로)
+    .replace(/(\d)\s*([만억천])\s*원/g, '$1$2원')
     .replace(/\s+/g, ' ')
     .toLowerCase()
     .trim();

@@ -135,8 +135,8 @@ describe('v3.8.755 B — 검사기가 채택 근거 장부를 본다 (f607bc 저
     expect(inspectFactIntegrity('<p>청년미래적금은 월 최대 90만원까지 납입할 수 있습니다.</p>', view.evidence).status).toBe('blocked');
     expect(inspectFactIntegrity('<p>정부가 납입액의 37%를 지원합니다.</p>', view.evidence).status).toBe('blocked');
     expect(inspectFactIntegrity('<p>청년미래적금은 월 최대 50만 원까지 납입할 수 있습니다.</p>', view.evidence).status).toBe('passed');
-    // 현재 한계(이번 수정 대상 아님): "90만 원" 처럼 단위를 띄어 쓴 금액은 값 추출기가 토큰으로 뽑지 않아 대조 없이 지나간다
-    expect(inspectFactIntegrity('<p>청년미래적금은 월 최대 90만 원까지 납입할 수 있습니다.</p>', view.evidence).status).toBe('passed');
+    // v3.8.756 — 단위를 띄어 쓴 "90만 원" 도 값 토큰으로 뽑혀 같은 대조를 지난다(예전엔 미추출로 통과했다)
+    expect(inspectFactIntegrity('<p>청년미래적금은 월 최대 90만 원까지 납입할 수 있습니다.</p>', view.evidence).status).toBe('blocked');
   });
 
   test('T8 탈락 문서·검색 결과 전체는 검사 문맥에 들어가지 않는다', () => {
