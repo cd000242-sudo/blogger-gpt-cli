@@ -78,5 +78,33 @@ export function containsValueToken(haystack: string, token: string): boolean {
   const spaced = needle.split('').map(escapeRegex).join('\\s*');
   const extensions = UNIT_EXTENSIONS[needle.slice(-1) || ''] || [];
   const tailGuard = extensions.length > 0 ? `(?!\\s*(?:${extensions.map(escapeRegex).join('|')}))` : '';
-  return new RegExp(`(?<![\\d.])${spaced}${tailGuard}`).test(hay);
+  if (new RegExp(`(?<![\\d.])${spaced}${tailGuard}`).test(hay)) return true;
+  // v3.8.765 — 금액만: "1000원" 과 근거의 "천원"·"1천원"·"천 원" 은 같은 값이다(run 111bcf 에서 맞는 문장 5개가 이 차이로 지워졌다)
+  const want = wonAmount(needle);
+  return want !== null && moneyAmountsIn(hay).includes(want);
+}
+
+/**
+ * 한국어 금액 한 마디 → 원 단위 수. **천·만·억 + 원** 과 숫자 + 원 만 본다(지원 범위를 넓히지 않는다).
+ * "천원"=1000 · "5천원"=5000 · "3만원"=30000 · "1.5억원"=150000000 · "1000원"=1000. 날짜·회차·사람 수는 "원" 으로 끝나지 않아 대상이 아니다.
+ * 섞인 꼴("319만3511원", "3억 5천만원")은 null — 예전처럼 글자 대조만 한다.
+ */
+const WON_SCALE: Record<string, number> = { 천만: 10_000_000, 백만: 1_000_000, 천: 1_000, 만: 10_000, 억: 100_000_000 };
+const WON_ONE = /^(\d+(?:\.\d+)?)?\s*(천만|백만|천|만|억)?\s*원$/;
+export function wonAmount(token: string): number | null {
+  const m = String(token || '').replace(/,/g, '').trim().match(WON_ONE);
+  if (!m || (!m[1] && !m[2])) return null;
+  const n = m[1] ? Number(m[1]) : 1;
+  const amount = n * (m[2] ? WON_SCALE[m[2]]! : 1);
+  return Number.isFinite(amount) ? Math.round(amount) : null;
+}
+/** 글 안의 한 마디 금액들 — 앞이 숫자·한글이 아니고(“일천원” 같은 한자 수사는 보지 않는다) 섞인 꼴의 꼬리(“만3511원”)는 건너뛴다 */
+function moneyAmountsIn(text: string): number[] {
+  const out: number[] = [];
+  for (const m of String(text || '').replace(/,/g, '').matchAll(/(?<![\d.가-힣])(\d+(?:\.\d+)?)?\s*(천만|백만|천|만|억)?\s*원/g)) {
+    if (!m[1] && !m[2]) continue;
+    const a = wonAmount(m[0]);
+    if (a !== null) out.push(a);
+  }
+  return out;
 }
