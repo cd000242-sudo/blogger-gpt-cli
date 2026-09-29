@@ -177,7 +177,7 @@ export function extractFaqPairs(plainText: string): FaqPair[] {
   return pairs;
 }
 
-const FAQ_Q_STOP = new Set([
+export const FAQ_Q_STOP = new Set([
   '하나요', '되나요', '있나요', '인가요', '할까요', '될까요', '어떻게', '무엇', '언제', '어디', '왜',
   '제가', '저는', '경우', '것', '수', '등', '때', '요', '해야', '하면', '되면', '같으면',
   '따로', '그냥', '바로', '먼저', '다시', '아직', '지금', '이미', '정말', '혹시',

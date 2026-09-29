@@ -14,6 +14,7 @@
  */
 import { containsValueToken, normalizeForMatch } from './number-token';
 import { comparisonSubjects, isComparisonTopic } from './source-scope';
+import { FAQ_Q_STOP } from './reader-retention';
 
 export interface FidelityChange { rule: 'limit-as-condition' | 'absolute-adverb' | 'unsupported-value'; before: string; after: string; detail: string }
 export interface FidelityResult { text: string; changes: FidelityChange[] }
@@ -102,19 +103,39 @@ export function questionTokens(question: string): string[] {
 }
 
 /**
- * 답이 질문의 내용 낱말을 하나도 안 담으면 다른 주제의 답이다. 비교 주제(A vs B)에서 질문이 A 만 말하는데 답이 B 만 말해도 같다.
- * 최소 조건(필요조건)이다 — 낱말 하나가 겹치면 통과하므로 "일치 보장" 이 아니라 "명백한 어긋남 차단" 이다.
+ * v3.8.760 — 약한 낱말(FAQ 질문 정지어 + 절차 낱말)은 일치 증거로 세지 않는다. 실측(run fba7e9 4번): "먼저" 하나로 통과했다.
+ * 기존 FAQ_Q_STOP(reader-retention)을 재사용하고 몇 개만 더한다 — 한국어 일반 낱말 사전을 새로 만들지 않는다.
+ */
+const WEAK_EXTRA = new Set(['먼저', '경우', '확인', '조건', '가능', '받다', '하다', '방법', '여부', '이유', '정도', '내용', '관련', '해당', '기준']);
+export const isWeakToken = (t: string): boolean => FAQ_Q_STOP.has(t) || WEAK_EXTRA.has(t);
+/**
+ * 질문의 핵심 낱말(대상·행동·수치)이 답에 남아 있는가. 통째로 있거나, 수치는 숫자부가 있거나, 3자 이상 낱말은 앞 2자 어근이 답에 있으면 유지로 본다
+ * ("조기수령" ↔ "조기노령연금" 처럼 공식 제도명과 검색 표현이 다른 경우). 어근 대조는 느슨하므로 비교 주제의 대상 뒤바뀜 검사가 함께 돈다.
+ */
+export function faqTokenKept(token: string, answerCompact: string): boolean {
+  const t = token.replace(/\s+/g, '');
+  if (answerCompact.includes(t)) return true;
+  if (/^\d/.test(t)) { const digits = (t.match(/^\d[\d,.]*/) || [])[0] || ''; return digits.length >= 2 && answerCompact.includes(digits); }
+  // 어근 대조는 4자 이상 낱말만 — "우대형" 의 "우대" 가 "우대금리" 에 걸리면 다른 개념을 같은 것으로 본다
+  const head = t.slice(0, 2);
+  return t.length >= 4 && !isWeakToken(head) && answerCompact.includes(head);
+}
+
+/**
+ * 답이 질문의 핵심 낱말을 하나도 안 담으면 다른 주제의 답이다. 비교 주제(A vs B)에서 질문이 A 만 말하는데 답이 B 만 말해도 같다.
+ * 결정론·낱말 기준이라 "일치 보장" 이 아니라 "명백한 어긋남 차단" 이다.
  */
 export function checkFaqConsistency<T extends { question: string; answer: string }>(faqs: T[], keyword: string): FaqConsistencyResult<T> {
   const subjects = isComparisonTopic(keyword) ? comparisonSubjects(keyword).map(compact).filter((s) => s.length >= 2) : [];
   const notes: FaqConsistencyNote[] = [];
   const kept: T[] = [];
   for (const faq of faqs) {
-    const q = questionTokens(faq.question);
+    const all = questionTokens(faq.question);
+    const q = all.filter((t) => !isWeakToken(t));
     const a = compact(faq.answer);
-    const matched = q.filter((t) => a.includes(t.replace(/\s+/g, '')));
+    const matched = q.filter((t) => faqTokenKept(t, a));
     let reason = '';
-    if (q.length > 0 && matched.length === 0) reason = '답이 질문의 내용 낱말을 하나도 담지 않음';
+    if (q.length > 0 && matched.length === 0) reason = `답이 질문의 핵심 낱말(${q.slice(0, 5).join('·')})을 하나도 담지 않음`;
     if (!reason && subjects.length >= 2) {
       const qc = compact(faq.question);
       const inQ = subjects.filter((s) => qc.includes(s));
