@@ -29,6 +29,10 @@ export function normalizeForMatch(value: string): string {
     .replace(/&nbsp;/gi, ' ')
     .replace(/,/g, '')
     .replace(/[()\[\]{}]/g, ' ')
+    // v3.8.753 — 비율 표기를 한 단위로: "12퍼센트" = "12%". "12퍼센트포인트" = "12%p" 는 다른 단위라 먼저 바꾼다
+    //   실측(run 1b7d92): 요약표의 "납입액의 12퍼센트" 가 근거의 "12%" 와 다른 값으로 판정돼 정상 칸이 비워졌다
+    .replace(/퍼센트\s*포인트/g, '%p')
+    .replace(/퍼센트/g, '%')
     .replace(/\s+/g, ' ')
     .toLowerCase()
     .trim();
@@ -44,6 +48,7 @@ const UNIT_EXTENSIONS: Record<string, string[]> = {
   만: ['원'],
   시: ['간'],
   주: ['일'],
+  '%': ['p'],   // 12% ≠ 12%p (퍼센트포인트)
 };
 
 const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

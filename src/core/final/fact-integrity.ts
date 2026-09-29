@@ -8,6 +8,12 @@ export interface FactEvidence {
   trustLevel: FactTrustLevel;
   sourceUrls?: string[];
   topic?: string;
+  /**
+   * v3.8.753 — 이 값이 가리키는 **대상**(표의 행 이름표 등). 우대형·일반형·1차·2차 같은 유형 낱말이 있으면
+   * 근거에서 그 낱말 곁에 있는 값만 인정한다 — 다른 상품·다른 유형의 같은 숫자로 통과시키지 않는다.
+   * 유형 낱말이 없는 이름표는 예전과 같다(값 존재만 본다).
+   */
+  subjectHint?: string;
 }
 
 export type FactIntegrityViolationKind =
@@ -61,7 +67,8 @@ const VALUE_PATTERNS = [
   /\d{4}-\d{1,2}-\d{1,2}/g,
   // v3.8.594: 긴 단위를 먼저 놓는다. `개|개월` 순서라 "120개월"에서 "120개"가 뽑혔고,
   //   그 잘린 값이 다른 글의 "20개"를 확인해 주는 근거로 쓰였다 (number-token 머리말 참고).
-  /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:만원|원|억(?:\s*원)?|%|퍼센트|명|건|개월|개|주|시간|일|세|회)/g,
+  // v3.8.753 — %p·퍼센트포인트는 % 보다 앞에(긴 단위 먼저). "12%p" 에서 "12%" 만 뽑히면 비율과 포인트가 섞인다
+  /\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:만원|원|억(?:\s*원)?|%p|퍼센트\s*포인트|%|퍼센트|명|건|개월|개|주|시간|일|세|회)/g,
 ];
 
 function toPlainText(value: string): string {
@@ -77,9 +84,34 @@ function toPlainText(value: string): string {
 
 function normalize(value: string): string {
   return toPlainText(value)
+    .replace(/퍼센트\s*포인트/g, '%p')   // v3.8.753 — number-token 과 같은 단위 정규화
+    .replace(/퍼센트/g, '%')
     .replace(/[\s,]/g, '')
     .replace(/[()\[\]{}]/g, '')
     .toLowerCase();
+}
+
+/** 유형을 가르는 낱말 — 이름표에 이게 있으면 값은 근거에서 이 낱말 곁에 있어야 한다 */
+const SUBJECT_QUALIFIER = /(우대형|일반형|신규|기존|1차|2차|3차|지방|수도권|특별|가입자|재직자|취업자|소상공인|청년형|일반)/g;
+const SUBJECT_WINDOW = 160;
+
+/**
+ * v3.8.753 — 값이 이름표의 유형 낱말 곁에 있는가. 이름표에 유형 낱말이 없으면 판단하지 않는다(null).
+ * 실측(run 1b7d92 표): "우대형 기여금 | 납입액의 12퍼센트" — 근거의 "우대형에는 12%" 곁에 있어야 통과.
+ * 근거에 "청년도약계좌 12%" 만 있고 "우대형" 이 없으면 숫자가 같아도 그 행의 값이 아니다.
+ */
+function nearSubject(normalizedValue: string, contextText: string, subjectHint: string | undefined): boolean | null {
+  const qualifiers = [...new Set((String(subjectHint || '').match(SUBJECT_QUALIFIER) || []))];
+  if (qualifiers.length === 0) return null;
+  const spaced = normalizedValue.split('').map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+  const re = new RegExp(`(?<![\\d.])${spaced}`, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(contextText)) !== null) {
+    const window = contextText.slice(Math.max(0, m.index - SUBJECT_WINDOW), m.index + m[0].length + SUBJECT_WINDOW);
+    if (qualifiers.some((q) => window.includes(q))) return true;
+    if (m[0].length === 0) re.lastIndex += 1;
+  }
+  return false;
 }
 
 /**
@@ -210,6 +242,8 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   if (topicText && has(topicText)) return true;
   const contextText = isNumeric ? normalizeForMatch(evidence.context || '') : normalize(evidence.context || '');
   if (!has(contextText)) return false;
+  // v3.8.753 — 이름표에 유형 낱말이 있으면 그 곁의 값만 인정한다(다른 상품·다른 유형의 같은 숫자 차단)
+  if (isNumeric && evidence.subjectHint && nearSubject(normalizedValue, contextText, evidence.subjectHint) === false) return false;
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 

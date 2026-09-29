@@ -4405,13 +4405,21 @@ ${quoted}
     const summaryRawSnap = trace.snapshot('summary-table.raw', summaryTable, { note: 'generateSummaryTableFinal 반환' });
     if (inspectFactIntegrity(summaryFactText, factEvidence).status === 'blocked') {
       const summaryBeforeText = summaryFactText;
+      const rowsBefore = (summaryTable.rows || []).map((row) => [...row]);
+      /**
+       * v3.8.753 — 값 칸은 행 이름표(첫 칸)를 대상 힌트로 넘긴다. "우대형 기여금 | 12퍼센트" 는 근거의 "우대형 … 12%" 곁에서 확인한다.
+       * 실측(run 1b7d92): 이 행이 "12퍼센트" 표기 때문에 비워졌다 — 표가 깨끗해 보인다고 검증 성공이 아니다. 비운 칸은 로그와 캡처에 남긴다.
+       */
       summaryTable = {
         ...summaryTable,
         headers: (summaryTable.headers || []).map((value) => sanitizeFactUnsafeHtml(value, factEvidence)),
-        rows: (summaryTable.rows || []).map((row) => row.map((value) => sanitizeFactUnsafeHtml(value, factEvidence))),
+        rows: rowsBefore.map((row) => row.map((value, ci) => sanitizeFactUnsafeHtml(value, ci === 0 ? factEvidence : { ...factEvidence, subjectHint: String(row[0] || '') }))),
       };
+      const clearedCells = rowsBefore.flatMap((row, ri) => row.map((before, ci) => ({ row: String(row[0] || `행 ${ri + 1}`), before: String(before || ''), after: String(summaryTable.rows?.[ri]?.[ci] ?? '') }))
+        .filter((c) => c.before.trim() && !c.after.trim()));
+      if (clearedCells.length) onLog?.(`[PROGRESS] 70% - 🧹 요약표 정리로 비운 칸 ${clearedCells.length}개: ${clearedCells.map((c) => `${c.row}: "${c.before.slice(0, 40)}"`).join(' · ')} — 근거에 없는 값으로 판정됨(맞는 값이면 근거 표기·전달을 의심)`);
       const sanitizedSummaryText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
-      trace.change('summary-table.fact-filter', { fn: 'sanitizeFactUnsafeHtml', before: summaryRawSnap, after: trace.snapshot('summary-table.filtered', summaryTable), beforeText: summaryBeforeText, afterText: sanitizedSummaryText, reason: '요약표 근거 불일치 정리', judgeable: true });
+      trace.change('summary-table.fact-filter', { fn: 'sanitizeFactUnsafeHtml', before: summaryRawSnap, after: trace.snapshot('summary-table.filtered', summaryTable), beforeText: summaryBeforeText, afterText: sanitizedSummaryText, reason: '요약표 근거 불일치 정리', clearedCells, judgeable: true });
       if (inspectFactIntegrity(sanitizedSummaryText, factEvidence).status === 'blocked') {
         // v3.8.323: 크롤링이 항상 완벽하지 않음 → 발행 차단 대신 경고만 남기고 진행 (사용자 보고: "크롤링이 정확하지 않은 것 같아")
         onLog?.('[PROGRESS] 70% - ⚠️ [FACT] 요약표 근거 부족 감지 (경고만 남기고 발행 진행)');
