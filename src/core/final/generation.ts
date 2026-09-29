@@ -241,6 +241,7 @@ import { buildCtaCopy, inferActionStatus, ASSERTIVE_AVAILABILITY_RE, type CtaAct
 import { dropEmptyFaqItems } from './empty-block-guard';
 import { buildArchetypeGuide } from './title-archetypes';
 import { FinalCrawledPost, FinalTableData, FinalCTAData, FAQItem } from './types';
+import { renderCriticalStatesForAnswer, type CriticalState } from './critical-state';
 import { getToneInstruction } from '../max-mode/tone-text-utils';
 
 // v3.8.356: toneStyle을 orchestration에서 module-scope로 전달받아 프롬프트/후처리에 반영.
@@ -4762,8 +4763,10 @@ JSON만 출력:
  * 요약 호출이 제목을 모른 채 답 세 줄을 쓰고 있었다. 제목과 제목이 약속한 조각을 넘겨 조각마다 판정문 한 문장씩 쓰게 한다.
  * answer-verdict 의 조립은 이게 실패했을 때의 그물이다.
  */
-export async function generateSummaryTableFinal(allContent: string, opts: { title?: string | undefined; promises?: string[] | undefined } = {}): Promise<FinalTableData> {
+export async function generateSummaryTableFinal(allContent: string, opts: { title?: string | undefined; promises?: string[] | undefined; criticalStates?: CriticalState[] | undefined } = {}): Promise<FinalTableData> {
   const promiseLines = (opts.promises || []).filter(Boolean).slice(0, 4);
+  // v3.8.769 — Writer 보기와 같은 상태 배열. live 69f928: 답 상자가 "10월 2일 관람이라면 … 예매하면 됩니다"(10월 2일은 조기 매진)
+  const stateBlock = renderCriticalStatesForAnswer(opts.criticalStates || []);
   const titleBlock = opts.title
     ? `\n📌 이 글의 제목: 「${opts.title}」\n제목이 약속한 조각 — 독자는 이것을 보고 들어왔다. **answer 는 조각마다 판정문 한 문장씩** 쓴다(조각 순서대로):\n${promiseLines.map((p, i) => `  ${i + 1}) ${p}`).join('\n') || '  (조각 없음 — 제목 전체가 질문이다)'}\n조각의 질문에 직접 답한다. "…를 봐요", "…를 확인하세요" 로 돌리지 않는다. 본문에 그 답이 없으면 그 조각은 비워 둔다(지어내지 않는다).\n`
     : '';
@@ -4814,7 +4817,7 @@ ${cleanedContent.slice(0, 2000)}
 
 🎯 **그리고 "결론부터" 세 줄을 함께 만드세요** (v3.8.559):
 독자가 이 글에서 답을 얻으려던 질문 하나와, 그 답을 본문 근거로 적는다.
-${promiseBlock}
+${promiseBlock}${stateBlock ? `\n${stateBlock}\n` : ''}
 글 맨 위에 그대로 실려서 **이것만 읽고도 답이 되는** 자리다.
 - question: 독자가 실제로 검색했을 법한 질문 한 줄 (40자 이내, 물음표 없이도 됨)
 - answer: 그 질문의 **답**. 2~4문장, 본문에 있는 숫자·조건을 그대로 쓴다.

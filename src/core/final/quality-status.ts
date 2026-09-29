@@ -34,6 +34,8 @@ export interface QualityStatusInput {
   qualityConverged: boolean;
   publishDecision: 'AUTO_PUBLISH' | 'MANUAL_REVIEW';
   manualReviewReason?: string;
+  /** v3.8.769 — 발행 창구가 실제로 막는가. 없으면 qualityLoopOn(747 그대로). 현재 상태와 반대 안내(CRITICAL_STATE_PASS 실패)는 루프 OFF 여도 막는다 */
+  holdEnforced?: boolean;
 }
 
 export interface QualityStatus {
@@ -64,9 +66,10 @@ const OUTCOME_KO: Record<QualityLoopOutcome, string> = {
 export function summarizeQualityStatus(input: QualityStatusInput): QualityStatus {
   const { executed, outcome } = loopOutcome(input);
   const codeGatesPassed = input.hardGatesAllPass === true;
+  const holdEnforced = input.holdEnforced ?? input.qualityLoopOn;
   const publishStatus: PublishStatus = input.publishDecision === 'AUTO_PUBLISH'
     ? (input.qualityLoopOn ? 'PUBLISH_ALLOWED' : 'PUBLISH_ALLOWED_ADVISORY')
-    : (input.qualityLoopOn ? 'PUBLISH_HELD' : 'PUBLISH_ALLOWED_ADVISORY');
+    : (holdEnforced ? 'PUBLISH_HELD' : 'PUBLISH_ALLOWED_ADVISORY');
   const finalStage: FinalStage = !input.qualityConverged
     ? 'MANUAL_REVIEW'
     : (outcome === 'CONVERGED' ? 'QUALITY_CONVERGED' : 'GATES_PASSED_LOOP_NOT_RUN');

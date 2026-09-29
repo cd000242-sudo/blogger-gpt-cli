@@ -57,7 +57,7 @@ const ACTION: Array<{ family: ActionFamily; re: RegExp }> = [
 const UNAVAILABLE_DONE = /(?:조기\s*)?(?:매진|품절)(?!\s*(?:이|가|을|를)?\s*(?:임박|우려|가능|예상|될|되기))|조기\s*(?:마감|종료)|(?:마감|종료|중단|중지|소진|휴관|휴장|취소)(?:됐|되었|된\s*상태|했|하였|돼)|동났|팔려\s*나갔|잔여\s*(?:수량|석)[^.]{0,8}?(?:‘?0’?|없)|재고\s*(?:가\s*)?(?:소진|없)/;
 const NOT_DONE = /예정|전망|우려|가능성|될\s*수|할\s*수도|않았|않는다|아니다|없었다면|경우에?\s*(?:한해|만)|하면\s*(?:조기|마감)/;
 /** 글 쪽: 그 행동을 지금 할 수 있다고 말하는 꼴 — 행동 낱말 **바로 뒤**의 가능 술어만("예매하면 됩니다" · "신청할 수 있습니다" · "주문 가능"). "잔여석부터 판단하면 됩니다" 는 아니다 */
-const availableClaim = (familySource: string) => new RegExp(`(?:${familySource})(?:을|를|이|가|은|는)?\\s*(?:하면|하시면|할\\s*수\\s*있|하실\\s*수\\s*있|이?\\s*가능|을?\\s*진행하면)`);
+const availableClaim = (familySource: string) => new RegExp(`(?:${familySource})(?:을|를|이|가|은|는)?[\\s|]*(?:하면|하시면|할\\s*수\\s*있|하실\\s*수\\s*있|이?\\s*가능|을?\\s*진행하면)`);
 /** 질문 문장(FAQ 제목 등)은 주장이 아니다 */
 const QUESTION = /\?\s*$|(?:나요|까요|인가요|을까|ㄹ까)\s*\??\s*$/;
 /** 글 쪽의 불가 표현 — 전환 꼴("마감됐다" · "판매 종료")만. "마감일 전이라" · "입장 마감 20:30" 같은 명사·시각은 아니다 */
@@ -70,7 +70,9 @@ const ROUND = /(상반기|하반기|\d+\s*차|\d+\s*회차)/g;
 
 /** 문장 — 제목·문단·목록·칸·FAQ 질문 경계도 문장 경계다(제목이 다음 문장에 붙지 않게) */
 const sentencesOf = (s: string) => String(s || '')
-  .replace(/<br\s*\/?>|<\/(?:p|div|li|tr|td|th|h[1-6]|blockquote|summary|section|details)\s*>/gi, '\n')
+  // v3.8.769 — 표의 칸은 한 줄(행)로 잇는다: "현재 구매 | 가능" 이 한 문장이어야 표의 행동 안내를 읽는다
+  .replace(/<\/(?:td|th)\s*>/gi, ' | ')
+  .replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h[1-6]|blockquote|summary|section|details|table)\s*>/gi, '\n')
   .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ')
   .split(/(?<=[.!?。])\s+|\n+/).map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean);
 /** 상태가 걸린 행동 — 상태 표현 바로 앞(없으면 바로 뒤)의 행동 낱말. "사전 예약 판매를 시작했으나 이후 주문이 중단됐다" 는 예약이 아니라 주문이다 */
@@ -165,6 +167,29 @@ export function renderCriticalStates(states: CriticalState[]): string[] {
     '▸ 지금 독자의 행동을 바꾸는 상태 — 본문에서 한 번 분명히 쓰세요. 원래 일정(예매·신청 기간)보다 이 상태가 우선합니다',
     ...states.map((s) => `- ${s.effective.length ? `${s.effective.join('·')} ` : '현재 '}${s.actionWord}: ${s.stateWord}${s.asOf ? ` (${s.asOf} 보도 기준)` : ''} [${s.sourceIds.join(',')}] — ${s.effective.length ? '이 날짜를' : '지금'} ${s.actionWord}할 수 있는 것처럼 쓰지 마세요. 원래 기간을 적을 때는 이 상태를 함께 적습니다. 근거: "${s.sentence.slice(0, 120)}"`),
   ];
+}
+
+/**
+ * v3.8.769 — 답 상자(요약표 호출) 입력용. Writer 보기와 **같은 상태 배열**을 쓴다(새 추출 없음).
+ * 보도 기준일은 "언제 확인했나" 다 — 그 뒤 취소표·추가 판매가 없다고 말하지 않는다.
+ */
+export function renderCriticalStatesForAnswer(states: CriticalState[]): string {
+  if (!states.length) return '';
+  return [
+    '⏱️ 지금 독자의 행동을 바꾸는 상태 — answer·표에서 이 상태와 반대로(그 날짜에 할 수 있다고) 쓰지 마세요. 원래 기간보다 이 상태가 우선합니다:',
+    ...states.map((s) => `- ${s.effective.length ? `${s.effective.join('·')} ` : '현재 '}${s.actionWord}: ${s.asOf ? `${s.asOf} 보도 기준 ` : ''}${s.stateWord} [${s.sourceIds.join(',')}]${s.asOf ? ' (보도 기준일은 확인 시점입니다 — 그 뒤 취소분·추가 판매 여부는 근거에 없습니다)' : ''}`),
+  ].join('\n');
+}
+
+/**
+ * v3.8.769 — 발행 판단용 한 줄 계약: 최종 글(답 상자·본문·표·FAQ)이 상태와 **정면으로 반대**면 자동 발행 금지.
+ * MISSING 은 막지 않는다(부수 정보일 수 있다) — CONTRADICTED 만 blocker.
+ */
+export function criticalStateGate(checks: CriticalStateCheck[]): { pass: boolean; reason: string } {
+  const bad = checks.filter((c) => c.status === 'CONTRADICTED');
+  return bad.length
+    ? { pass: false, reason: `현재 상태와 반대 안내: ${bad.map((c) => `${c.effective.join('·') || '지금'} ${c.stateWord}`).join(', ')}` }
+    : { pass: true, reason: '' };
 }
 
 const familyRe = (f: ActionFamily) => ACTION.find((a) => a.family === f)!.re;

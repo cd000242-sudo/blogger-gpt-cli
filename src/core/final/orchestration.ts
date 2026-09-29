@@ -73,6 +73,7 @@ import { buildAnswerBlock } from './answer-block';
 import type { FidelityChange, FaqConsistencyNote } from './answer-fidelity';
 import type { EmptyFinding } from './empty-section-gate';
 import type { ProvenanceEntry } from './content-provenance';
+import { criticalStateCoverage, criticalStateGate } from './critical-state';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
@@ -4639,6 +4640,8 @@ ${quoted}
     let summaryTable = await generateSummaryTableFinal(articleTextForAux, {
       title: String(h1 || ''),
       promises: (() => { try { return require('./reader-retention').titlePromises(String(h1 || '')) as string[]; } catch { return []; } })(),
+      // v3.8.769 — Writer 보기와 같은 상태 배열(새 추출 없음). 답 상자가 현재 상태와 반대로 안내하지 않게
+      criticalStates: researchPacket.criticalStates || [],
     });
     const summaryFactText = [...(summaryTable.headers || []), ...(summaryTable.rows || []).flat()].join(' ');
     // 🧾 v3.8.752 — 요약표(질문·답·근거 줄 포함)의 LLM 원본. 답 상자의 재료가 여기서 나온다
@@ -6346,6 +6349,15 @@ ${introductionHTML}
         onLog?.(`[PROGRESS] 90% - 🧭 답 상자 ${aligned.changes.length}곳을 본문 수준으로 되돌렸습니다 (${aligned.changes.map((c: FidelityChange) => c.rule).join(',')})`);
       }
     } catch (fidelityErr) { console.warn('[ANSWER-FIDELITY] 스킵:', String((fidelityErr as Error)?.message || fidelityErr).slice(0, 100)); }
+    // v3.8.769 — 답 상자가 현재 상태를 반대로 안내하는가(같은 coverage 규칙). 고치지 않고 기록 — 발행 판단은 final-authority 의 최종 글 결과로 한다
+    try {
+      const states = researchPacket.criticalStates || [];
+      if (states.length) {
+        const cov = criticalStateCoverage(verdictAnswer, states);
+        trace.event('critical-state.coverage', { stage: 'answer-box', answer: verdictAnswer, coverage: cov });
+        onLog?.(`[PROGRESS] 90% - ⏱️ 상태 변화 coverage(답 상자): ${cov.map((c) => `${c.effective.join('·') || '지금'} ${c.stateWord}=${c.status}`).join(' · ')}`);
+      }
+    } catch { /* coverage 측정 실패는 넘어간다 */ }
     const answerBlockHtml = buildAnswerBlock({
       keyword,
       question: summaryTable.question,
@@ -7650,6 +7662,15 @@ ${conclusionHTML}
     }
 
     /**
+     * ⏱️ v3.8.769 — critical state 최종 계약. 발행 판단 시점의 **최종 HTML** 로 같은 coverage 를 다시 잰다(특정 부품을 믿지 않고 canonical 상태 기준).
+     * CONTRADICTED 만 blocker — MISSING 은 막지 않는다. 문장을 고치거나 끼워 넣지 않는다.
+     */
+    const criticalFinal = (researchPacket.criticalStates || []).length
+      ? criticalStateCoverage(String(html || '').replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' '), researchPacket.criticalStates || [])
+      : [];
+    const criticalGate = criticalStateGate(criticalFinal);
+    if (criticalFinal.length) trace.event('critical-state.gate', { coverage: criticalFinal, pass: criticalGate.pass, reason: criticalGate.reason });
+    /**
      * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
      * 전부 PASS 이고 비평 루프가 수렴했고 심사가 "한 번 더 고쳐도 별 차이 없다"고 하면 QUALITY_CONVERGED → 자동 발행.
      * 아니면 MANUAL_REVIEW — 글은 돌려주되 자동으로 발행하지 않는다.
@@ -7665,17 +7686,21 @@ ${conclusionHTML}
       SEARCH_INTENT_PASS: !critiqueReport || (critiqueReport.open.critical === 0 && critiqueReport.open.major === 0 && (critiqueReport.open.pending || 0) === 0),
       NO_MAJOR_REDUNDANCY: !finalJudge || !finalJudge.blockingIssues.some((b: any) => b.type === 'REDUNDANCY'),
       FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
+      // v3.8.769 — 최종 글(답 상자·본문·표·FAQ)이 현재 상태와 정면으로 반대면 자동 발행하지 않는다. 상태가 없는 글은 늘 true
+      CRITICAL_STATE_PASS: criticalGate.pass,
     };
     hardGatesAllPass = Object.values(hardGates).every(Boolean);
     qualityConverged = runFinalQa
       ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
       : hardGatesAllPass;
     manualReviewReason = qualityConverged ? '' : [
-      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => k),
+      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k)),
       ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
       ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
     ].filter(Boolean).join(' · ');
     publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
+    // v3.8.769 — 현재 상태와 반대로 안내하는 글은 품질 루프와 상관없이 막는다(enforced). 사람이 편집하거나 forcePublish 로 명시하면 예전처럼 지나간다
+    const publishEnforced = qualityLoopOn || !criticalGate.pass;
     /**
      * v3.8.752 (감사 F12) — 상태 이름표를 여섯 개념으로 가른다(quality-status.ts).
      * 4편 실측: 루프 OFF 인데 `FINAL: QUALITY_CONVERGED` 가 찍혔다 — 미실행 관문이 true 라 '수렴' 별칭이 붙은 것.
@@ -7683,12 +7708,12 @@ ${conclusionHTML}
      */
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const qualityStatus = require('./quality-status').summarizeQualityStatus({
-      qualityLoopOn, loopEligible: runFinalQa, critiqueReport, hardGatesAllPass, qualityConverged, publishDecision, manualReviewReason,
+      qualityLoopOn, loopEligible: runFinalQa, critiqueReport, hardGatesAllPass, qualityConverged, publishDecision, manualReviewReason, holdEnforced: publishEnforced,
     });
     pipelineStatus.mark('FINAL', qualityStatus.finalStage, qualityConverged ? qualityStatus.label : manualReviewReason);
     onLog?.(qualityConverged
       ? (qualityStatus.qualityLoopOutcome === 'CONVERGED' ? `[PROGRESS] 97% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 97% - ✅ ${qualityStatus.label}`)
-      : (qualityLoopOn ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason} · ${qualityStatus.label}`));
+      : (qualityLoopOn || !criticalGate.pass ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason} · ${qualityStatus.label}`));
     trace.check('hardGates', { status: 'RUN', result: { hardGates, hardGatesAllPass, qualityConverged, publishDecision, manualReviewReason } });
     trace.check('qualityLoop', { status: qualityStatus.qualityLoopExecuted ? (qualityStatus.qualityLoopOutcome === 'ERROR' ? 'FAILED' : 'RUN') : 'NOT_RUN', result: { outcome: qualityStatus.qualityLoopOutcome, label: qualityStatus.label, calls: qualityLoopCalls } });
     trace.check('finalJudge', { status: runFinalQa ? (finalJudge ? 'RUN' : 'FAILED') : 'NOT_RUN', result: finalJudge ? { decision: finalJudge.decision, blocking: (finalJudge.blockingIssues || []).length } : null });
@@ -7775,7 +7800,7 @@ ${conclusionHTML}
         } : {}),
         ...(finalJudge ? { finalJudgeModel: String(finalJudge.model || '') } : {}),
         finalDecision: publishDecision,
-        publishHoldEnforced: qualityLoopOn,   // v3.8.747 — OFF 는 참고 판정
+        publishHoldEnforced: publishEnforced,   // v3.8.747 — OFF 는 참고 판정 · v3.8.769 현재 상태 모순은 OFF 여도 보류
         qualityLoopEnabled: qualityLoopOn,
         qualityConverged,
         ...(manualReviewReason ? { manualReviewReason } : {}),
@@ -7829,9 +7854,10 @@ ${conclusionHTML}
 
     // v3.8.735 — 발행 창구가 이 본문의 지문으로 결정을 찾는다. 사람이 편집기에서 고치면 지문이 달라져 막지 않는다
     // v3.8.747 — 발행 차단은 품질 루프가 켜진 글만(enforced). OFF 는 판정을 남기되 막지 않는다(736 설계: 기본은 734 와 같다)
-    try { require('./publish-gate').recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || ''), qualityLoopOn); } catch { /* 기록 실패가 생성을 막지 않는다 */ }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    try { require('./publish-gate').recordPublishDecision(html, publishDecision, manualReviewReason, String(h1 || ''), publishEnforced); } catch { /* 기록 실패가 생성을 막지 않는다 */ }
     if (publishDecision === 'MANUAL_REVIEW') {
-      onLog?.(qualityLoopOn
+      onLog?.(publishEnforced
         ? `[PROGRESS] 99% - 🛑 이 글은 MANUAL_REVIEW 입니다 — 자동 발행하지 않습니다. 미리보기에서 확인 후 직접 발행하세요. 사유: ${manualReviewReason}`
         : `[PROGRESS] 99% - ℹ️ 품질 관문 참고(발행은 막지 않음 · 품질 루프 OFF): ${manualReviewReason}`);
     }
