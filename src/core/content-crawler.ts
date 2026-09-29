@@ -793,7 +793,9 @@ ${contents.slice(0, 10).map((c, i) => `
     try {
       console.log(`[NAVER] "${topic}" 네이버 블로그 크롤링 시작...`);
 
-      const searchQuery = `${topic} ${keywords.join(' ')}`;
+      // v3.8.753 — orchestration 은 keywords=[keyword] 로 부른다. 그대로 이으면 검색어가 두 번 붙는다
+      //   (실측 run 1b7d92: "청년미래적금 VS 청년 도약계좌 청년미래적금 VS 청년 도약계좌"). topic 과 같은 낱말만 뺀다 — 다른 보조어는 그대로
+      const searchQuery = [topic, ...(keywords || []).filter((k) => k && k.trim() && k.trim() !== String(topic || '').trim())].join(' ').trim();
       const encodedQuery = encodeURIComponent(searchQuery);
 
       console.log(`[NAVER-DEBUG] 🔄 네이버 API 요청 시작`);
