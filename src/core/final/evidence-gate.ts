@@ -23,11 +23,17 @@ export interface GateVerdict {
   reasons: string[];
   needsOfficial: boolean;
   needsDates: boolean;
-  stats: { total: number; official: number; news: number; withBody: number; withDate: number; withUrl: number; chars: number };
+  /** v3.8.767 — primary = 당사자 1차(제조사 제품·보험사 약관 등). official 과 따로 센다 */
+  stats: { total: number; official: number; primary?: number; news: number; withBody: number; withDate: number; withUrl: number; chars: number };
 }
 
 /** 공식 자료가 있어야 하는 주제 — 제도·돈·법·행정 */
 const OFFICIAL_TOPIC = /(지원금|보조금|수당|급여|바우처|장려금|환급|공제|세금|연말정산|과태료|벌금|신고|신청|접수|자격|대상자|소득\s*기준|적금|대출|금리|보험|연금|청약|전세|월세|임대|분양|법|시행령|고시|조례|접종|건강검진|복지|실업|고용|출산|육아|장학|학자금|병역|비자|여권|면허|인허가)/;
+/**
+ * v3.8.767 — 그중 **회사 상품**의 조건이 답인 주제. 보험사 약관·은행 상품설명서(당사자 1차)가 그 상품에 대해선 1차 자료다.
+ * 이 낱말 말고 다른 공식 주제어(보조금·세금·법 …)가 함께 있으면 정부 원문이 있어야 한다 — 제조사가 보조금을 설명해도 정부 원문을 대신하지 않는다.
+ */
+const PRODUCT_TOPIC = /(적금|대출|금리|보험|예금|카드|요금제)/g;
 /** 날짜가 결정적인 주제 — 회차·기간·마감·최신 */
 const DATE_TOPIC = /(\d+\s*차|신청\s*기간|접수|마감|모집|일정|언제|개편|시행|인상|인하|돌파|발표|출시|속보|최신|20\d{2})/;
 
@@ -41,6 +47,7 @@ export function evaluateEvidence(items: EvidenceItem[], mainKeyword: string, tit
   const stats = {
     total: items.length,
     official: items.filter((i) => i.isOfficial).length,
+    primary: items.filter((i) => !i.isOfficial && i.authority === 'SUBJECT_OWNER_PRIMARY').length,
     news: items.filter((i) => i.sourceType === 'news').length,
     withBody: items.filter((i) => i.hasBody).length,
     withDate: items.filter((i) => !!i.pubDate).length,
@@ -51,14 +58,18 @@ export function evaluateEvidence(items: EvidenceItem[], mainKeyword: string, tit
   if (stats.total < 3) reasons.push(`관련 근거 ${stats.total}건(3건 미만)`);
   if (stats.withBody < 1) reasons.push('본문을 확인한 근거 0건(검색 요약뿐)');
   if (stats.chars < 1500) reasons.push(`근거 분량 ${stats.chars}자(1,500자 미만)`);
-  if (needsOfficial && stats.official === 0) reasons.push('공식기관 자료 0건(제도·행정 주제)');
+  if (needsOfficial && stats.official === 0) {
+    const text = `${mainKeyword} ${title}`;
+    const productOnly = !OFFICIAL_TOPIC.test(text.replace(PRODUCT_TOPIC, ' '));
+    if (!(productOnly && stats.primary > 0)) reasons.push(`공식기관 자료 0건(제도·행정 주제)${stats.primary ? ` · 당사자 1차 ${stats.primary}건은 자사 상품 범위라 정부 원문을 대신하지 않음` : ''}`);
+  }
   if (needsDates && stats.withDate === 0) reasons.push('게시일을 아는 근거 0건(시점이 중요한 주제)');
   return { status: reasons.length ? 'GROUNDING_WEAK' : 'GROUNDING_OK', reasons, needsOfficial, needsDates, stats };
 }
 
 export function describeGate(v: GateVerdict): string {
   const s = v.stats;
-  const head = `근거 ${s.total}건 (공식 ${s.official} · 뉴스 ${s.news} · 본문확인 ${s.withBody} · 날짜 ${s.withDate}/${s.total} · URL ${s.withUrl}/${s.total} · ${s.chars.toLocaleString()}자)`;
+  const head = `근거 ${s.total}건 (공식 ${s.official}${s.primary ? ` · 당사자 1차 ${s.primary}` : ''} · 뉴스 ${s.news} · 본문확인 ${s.withBody} · 날짜 ${s.withDate}/${s.total} · URL ${s.withUrl}/${s.total} · ${s.chars.toLocaleString()}자)`;
   return v.status === 'GROUNDING_OK' ? head : `${head} · 사유: ${v.reasons.join(' / ')}`;
 }
 

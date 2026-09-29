@@ -17,6 +17,7 @@
 
 import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust';
 import { toKstDate } from './kst-date';
+import { classifySourceAuthority, OWNER_SCOPE_NOTE, type SourceAuthority } from './source-authority';
 
 export type EvidenceSourceType = 'official' | 'government' | 'public_agency' | 'news' | 'blog' | 'knowledge' | 'web';
 
@@ -42,6 +43,10 @@ export interface EvidenceItem {
   cleanedText: string;
   /** v3.8.754 — cleanedText 가 보존 상한에서 잘렸으면 그 위치. null = 완전(또는 스니펫). 잘린 자료를 완전한 원문으로 표시하지 않기 위한 표시 */
   truncatedAt?: number | null;
+  /** v3.8.767 — 출처 권위(공공기관 공식 · 당사자 1차 · 2차). isOfficial 은 예전처럼 공공기관만 뜻한다 */
+  authority?: SourceAuthority;
+  /** 당사자 1차일 때 그 주인(브랜드) */
+  owner?: string;
 }
 
 export interface RejectedEvidence {
@@ -214,11 +219,14 @@ export function judgeEvidence(draft: EvidenceDraft, mainKeyword: string): { item
   if (draft.promise && promiseRel !== null && promiseRel < PROMISE_RELEVANCE_MIN) return reject(`약속 조각 관련도 ${promiseRel} < ${PROMISE_RELEVANCE_MIN}`);
   const kind = classifySource(draft.url, draft.tag);
   const domain = domainOf(draft.url);
+  // v3.8.767 — 공공기관이 아니어도 그 회사의 제품·약관 문서면 당사자 1차다(권위 범위는 자사 것까지)
+  const auth = kind.isOfficial ? { authority: 'PUBLIC_AUTHORITY_OFFICIAL' as const } : classifySourceAuthority({ url: draft.url, tag: draft.tag, title: draft.title, text, mainKeyword, distinctive: distinctiveTokens(mainKeyword) });
   return {
     item: {
       mainKeyword, title: draft.title, sourceName: domain || TYPE_LABEL[kind.sourceType], domain, url: draft.url,
       pubDate: toKstDate(draft.pubDate), retrievedAt: new Date().toISOString(),
       sourceType: kind.sourceType, isOfficial: kind.isOfficial, query: draft.query,
+      authority: auth.authority, ...('owner' in auth && auth.owner ? { owner: auth.owner } : {}),
       relevanceScore: relevance, promiseRelevanceScore: promiseRel, hasBody: !!draft.hasBody, cleanedText: text,
       // v3.8.755 — 보존 본문이 없는 초안(발췌·스니펫)은 undefined 로 둔다. null(안 잘림)로 적으면 "전체 원문을 대조했다" 로 오해된다
       ...(draft.truncatedAt !== undefined ? { truncatedAt: draft.truncatedAt } : {}),
@@ -234,7 +242,9 @@ export function qualityOf(item: Omit<EvidenceItem, 'id'>, todayKst: string): num
     recency = days <= 30 ? 1 : days <= 120 ? 0.85 : days <= 365 ? 0.65 : 0.4;
   }
   const body = item.hasBody ? 1 : 0.7;
-  return Math.round(TYPE_WEIGHT[item.sourceType] * (0.5 + 0.5 * item.relevanceScore) * recency * body * 1000) / 1000;
+  // v3.8.767 — 당사자 1차(제조사 제품·보험사 약관)는 '웹' 이 아니라 공식 바로 아래 무게다
+  const weight = item.authority === 'SUBJECT_OWNER_PRIMARY' ? Math.max(TYPE_WEIGHT[item.sourceType], 0.85) : TYPE_WEIGHT[item.sourceType];
+  return Math.round(weight * (0.5 + 0.5 * item.relevanceScore) * recency * body * 1000) / 1000;
 }
 
 /** 추적용 파라미터 — 문서를 가리키지 않는다. 그 밖의 쿼리(newsId·idxno·docId …)는 **문서 식별자**라 지우지 않는다 */
@@ -303,7 +313,9 @@ export function assembleEvidence(candidates: Array<Omit<EvidenceItem, 'id'>>, to
 
 /** Writer 에게 보이는 머리줄 — 날짜·도메인·주소를 **떼지 않는다** */
 export function evidenceHeader(item: EvidenceItem): string {
-  return `[${item.id}][${TYPE_LABEL[item.sourceType]}] ${item.title}\n`
+  // v3.8.767 — 당사자 1차는 머리줄에 권위 범위까지 적는다: 그 회사 제품·약관엔 1차지만 정부 정책을 대신하지 않는다
+  const label = item.authority === 'SUBJECT_OWNER_PRIMARY' ? `당사자 1차 · ${item.owner || item.domain} · ${OWNER_SCOPE_NOTE}` : TYPE_LABEL[item.sourceType];
+  return `[${item.id}][${label}] ${item.title}\n`
     + `  · 출처: ${item.domain || '도메인 미상'} · 게시일: ${item.pubDate || '미상(null)'} · ${item.hasBody ? '본문 확인' : '검색 요약만'}\n`
     + `  · URL: ${item.url || '없음'}`;
 }
