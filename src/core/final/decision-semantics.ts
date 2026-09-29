@@ -59,17 +59,32 @@ const ABILITY = new RegExp(`((?:월|매월|매달|연|매년|하루|1일)\\s*)?(
  * 구조: VALUE ROLE(MAXIMUM) + CONDITIONAL RELATION(…으면/다면) + RECOMMENDATION ACTION.
  */
 const BOUNDARY = new RegExp(`((?:월|매월|매달|연|매년)\\s*)?(${VALUE_SRC})\\s*(?:한도로|한도를|한도까지|한도의|까지|수준을|수준으로|수준의)\\s*[가-힣0-9\\s]{0,10}?(?:유지|납입|저축|이어)[가-힣]{0,3}\\s*(?:여력|가능|수\\s*있)[가-힣\\s]{0,8}?(?:다면|으면|면|라면|경우(?:에|라면)?)`, 'g');
-const RECOMMENDATION = /맞습니다|맞고|맞죠|낫습니다|낫죠|나아요|좋습니다|권합니다|추천|선택(?:합니다|하세요|이 맞)|검토(?:합니다|하는)|봅니다|비교합니다|유지(?:가|하는 편이)\s*(?:맞|낫)/;
+const RECOMMENDATION = /맞습니다|맞고|맞죠|낫습니다|낫죠|나아요|낫다|좋습니다|권합니다|추천|선택(?:합니다|하세요|이 맞)|검토(?:합니다|하는)|봅니다|비교합니다|유지(?:가|하는 편이)\s*(?:맞|낫)|(?:편|쪽)이\s*(?:맞|낫|좋|유리)|유리(?:합니다|해요|하다|하죠)/;
+/**
+ * v3.8.766 — 구조 판정(live ed05c6): 값 + 능력 술어(가능·수 있·여력)가 **어떤 이음말로든** 끝나고, 같은 문장 뒤쪽에 추천·행동이 오면
+ * 그 값은 추천의 선행 조건이다. 실측 두 문장:
+ *   답 상자 "5년간 월 70만원 납입이 가능하고 남은 기간까지 유지할 수 있다면 … 먼저 선택하는 편이 맞습니다"
+ *   결론   "월 70만 원을 장기간 납입할 수 있고 … 남은 만기가 부담스럽지 않다면 유지하는 쪽이 맞습니다"
+ * ABILITY 는 조건이 값 바로 뒤에서 "…가능하면" 으로 끝나야 잡았다 — 사이에 다른 조건(…하고 …다면)이 끼거나 부사("장기간")가 앞서면 놓쳤다.
+ * 문형 목록을 늘리지 않는다: VALUE + ABILITY PREDICATE + RECOMMENDATION(뒤쪽) 세 가지만 본다. 값의 역할(MAXIMUM)은 근거에서 읽는다.
+ */
+const ABILITY_CONNECTIVE = '(?:하고|하며|하면서|하면|하다면|해서|고|며|으면|면|다면|라면|는\\s*경우(?:에는|에|라면)?)';
+const ABILITY_REC = new RegExp(`((?:월|매월|매달|연|매년|하루|1일)\\s*)?(${VALUE_SRC})(?:을|를|이|은|는|의)?\\s*(?:[가-힣0-9]{1,4}\\s+){0,2}?(?:[가-힣]{1,6}\\s*)?(?:가능|수\\s*있|여력이\\s*있|여력)${ABILITY_CONNECTIVE}`, 'g');
 /** 명시적 계산 가정 — "매월 X를 실제로 넣는다고 가정하면 총납입액은" 은 조건이 아니라 계산이다(허용) */
 const CALC_ASSUMPTION = /가정|예를\s*들어|예컨대|이라고\s*(?:놓|치|보|하)|넣는다고\s*하면|낸다고\s*하면|총\s*납입|원금은/;
 
-export interface StrengthenedHit { value: string; match: string; kind: 'known' | 'hada' | 'other' | 'ability' }
+export interface StrengthenedHit { value: string; match: string; kind: 'known' | 'hada' | 'other' | 'ability' | 'ability-rec' }
 export function findStrengthened(sentence: string): StrengthenedHit[] {
   const s = plain(sentence);
   const out: StrengthenedHit[] = [];
   if (CALC_ASSUMPTION.test(s)) return out;
   for (const m of s.matchAll(ABILITY)) out.push({ value: m[2]!, match: m[0], kind: 'ability' });
   if (RECOMMENDATION.test(s)) for (const m of s.matchAll(BOUNDARY)) if (!out.some((o) => o.match.includes(m[2]!))) out.push({ value: m[2]!, match: m[0], kind: 'ability' });
+  // v3.8.766 — 능력 절 + (다른 조건) + 뒤쪽 추천. 추천이 능력 절 **뒤에** 있어야 한다(앞에 있으면 조건이 아니다)
+  for (const m of s.matchAll(ABILITY_REC)) {
+    if (out.some((o) => o.match.includes(m[2]!) || m[0].includes(o.match))) continue;
+    if (RECOMMENDATION.test(s.slice(m.index! + m[0].length))) out.push({ value: m[2]!, match: m[0], kind: 'ability-rec' });
+  }
   for (const m of s.matchAll(KNOWN)) if (!out.some((o) => o.match.includes(m[2]!))) out.push({ value: m[2]!, match: m[0], kind: 'known' });
   for (const m of s.matchAll(HADA)) if (!out.some((o) => o.match.includes(m[1]!))) out.push({ value: m[1]!, match: m[0], kind: 'hada' });
   for (const m of s.matchAll(OTHER)) if (!out.some((o) => o.match.includes(m[1]!))) out.push({ value: m[1]!, match: m[0], kind: 'other' });
@@ -92,6 +107,21 @@ export function weakenSentence(sentence: string, evidence: string, options: { di
     if (!isMaximumOnly(role)) continue;                                                   // 근거에 요구 조건이 있으면(또는 역할을 모르면) 손대지 않는다
     if (new RegExp(`최대\\s*${loose(hit.value)}`).test(plain(sentence))) continue;           // 이미 상한으로 말한다
     const v = compactAmount(hit.value);
+    if (hit.kind === 'ability-rec') {
+      // 납입·저축(금액) 꼴만 안전하게 바꾼다 — 상한을 "실제 납입 가능액" 판단으로 돌리고, 이 글의 판단축 가운데 문장에 아직 없는 것만 곁에 둔다.
+      // 이음말은 그대로 이어 받는다(…가능하고 → …수 있고). 그 밖(거리·용량·시간·보상)은 안전한 치환이 없어 기록만(FLAG).
+      const finance = /납입|저축|적립|넣|낼|채우|채워/.test(hit.match) || /원$/.test(v);
+      if (!finance) {
+        changes.push({ value: v, roles: role.roles, action: 'flagged', reason: `상한 ${v} 이 추천의 선행 조건으로 쓰였으나 안전한 치환이 없어 두었다: "${hit.match}"` });
+        continue;
+      }
+      const conn = (hit.match.match(new RegExp(`${ABILITY_CONNECTIVE}$`)) || [''])[0].replace(/\s+/g, ' ');
+      const ending = /^(?:하고|고)$/.test(conn) ? '있고' : /^(?:하며|며|하면서)$/.test(conn) ? '있으며' : /^(?:하면|으면|면|해서)$/.test(conn) ? '있으면' : /^(?:하다면|다면|라면)$/.test(conn) ? '있다면' : `있${conn.replace(/^는/, '는')}`;
+      const extra = dims.filter((d) => !plain(sentence).includes(d));
+      after = after.replace(hit.match, `최대 ${v} 한도 안에서 실제 납입 가능액${extra.length ? ` · ${extra.join(' · ')}` : ''}을 함께 보고 납입을 이어갈 수 ${ending}`);
+      changes.push({ value: v, roles: role.roles, action: 'weakened', reason: `MAXIMUM_AS_RECOMMENDATION_CONDITION — 근거는 ${v} 을 상한으로만 말한다(${role.hits[0] || ''}) — 추천의 조건이 아니다` });
+      continue;
+    }
     if (hit.kind === 'ability') {
       const finance = /납입|저축|적립|유지|넣|낼|채우|채워|원/.test(hit.match) || /원$/.test(v);
       const verb = (hit.match.match(/(이용|사용|주행|투자|결제)/) || [])[1];
