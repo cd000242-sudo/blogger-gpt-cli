@@ -29,7 +29,8 @@ const news2nd = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `�
 // f607bc 실제 결과 꼴: 6월 출시 안내(회차 없음)만 웹문서에 있었다
 const junePage = { title: '6월 22일 출시 청년미래적금, 가입절차·심사일정·갈아타기 방법 등 주요정보', description: '청년미래적금 출시 안내 가입절차 심사일정', link: 'https://www.fsc.go.kr/edu/news/87370' };
 const currentPage = { title: '청년미래적금 2차 가입 신청 안내', description: '금융위원회 청년미래적금 2차 모집 가입 조건과 일정', link: 'https://www.fsc.go.kr/edu/news/99999' };   // MOCK — 실제 공고 아님
-const fetchOk = async (url: string) => `${url} 본문 청년미래적금 가입 조건 심사 일정 갈아타기 순서 안내 `.repeat(15);
+// v3.8.759 — 충분성은 "본문을 읽었다" 가 아니라 "현재 회차 신청 기간·조건을 본문이 답한다" 다. MOCK 본문에 합성 일정·조건 문장을 둔다(실제 공고 아님)
+const fetchOk = async (url: string) => `${url} 본문 청년미래적금 가입 조건 심사 일정 갈아타기 순서 안내. 신청 기간은 3월 2일부터 3월 16일까지 접수한다. 총급여 기준 이하 가입 대상. `.repeat(15);
 
 describe('v3.8.758 조사 계획 — 기관 매핑 유무·비교 유형별', () => {
   test('f607bc 실제 키워드: 기관 매핑 없음 → 대상별 공식 안내 검색어 2개(조건부 보강용)', () => {
@@ -69,8 +70,9 @@ describe('v3.8.758 실제 키워드의 조사·수집 경로 (MOCK 검색·본�
     expect(calls.map((c) => c.type)).toEqual(['news', 'webkr', 'blog']);                       // 기본 검색 3회 그대로
     const st = g.officialStatus!;
     expect(st.currentRound).toBe('2');
-    expect(st.candidates[0]).toMatchObject({ url: junePage.link, round: null, status: 'body' });   // 6월 안내: 본문은 읽었지만 회차 미확인
+    expect(st.candidates[0]).toMatchObject({ url: junePage.link, round: null, status: 'body', roundRelevance: 'past-or-unknown' });   // 6월 안내: 본문은 읽었지만 현재 회차 문서가 아니다
     expect(st.sufficient).toBe(false);                                                                // → 현재 회차(2차) 공식 본문으로 치지 않는다
+    expect(st.sufficiency).toBe('past-official-only');                                                // v3.8.759 상태 이름표
     expect(st.boost).toMatchObject({ enabled: false, wouldTrigger: true, triggered: false });
     expect(st.boost.reason).toContain('승인 전');
     // 6월 안내 본문은 예산 안에서 먼저 읽었다(스니펫만이 아니다) — 다만 현재 회차 문서가 아니라고 표시된다
@@ -85,10 +87,13 @@ describe('v3.8.758 실제 키워드의 조사·수집 경로 (MOCK 검색·본�
     expect(calls[3]!.query).toBe('청년미래적금 공식 안내 가입 조건');
     const st = g.officialStatus!;
     expect(st.boost).toMatchObject({ enabled: true, wouldTrigger: true, triggered: true, added: 1 });
-    expect(st.candidates.find((c) => c.url === currentPage.link)).toMatchObject({ round: '2', status: 'body' });
+    expect(st.candidates.find((c) => c.url === currentPage.link)).toMatchObject({ round: '2', status: 'body', roundRelevance: 'current' });
     expect(st.sufficient).toBe(true);
+    expect(st.sufficiency).toBe('current-official');                                              // v3.8.759 — 현재 회차 본문이 신청 기간을 답한다
     const body = g.fetchLog!.filter((f) => f.attempted).map((f) => f.url);
-    expect(body[0]).toBe(currentPage.link);                                                    // 현재 회차 문서가 먼저
+    // v3.8.759 — 충분성은 본문을 읽고 판단하므로 옛 안내(6월)를 먼저 읽고, 부족하면 보강 후보(현재 회차)를 뉴스보다 먼저 읽는다
+    expect(body.slice(0, 2)).toEqual([junePage.link, currentPage.link]);
+    expect(g.fetchLog!.find((f) => f.url === currentPage.link)!.reason).toBe('ok');
     expect(body.length).toBeLessThanOrEqual(6);                                                // 본문 예산 총량 불변
     // 근거 → 렌더까지: 항목이 본문 확보로 들어가고 Writer 렌더에 실린다
     const items = assembleEvidence((g.items || []).map((i) => ({ ...i, mainKeyword: KEYWORD })), TODAY);

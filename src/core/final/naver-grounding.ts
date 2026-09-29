@@ -39,6 +39,7 @@
 import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust';
 import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, isComparisonTopic, comparisonSubjects, roundOf, type SourceScope } from './source-scope';
 import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceDraft } from './evidence';
+import { OFFICIAL_NEEDS, type OfficialNeed } from './official-research-plan';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
 export type NaverSearchFn = (
@@ -150,12 +151,35 @@ export interface GroundingResult {
  *   body: 본문 확보 · snippet-only: 결과엔 있으나 본문 미수집(예산) · fetch-failed: 접근 실패 · round-mismatch: 다른 회차 문서뿐 ·
  *   not-in-results: 결과 자체에 없음
  */
+/** v3.8.759 — 공식자료 부족 상태를 한 줄로(로그·보고용). 상태 이름표·회차·후보별 수집/회차 관계·못 답한 핵심 질문·보강 사유 */
+export function describeOfficialShortfall(st: OfficialStatus): string {
+  const cands = st.candidates.map((c) => `${c.status}/${c.roundRelevance || '?'}`).join(',') || '없음';
+  return `(${st.sufficiency || 'none'}) 현재 회차 ${st.currentRound ? `${st.currentRound}차` : '미확인'} · 공식 후보 ${st.candidates.length}건(${cands}) · 미답 ${(st.unansweredNeeds || []).join('·') || '없음'} · ${st.boost.reason}. "공식적으로 없음" 이 아니라 "확보 못 함" 이다`;
+}
+
 export interface OfficialStatus {
   needed: boolean;
   currentRound: string | null;
-  candidates: Array<{ url: string; title: string; round: string | null; status: 'body' | 'snippet-only' | 'fetch-failed' | 'round-mismatch' | 'file-url' }>;
-  /** 현재 회차(알 수 있으면)의 공식 본문을 확보했는가 */
+  candidates: Array<{
+    url: string; title: string; round: string | null;
+    status: 'body' | 'snippet-only' | 'fetch-failed' | 'round-mismatch' | 'file-url';
+    /**
+     * v3.8.759 — 현재 회차와의 관계. 실측(run d7a142): 6월 출시 안내 본문에 "2차 가입자 모집시기(26.12월, 잠정)" 가 있어
+     * 현재 회차(2차) 문서로 오판정됐다. 'tentative-future' 는 옛 문서가 미래 회차를 예고한 것이라 현재 회차 근거가 아니다.
+     */
+    roundRelevance: 'current' | 'tentative-future' | 'past-or-unknown' | 'n/a';
+    /** 공식 본문이 답하는 독자 질문(official-research-plan.OFFICIAL_NEEDS 의 id) */
+    answered: string[];
+  }>;
+  /**
+   * 현재 질문의 핵심 공식 근거를 확보했는가. "공식 도메인 + 본문 확보" 만으로는 true 가 아니다 —
+   * 현재 회차(있으면)와 맞고, 핵심 질문(일정·조건)을 본문이 답해야 한다.
+   */
   sufficient: boolean;
+  /** 왜 그 판정인가 — current-official · past-official-only · snippet-only · official-no-answer · none */
+  sufficiency: 'current-official' | 'past-official-only' | 'snippet-only' | 'official-no-answer' | 'none';
+  /** 핵심 질문 중 공식 본문이 못 답한 것 */
+  unansweredNeeds: string[];
   boost: { enabled: boolean; wouldTrigger: boolean; triggered: boolean; queries: string[]; added: number; reason: string };
 }
 
@@ -555,9 +579,49 @@ export async function fetchGrounding(
     const currentRound = [...roundVotes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
     const roundOfItem = (it: any) => roundOf(`${stripTags(it?.title)} ${stripTags(it?.description)}`) || null;
     const officialNeeded = !!options.officialPlan || topicsForOfficial.length > 1;
-    const hasCurrent = officialFirst.some((it) => !currentRound || roundOfItem(it) === currentRound);
+    /**
+     * v3.8.759 — 충분성은 "공식 문서를 읽었다" 가 아니라 "현재 질문에 필요한 공식 근거가 있다" 다.
+     * 후보의 회차 관계는 **제목**과 **본문**으로 본다(검색 요약의 한 낱말로 정하지 않는다). 본문에서 현재 회차가 잠정·예정·계획 곁에만 나오면
+     * 옛 문서가 미래 회차를 예고한 것이라 현재 회차 근거가 아니다. 핵심 질문(일정·조건)을 본문이 답해야 sufficient 다.
+     */
+    const TENTATIVE = /잠정|예정|예상|계획|추후|향후|검토/;
+    type RoundRelevance = OfficialStatus['candidates'][number]['roundRelevance'];
+    const roundRelevanceOf = (it: { title?: string }, body: string): RoundRelevance => {
+      if (!currentRound) return 'n/a';
+      const title = stripTags(it?.title || '');
+      if (roundOf(title) === currentRound) return 'current';
+      const tok = new RegExp(`(?:제\\s*)?${currentRound}\\s*차`, 'g');
+      let m: RegExpExecArray | null; let firm = 0; let tentative = 0;
+      while ((m = tok.exec(body)) !== null) { const around = body.slice(Math.max(0, m.index - 40), m.index + m[0].length + 60); if (TENTATIVE.test(around)) tentative += 1; else firm += 1; }
+      if (firm > 0) return 'current';
+      if (tentative > 0) return 'tentative-future';
+      return 'past-or-unknown';
+    };
+    const answeredNeedsOf = (body: string, relevance: RoundRelevance): string[] => OFFICIAL_NEEDS
+      .filter((n: OfficialNeed) => n.markers.test(body) && (n.id !== 'schedule' || relevance === 'current' || relevance === 'n/a'))
+      .map((n: OfficialNeed) => n.id);
+    const bodyTextOf = (it: { originallink?: string; link?: string }): string => { const url = bodyUrlOf(it); const acc = accepted.find((a) => a.url === url && a.hasBody); return acc ? acc.cleanedText : ''; };
+    const evaluateOfficial = (): { sufficient: boolean; sufficiency: OfficialStatus['sufficiency']; unanswered: string[] } => {
+      const need: string[] = OFFICIAL_NEEDS.filter((n: OfficialNeed) => n.core).map((n: OfficialNeed) => n.id);
+      const bodies = officialFirst.map((it) => ({ it, body: bodyTextOf(it) })).filter((x) => x.body);
+      if (officialFirst.length === 0) return { sufficient: false, sufficiency: 'none', unanswered: need };
+      if (bodies.length === 0) return { sufficient: false, sufficiency: 'snippet-only', unanswered: need };
+      const answeredAll = new Set<string>();
+      let anyCurrent = false;
+      for (const { it, body } of bodies) {
+        const rel = roundRelevanceOf(it, body);
+        if (rel === 'current' || rel === 'n/a') { anyCurrent = true; for (const id of answeredNeedsOf(body, rel)) answeredAll.add(id); }
+      }
+      const unanswered = need.filter((id) => !answeredAll.has(id));
+      if (!anyCurrent) return { sufficient: false, sufficiency: 'past-official-only', unanswered: need };
+      const coreAnswered = currentRound ? answeredAll.has('schedule') : answeredAll.has('conditions') || answeredAll.has('schedule');
+      return { sufficient: coreAnswered, sufficiency: coreAnswered ? 'current-official' : 'official-no-answer', unanswered };
+    };
     const boostQueries = (options.officialPlan?.queries || []).slice(0, Math.max(0, options.officialBoost?.maxQueries ?? 1));
-    const boost = { enabled: !!options.officialBoost?.enabled, wouldTrigger: officialNeeded && !hasCurrent && boostQueries.length > 0, triggered: false, queries: [] as string[], added: 0, reason: '' };
+    // 보강 판단은 본문을 읽은 뒤(예산 안에서)에 한다 — 스니펫만으로 "충분" 을 말하지 않기 위해
+    let officialFirstParts = officialFirst.length > 0 ? await enrich(officialFirst, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft)) : [];
+    let evalBefore = evaluateOfficial();
+    const boost = { enabled: !!options.officialBoost?.enabled, wouldTrigger: officialNeeded && !evalBefore.sufficient && boostQueries.length > 0, triggered: false, queries: [] as string[], added: 0, reason: '' };
     if (boost.wouldTrigger && boost.enabled) {
       const seen = new Set(webUsableAll.map((it) => bodyUrlOf(it)));
       for (const q of boostQueries) {
@@ -569,26 +633,33 @@ export async function fetchGrounding(
           seen.add(url); webUsableAll.push(it); boost.added += 1;
         }
       }
-      officialFirst = webUsableAll.filter(isOfficialOnTopic)
+      // 보강으로 새로 온 공식 후보만 예산 안에서 더 읽는다(이미 읽은 것은 다시 읽지 않는다). 공식 예약 자리(OFFICIAL_RESERVE)를 넘기지 않되 최소 1건은 읽는다 — 옛 문서가 자리를 차지했다고 현재 회차 문서를 못 읽으면 보강의 뜻이 없다
+      const already = new Set(officialFirst.map((it) => bodyUrlOf(it)));
+      const fresh = webUsableAll.filter((it) => isOfficialOnTopic(it) && !already.has(bodyUrlOf(it)))
         .sort((a, b) => Number(roundOfItem(b) === currentRound) - Number(roundOfItem(a) === currentRound))   // 현재 회차 문서를 앞에
-        .slice(0, OFFICIAL_RESERVE);
-      boost.reason = boost.added ? `보강 검색으로 공식 후보 ${boost.added}건 추가` : '보강 검색에도 이 주제의 공식 후보 없음';
+        .slice(0, Math.max(1, OFFICIAL_RESERVE - officialFirst.length));
+      if (fresh.length > 0) officialFirstParts = [...officialFirstParts, ...await enrich(fresh, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft))];
+      officialFirst = [...officialFirst, ...fresh];
+      evalBefore = evaluateOfficial();
+      boost.reason = boost.added ? `보강 검색으로 공식 후보 ${boost.added}건 추가${evalBefore.sufficient ? ' — 현재 질문의 공식 근거 확보' : ' — 그래도 핵심 질문 미답'}` : '보강 검색에도 이 주제의 공식 후보 없음';
     } else if (boost.wouldTrigger) {
-      boost.reason = '현재 회차의 공식 본문 후보가 없음 — 보강은 승인 전이라 실행하지 않음';
+      boost.reason = `현재 질문의 공식 근거 부족(${evalBefore.sufficiency}) — 보강은 승인 전이라 실행하지 않음`;
     } else {
-      boost.reason = hasCurrent && officialFirst.length ? '공식 후보 있음' : officialNeeded ? '보강 계획 없음' : '공식 조사 불필요';
+      boost.reason = evalBefore.sufficient ? '현재 질문의 공식 근거 있음 — 보강 불필요' : officialNeeded ? '보강 계획 없음' : '공식 조사 불필요';
     }
-    const officialFirstParts = officialFirst.length > 0 ? await enrich(officialFirst, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft)) : [];
     const officialStatus: OfficialStatus = {
       needed: officialNeeded, currentRound,
       candidates: officialFirst.map((it) => {
         const url = bodyUrlOf(it); const rec = [...fetchLog].reverse().find((f) => f.url === url); const round = roundOfItem(it);
-        const status = rec?.reason === 'ok' ? 'body' : rec?.reason === 'fetch-failed' ? 'fetch-failed' : rec?.reason === 'file-url' ? 'file-url' : 'snippet-only';
-        return { url, title: stripTags(it?.title), round, status: currentRound && round && round !== currentRound ? 'round-mismatch' : status };
+        const body = bodyTextOf(it);
+        const relevance = body ? roundRelevanceOf(it, body) : (currentRound ? (round === currentRound ? 'current' : 'past-or-unknown') : 'n/a');
+        const base = rec?.reason === 'ok' ? 'body' : rec?.reason === 'fetch-failed' ? 'fetch-failed' : rec?.reason === 'file-url' ? 'file-url' : 'snippet-only';
+        // status = 수집 결과(옛 계약 그대로: 회차가 밝혀졌는데 다르면 round-mismatch) · roundRelevance = 현재 회차와의 관계(본문 기준, v3.8.759)
+        const status = currentRound && round && round !== currentRound ? 'round-mismatch' : base;
+        return { url, title: stripTags(it?.title), round, status, roundRelevance: relevance, answered: body ? answeredNeedsOf(body, relevance) : [] };
       }),
-      sufficient: false, boost,
+      sufficient: evalBefore.sufficient, sufficiency: evalBefore.sufficiency, unansweredNeeds: evalBefore.unanswered, boost,
     };
-    officialStatus.sufficient = officialStatus.candidates.some((c) => c.status === 'body' && (!currentRound || c.round === currentRound));
     const reservedUrls = new Set(officialFirst.map((it) => bodyUrlOf(it)));
     const webUsable = webUsableAll.filter((it) => !reservedUrls.has(bodyUrlOf(it)));   // 앞에서 먼저 읽은 공식 페이지는 뺀다
 

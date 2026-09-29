@@ -43,7 +43,7 @@ import { guardFacts, buildGroundingReference } from './fact-guard';
 // v3.8.574: AI 를 부르지 않는 구조 검사 — 열거 구멍·앞 잘린 문단·과한 단정
 import { findStructureIssues, describeStructureIssues } from './structure-guard';
 // v3.8.575: 이미 쓰는 네이버 키로 근거를 넓히고 낡음을 본다 (추가 비용 없음)
-import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness } from './naver-grounding';
+import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness, describeOfficialShortfall } from './naver-grounding';
 // v3.8.730: 공고형 글은 주관기관을 먼저 정하고 그 밖의 자료를 뺀다 (사장님 실측: LH 공고 글에 HUG·매물 시세가 섞였다)
 import { deriveSourceScope, selectScopedSources, sourceMatchesScope, isScopedOfficialSource, buildSourceScopeDirective, hasOfficialSource } from './source-scope';
 // 748 (A): 지식iN 질문은 키워드 실체에 대고 거른 뒤에만 패킷·소제목·실로 간다 (경주 APEC live: "국내 여름 휴양지" 가 실이 됐다)
@@ -1548,9 +1548,9 @@ export async function generateUltimateMaxModeArticleFinal(
     trace.event('grounding.official-plan', { plan: officialPlan, boost: officialBoost });
     try {
       const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost });
-      if ((g as any).officialStatus && (g as any).officialStatus.needed && !(g as any).officialStatus.sufficient) {
-        const st = (g as any).officialStatus;
-        onLog?.(`[PROGRESS] 40% - ⚠️ 핵심 공식자료 부족: 현재 회차 ${st.currentRound ? `${st.currentRound}차` : '미확인'} · 공식 후보 ${st.candidates.length}건(${st.candidates.map((c: any) => c.status).join(',') || '없음'}) · ${st.boost.reason}. "공식적으로 없음" 이 아니라 "확보 못 함" 이다`);
+      if (g.officialStatus && g.officialStatus.needed && !g.officialStatus.sufficient) {
+        // v3.8.759 — 상태 이름표·못 답한 핵심 질문까지(describeOfficialShortfall). "공식 문서 1건 읽음" 이 "충분" 이 아니다
+        onLog?.(`[PROGRESS] 40% - ⚠️ 핵심 공식자료 부족 ${describeOfficialShortfall(g.officialStatus)}`);
       }
       naverGrounding = g.text;
       evidenceCandidates.push(...(g.items || []));
