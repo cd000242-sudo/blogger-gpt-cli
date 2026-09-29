@@ -11,11 +11,14 @@
  */
 
 import { kstYear } from './kst-date';
+import { extractRanges, isRangeBound, type ValueRange } from './range-value';
 
 export type ClaimKind = 'date' | 'range' | 'amount' | 'percent' | 'count' | 'rank' | 'duration';
 
-export interface Claim { text: string; kind: ClaimKind; keys: string[] }
-export interface SupportedClaim { claim: string; sourceIds: string[] }
+/** at — 태그를 걷은 글 안의 위치(주어 낱말을 찾는 데만 쓴다) */
+export interface Claim { text: string; kind: ClaimKind; keys: string[]; at?: number }
+/** via 'range-endpoint' — 근거의 범위 표기(하한~상한)의 한쪽 끝으로 뒷받침됨. range 는 그 범위와 바로 앞 문맥(주어·조건·상태 낱말)을 그대로 넘긴다 */
+export interface SupportedClaim { claim: string; sourceIds: string[]; via?: 'range-endpoint'; range?: { raw: string; lower: number; upper: number; unit: string; context: string } }
 export interface ClaimCheck { supported: SupportedClaim[]; unsupported: string[] }
 export interface LedgerItem { id: string; text: string }
 
@@ -51,7 +54,7 @@ export function extractClaims(text: string): Claim[] {
   let lastEnd = -1;
   for (const f of found) {
     if (f.start < lastEnd) continue;
-    out.push({ text: f.text, kind: f.kind, keys: f.keys });
+    out.push({ text: f.text, kind: f.kind, keys: f.keys, at: f.start });
     lastEnd = f.end;
   }
   const seen = new Set<string>();
@@ -87,14 +90,51 @@ export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new 
   const year = String(kstYear(now));
   const supported: SupportedClaim[] = [];
   const unsupported: string[] = [];
+  const src = String(text || '').replace(/<[^>]+>/g, ' ');
+  let ranges: RangeRef[] | null = null;
   for (const c of extractClaims(text)) {
     if (/^20\d{2}년$/.test(norm(c.text))) { if (!all.includes(norm(c.text)) && norm(c.text) !== `${year}년`) unsupported.push(c.text); continue; }
     const ok = c.keys.every((k) => all.includes(k));
-    if (!ok) { unsupported.push(c.text); continue; }
+    if (!ok) {
+      // v3.8.766 — 근거가 "13.2~14.4%" 처럼 범위로만 말하면 글자 그대로는 "13.2%" 가 없다(live ed05c6: 이 때문에 BODY_FACT_PASS=false → MANUAL_REVIEW).
+      // 범위의 **두 끝 값만** 같은 값으로 인정한다(13.8% 같은 중간값은 아님). 날짜는 대상이 아니다. 주어 낱말이 있으면 범위 바로 앞 문맥에 그 낱말이 있어야 한다.
+      const endpoint = ENDPOINT_KINDS.has(c.kind) ? rangeEndpointSupport(c, src, ranges || (ranges = rangeRefs(normalized))) : null;
+      if (endpoint) { supported.push(endpoint); continue; }
+      unsupported.push(c.text);
+      continue;
+    }
     const ids = normalized.filter((l) => c.keys.every((k) => l.text.includes(k))).map((l) => l.id);
     supported.push({ claim: c.text, sourceIds: ids.length ? ids : normalized.filter((l) => c.keys.some((k) => l.text.includes(k))).map((l) => l.id).slice(0, 3) });
   }
   return { supported, unsupported };
+}
+
+const ENDPOINT_KINDS = new Set<ClaimKind>(['percent', 'amount', 'count', 'duration']);
+interface RangeRef { id: string; range: ValueRange; context: string }
+/** 근거마다 범위 표기와 그 바로 앞 문맥(40자) — 같은 범위가 여러 번 나오면 나온 자리마다 */
+function rangeRefs(ledger: Array<{ id: string; text: string }>): RangeRef[] {
+  const out: RangeRef[] = [];
+  for (const l of ledger) {
+    for (const r of extractRanges(l.text)) {
+      for (let at = l.text.indexOf(r.raw); at >= 0; at = l.text.indexOf(r.raw, at + 1)) out.push({ id: l.id, range: r, context: l.text.slice(Math.max(0, at - 40), at + r.raw.length) });
+    }
+  }
+  return out;
+}
+/** 값 앞의 짧은 이름표(주어) — 일반 수식어는 건너뛴다. 없으면 null(주어 제약 없음) */
+const SUBJECT_SKIP = /^(?:최대|최소|약|연|월|일|기준|최고|최저|평균|각각|모두|부터|에서|까지|수준|이자|금리|단리|복리|실질|효과)$/;
+function subjectBefore(src: string, at: number | undefined): string | null {
+  if (at === undefined) return null;
+  const words = src.slice(Math.max(0, at - 24), at).split(/[\s,·()]+/).map((w) => w.replace(/(?:은|는|이|가|의|을|를|도|과|와|에서|에게|으로|로)$/, '')).filter((w) => /^[가-힣A-Za-z0-9]{2,}$/.test(w) && !/\d/.test(w));
+  for (let i = words.length - 1; i >= 0; i -= 1) if (!SUBJECT_SKIP.test(words[i]!)) return words[i]!;
+  return null;
+}
+function rangeEndpointSupport(c: Claim, src: string, refs: RangeRef[]): SupportedClaim | null {
+  const token = norm(c.text);
+  const subject = subjectBefore(src, c.at);
+  const hit = refs.find((r) => isRangeBound(token, [r.range]) && (!subject || r.context.includes(norm(subject))));
+  if (!hit) return null;
+  return { claim: c.text, sourceIds: [hit.id], via: 'range-endpoint', range: { raw: hit.range.raw, lower: hit.range.lower, upper: hit.range.upper, unit: hit.range.unit, context: hit.context } };
 }
 
 /** 주장 문구를 문장에서 걷어낸다 — 제목 재생성이 안 될 때의 마지막 수단 */
