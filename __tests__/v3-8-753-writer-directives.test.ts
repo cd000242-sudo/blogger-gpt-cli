@@ -65,7 +65,7 @@ describe('v3.8.753 핵심 답을 빼거나 단정하게 만드는 지시 정리'
     const orch = read('src/core/final/orchestration.ts');
     expect(orch).toContain("const qualityLoopOn = (payload as any).qualityLoop === true || process.env['QUALITY_LOOP'] === '1';");
     expect(orch).toContain("publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';");
-    expect(orch).toContain('renderEvidence(evidenceItems, 11000)');                  // 근거 예산 불변
+    expect(orch).toMatch(/renderEvidence\(evidenceItems, 11000[,)]/);                // 근거 예산 불변(765: 뒤에 예약·묶음 옵션이 붙어도 예산은 11000)
     const pricing = read('src/core/llm/pricing.ts');
     expect(blockBetween(pricing, "value: 'openai-gpt41'", "value: 'openai-gpt4o'")).toContain('usdPer1M: { input: 2, output: 12');
   });

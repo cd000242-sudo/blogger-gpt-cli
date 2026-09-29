@@ -172,7 +172,7 @@ describe('v3.8.755 B — 검사기가 채택 근거 장부를 본다 (f607bc 저
     expect(VALIDATION_CONTEXT_MAX_CHARS).toBe(200000);
     expect(view.contextChars).toBeGreaterThan(25000);
     const orch = read('src/core/final/orchestration.ts');
-    expect(orch).toContain('renderEvidence(evidenceItems, 11000)');
+    expect(orch).toMatch(/renderEvidence\(evidenceItems, 11000[,)]/);   // 765: 예약·묶음 옵션이 붙어도 예산은 11000
     expect(read('src/core/final/naver-grounding.ts')).toContain('const BODY_FETCH_MAX = 6;');
     expect(read('src/core/crawlers/evidence-clean.ts')).toContain('export const RETAINED_TEXT_CHARS = 6000;');
   });

@@ -91,7 +91,7 @@ describe('v3.8.754 수집 원문 보존 (SYNTHETIC_FIXTURE)', () => {
     const bridge = read('src/core/final/crawled-post-bridge.ts');
     expect(bridge).toContain('cleanEvidenceText(hasFull ? post.fullText : content)');
     expect(bridge).toContain('relevantContent: hasFull ? cleaned.text.slice(0, content.length) : cleaned.text');
-    expect(orch).toContain('renderEvidence(evidenceItems, 11000)');        // LLM 근거 예산 불변
+    expect(orch).toMatch(/renderEvidence\(evidenceItems, 11000[,)]/);      // LLM 근거 예산 불변(765: 옵션이 붙어도 예산은 11000)
     expect(read('src/core/crawlers/naver-post-body.ts')).toContain('export const DEFAULT_MAX_BODY_CHARS = 1200;');
     expect(read('src/core/crawlers/article-body.ts')).toContain('export const DEFAULT_MAX_ARTICLE_CHARS = 1200;');
   });

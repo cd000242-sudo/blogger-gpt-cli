@@ -203,7 +203,7 @@ describe('v3.8.757 [공식자료 배선] 비교 글의 출처 범위와 본문 �
     expect(orch).toContain('sanitizeArticleFactClaims(allSectionsObj, bodyValidation.evidence)');
     expect(orch).toContain("trace.event('grounding.fetch'");
     expect(orch).toContain('derived: factIntegrityReport.derived || []');
-    expect(orch).toContain('renderEvidence(evidenceItems, 11000)');
+    expect(orch).toMatch(/renderEvidence\(evidenceItems, 11000[,)]/);   // 765: 예약·묶음 옵션이 붙어도 예산은 11000
     const grounding = read('src/core/final/naver-grounding.ts');
     expect(grounding).toContain('const BODY_FETCH_MAX = 6;');
     expect(grounding).toContain('const OFFICIAL_RESERVE = 2;');
