@@ -220,7 +220,8 @@ export function judgeEvidence(draft: EvidenceDraft, mainKeyword: string): { item
       pubDate: toKstDate(draft.pubDate), retrievedAt: new Date().toISOString(),
       sourceType: kind.sourceType, isOfficial: kind.isOfficial, query: draft.query,
       relevanceScore: relevance, promiseRelevanceScore: promiseRel, hasBody: !!draft.hasBody, cleanedText: text,
-      truncatedAt: draft.truncatedAt ?? null,
+      // v3.8.755 — 보존 본문이 없는 초안(발췌·스니펫)은 undefined 로 둔다. null(안 잘림)로 적으면 "전체 원문을 대조했다" 로 오해된다
+      ...(draft.truncatedAt !== undefined ? { truncatedAt: draft.truncatedAt } : {}),
     },
   };
 }

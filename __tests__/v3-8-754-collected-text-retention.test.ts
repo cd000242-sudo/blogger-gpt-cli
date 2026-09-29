@@ -86,8 +86,11 @@ describe('v3.8.754 수집 원문 보존 (SYNTHETIC_FIXTURE)', () => {
 
     const orch = read('src/core/final/orchestration.ts');
     const judge = blockBetween(orch, 'const judgeCrawledPosts = (): void => {', 'judgeCrawledPosts();');
-    expect(judge).toContain('cleanEvidenceText(post.fullText || post.content)');
-    expect(judge).toContain("content: post.fullText ? cleaned.text.slice(0, String(post.content || '').length) : cleaned.text");
+    // v3.8.755 — 판정 초안은 브리지(crawled-post-bridge)가 만든다: 보존 본문으로 판정, relevantPosts 는 발췌 길이
+    expect(judge).toContain('bridgeCrawledPost(post, keyword)');
+    const bridge = read('src/core/final/crawled-post-bridge.ts');
+    expect(bridge).toContain('cleanEvidenceText(hasFull ? post.fullText : content)');
+    expect(bridge).toContain('relevantContent: hasFull ? cleaned.text.slice(0, content.length) : cleaned.text');
     expect(orch).toContain('renderEvidence(evidenceItems, 11000)');        // LLM 근거 예산 불변
     expect(read('src/core/crawlers/naver-post-body.ts')).toContain('export const DEFAULT_MAX_BODY_CHARS = 1200;');
     expect(read('src/core/crawlers/article-body.ts')).toContain('export const DEFAULT_MAX_ARTICLE_CHARS = 1200;');
