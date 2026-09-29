@@ -22,8 +22,8 @@ export interface FinalAuthorityReport {
   answer: { before: string; after: string; changes: FidelityChange[] };
   faq: { before: number; after: number; notes: FaqConsistencyNote[]; ldSynced: boolean; ldCount: number };
   coreQuestions: CoverageResult[];
-  /** v3.8.763 — 근거보다 확정적으로 쓴 문장(상태 주석 붙임) · 분수 표기 복원 */
-  status: Array<{ location: string; sentence: string; values: Array<{ value: string; status: string; marker: string }> }>;
+  /** v3.8.763/764 — 근거보다 확정적으로 쓴 문장(rewritten = 술어를 근거 상태로 고침 · flagged = 못 고쳐 그대로) · 분수 표기 복원 */
+  status: Array<{ location: string; sentence: string; action: 'rewritten' | 'flagged'; after: string; reason: string; values: Array<{ value: string; status: string; qualifier: string | null; marker: string }> }>;
   fractions: Array<{ from: string; to: string }>;
   changed: boolean;
 }
@@ -107,14 +107,14 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     return `${open}${r.text.split(/(?<=[.!?])\s+/).map(escapeHtml).join('<br>')}${close}`;
   });
   // 4) faq — 보이는 FAQ 를 다시 검사하고, JSON-LD 를 그 목록에서 만든다
-  // 3b) v3.8.763 — 상태 강화(예정·조건부·추정 값을 확정처럼) 재검사 + 분수 표기 복원. 늦은 재작성이 상태 주석을 지웠거나 새 문장이 확정처럼 썼을 때를 잡는다
+  // 3b) v3.8.763/764 — 상태 강화(예정·조건부·추정 값을 확정처럼) 재검사 + 분수 표기 복원. 늦은 재작성이 새 문장을 확정처럼 썼으면 술어를 근거 상태로 고친다
   const fr = restoreFractionNotation(html, input.evidence.context || '');
   html = fr.html;
-  const status: Array<{ location: string; sentence: string; values: Array<{ value: string; status: string; marker: string }> }> = [];
+  const status: FinalAuthorityReport['status'] = [];
   html = html.split(SCRIPT_OR_STYLE).map((seg, i) => {
     if (i % 2 === 1) return seg;
     const r = annotateHtml(seg, input.evidence.context || '', 'final');
-    for (const c of r.changes) status.push({ location: c.location, sentence: c.sentence, values: c.values.map((v) => ({ value: v.value, status: v.source.status, marker: v.source.marker })) });
+    for (const c of r.changes) status.push({ location: c.location, sentence: c.sentence, action: c.action, after: c.after, reason: c.reason, values: c.values.map((v) => ({ value: v.value, status: v.source.status, qualifier: v.source.qualifier ?? null, marker: v.source.marker })) });
     return r.html;
   }).join('');
   const faqsBefore = parseVisibleFaqs(html);

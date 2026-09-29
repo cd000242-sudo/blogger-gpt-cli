@@ -1689,13 +1689,13 @@ export async function generateUltimateMaxModeArticleFinal(
     const decisionDimensions = coreQuestionsPlan.filter((q) => q.applicable).map((q) => q.dimension);
     /**
      * 🏷️ v3.8.763 — 패킷은 근거보다 주장의 확정성을 높일 수 없다(claim-status). 실측(run 223b32): 근거 "15%로 높이는 방안을 추진·25% 지원할 계획·가정하면 270만원"
-     * → 패킷 "15%로 개선됐으며 25%이다". 값이 근거보다 확정적으로 적힌 문장에는 근거의 표지를 인용한 상태 주석을 붙이고, 예정·조건부·추정 값은 판단 기준(CORE)에서 내린다. 호출 0회.
+     * → 패킷 "15%로 개선됐으며 25%이다". 값이 근거보다 확정적으로 적힌 문장은 근거 상태로 고쳐 쓰고(764, 상태 메타는 trace 용으로만), 예정·조건부·추정 값은 판단 기준(CORE)에서 내린다. 호출 0회.
      */
     try {
       const claimStatus = annotatePacket(researchPacket, evidenceRender.text || '');
       researchPacket = claimStatus.packet;
       trace.event('packet.claim-status', { claimChanges: claimStatus.claimChanges, valueStatuses: claimStatus.valueStatuses });
-      if (claimStatus.claimChanges || claimStatus.valueStatuses.length) onLog?.(`[PROGRESS] 38% - 🏷️ 패킷 상태 보존: 확정성 높인 문장 ${claimStatus.claimChanges}건 주석 · 예정·조건부·추정 값 ${claimStatus.valueStatuses.length}개 표시`);
+      if (claimStatus.claimChanges || claimStatus.valueStatuses.length) onLog?.(`[PROGRESS] 38% - 🏷️ 패킷 상태 보존: 확정성 높인 문장 ${claimStatus.claimChanges}건 고침 · 예정·조건부·추정 값 ${claimStatus.valueStatuses.length}개 표시`);
     } catch (csErr) { console.warn('[CLAIM-STATUS] 패킷 스킵:', String((csErr as Error)?.message || csErr).slice(0, 80)); }
     let researchPacketText: string = packetMod.renderPacket(researchPacket);
     trace.snapshot('packet.raw', { packet: researchPacket, text: researchPacketText, model: packetModel }, { note: 'RAW_PACKET — LLM 정리 직후' });
@@ -4068,7 +4068,8 @@ ${quoted}
     } catch (semErr) { console.warn('[DECISION-SEMANTICS] 스킵:', String((semErr as Error)?.message || semErr).slice(0, 100)); }
 
     /**
-     * 🏷️ v3.8.763 — 본문도 근거보다 확정성을 높일 수 없다(claim-status.annotateArticle): 예정·조건부·추정 값을 확정처럼 쓴 문장 뒤에 독자용 상태 문장("다만 근거상 현재 적용 중인 확정 값은 아닙니다(…)"),
+     * 🏷️ v3.8.763/764 — 본문도 근거보다 확정성을 높일 수 없다(claim-status.annotateArticle): 예정·조건부·추정 값을 확정처럼 쓴 문장은 술어를 근거 상태로 고친다
+     * ("15%로 개선됐습니다" → "15%로 개선될 계획입니다"). 면책문을 덧붙이지 않고, 못 고치면 그대로 두고 flagged 로 기록.
      * 근거의 분수 표기(a/b%)를 "a분의 b퍼센트" 로 바꾼 곳은 원 표기로 복원. 약화·복원만, 호출 0회. 요약표·FAQ 는 이 뒤에 만들어지므로 같은 상태를 이어받는다.
      */
     try {
@@ -4077,8 +4078,8 @@ ${quoted}
       if (cs.changes.length > 0 || cs.fractions.length > 0) {
         const csBeforeText = draftPlain(allSectionsObj);
         allSectionsObj = cs.article;
-        trace.change('claim-status', { fn: 'annotateArticle', before: csBefore, after: trace.snapshot('draft.after-claim-status', allSectionsObj), beforeText: csBeforeText, afterText: draftPlain(allSectionsObj), reason: `확정성 높인 문장 ${cs.changes.length}건 주석 · 분수 표기 복원 ${cs.fractions.length}건`, changes: cs.changes.map((c) => ({ location: c.location, sentence: c.sentence.slice(0, 160), values: c.values.map((v) => `${v.value}:${v.source.status}(${v.source.marker})` ) })), fractions: cs.fractions, judgeable: true });
-        onLog?.(`[PROGRESS] 74% - 🏷️ 근거보다 확정적으로 쓴 문장 ${cs.changes.length}건에 상태 주석${cs.fractions.length ? ` · 분수 표기 ${cs.fractions.length}건 복원` : ''}`);
+        trace.change('claim-status', { fn: 'annotateArticle', before: csBefore, after: trace.snapshot('draft.after-claim-status', allSectionsObj), beforeText: csBeforeText, afterText: draftPlain(allSectionsObj), reason: `확정성 높인 문장 ${cs.changes.length}건(고침 ${cs.changes.filter((c) => c.action === 'rewritten').length} · 못 고침 ${cs.changes.filter((c) => c.action === 'flagged').length}) · 분수 표기 복원 ${cs.fractions.length}건`, changes: cs.changes.map((c) => ({ location: c.location, action: c.action, sentence: c.sentence.slice(0, 160), after: c.after.slice(0, 200), reason: c.reason, values: c.values.map((v) => `${v.value}:${v.source.status}${v.source.qualifier ? `+${v.source.qualifier}` : ''}(${v.source.marker})` ) })), fractions: cs.fractions, judgeable: true });
+        onLog?.(`[PROGRESS] 74% - 🏷️ 근거보다 확정적으로 쓴 문장 ${cs.changes.filter((c) => c.action === 'rewritten').length}건을 근거 상태로 고쳤습니다${cs.changes.some((c) => c.action === 'flagged') ? ` (못 고친 ${cs.changes.filter((c) => c.action === 'flagged').length}건은 기록만)` : ''}${cs.fractions.length ? ` · 분수 표기 ${cs.fractions.length}건 복원` : ''}`);
       } else {
         trace.event('claim-status', { changes: [], fractions: [] });
       }

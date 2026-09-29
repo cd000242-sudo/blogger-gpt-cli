@@ -101,10 +101,11 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
     return d;
   };
 
-  const line = (c: SourcedClaim) => `- ${c.claim} [${c.sourceIds.join(',')}]`;
-  // v3.8.763 — 예정·조건부·추정 값은 상태를 앞에 달아 준다(Writer 가 현재 값으로 쓰지 않게)
-  const STATUS_LABEL: Record<string, string> = { FUTURE_CONFIRMED: '시행 확정(미래)', PAST: '과거', PLANNED: '예정', ESTIMATED: '추정·예상', PROPOSED: '추진·검토', CONDITIONAL: '조건부' };
-  const val = (v: SourcedValue) => `- ${v.value} — ${v.status && STATUS_LABEL[v.status] ? `[${STATUS_LABEL[v.status]} — 현재 확정 값 아님] ` : ''}${v.context} [${v.sourceIds.join(',')}]`;
+  // v3.8.764 — 문장을 못 고친 패킷 항목은 근거 상태를 자연어로 곁에 단다(claim-status.writerStatusHint). 내부 판정명·괄호 표지는 싣지 않는다
+  const line = (c: SourcedClaim & { statusHint?: string }) => `- ${c.claim}${c.statusHint ? ` (${c.statusHint})` : ''} [${c.sourceIds.join(',')}]`;
+  // v3.8.763 — 예정·조건부·추정 값은 상태를 앞에 달아 준다(Writer 가 현재 값으로 쓰지 않게) · 764 자연어로
+  const STATUS_LABEL: Record<string, string> = { FUTURE_CONFIRMED: '앞으로 시행', PAST: '과거 기준', PLANNED: '계획 단계', ESTIMATED: '예상치', PROPOSED: '추진·검토 단계', CONDITIONAL: '조건부' };
+  const val = (v: SourcedValue) => `- ${v.value} — ${v.status && STATUS_LABEL[v.status] ? `(근거상 ${STATUS_LABEL[v.status]} 값, 현재 시행 값 아님) ` : ''}${v.context} [${v.sourceIds.join(',')}]`;
   const section = (title: string, rows: string[]) => (rows.length ? [`▸ ${title}`, ...rows] : []);
   // KEEP 만 제자리에 남는다 — CONTEXT_ONLY 문장은 아래 "배경" 묶음으로, DROP 은 Writer 에게 안 간다
   const keepClaims = (kind: ViewDecision['kind'], rows: SourcedClaim[]) => rows.filter((c) => claimDecision(kind, c).verdict === 'KEEP');
