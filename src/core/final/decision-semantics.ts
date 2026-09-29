@@ -45,7 +45,7 @@ const KNOWN = new RegExp(`((?:월|매월|매달|연|매년|하루|1일)\\s*)?(${
 /** 하다 동사 일반형 — "X를 주행해야 한다" · "X를 이용해야 합니다" → "최대 X까지 주행할 수 있다" */
 const HADA = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*([가-힣]{1,4})해야(?:만)?\\s*(한다|합니다|해요|함)`, 'g');
 /** 그 밖의 요구 꼴 — 잡되 안전한 치환이 없어 기록만 */
-const OTHER = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*[가-힣]{1,6}(?:어야|아야|려야|워야)\\s*(?:한다|합니다|해요)`, 'g');
+const OTHER = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*[가-힣]{1,6}(?:어야|아야|려야|워야)\\s*(?:한다|합니다|해요|됩니다|된다|유지|가능|자격)`, 'g');
 
 /**
  * v3.8.761 — 실측(run b8cdb4)의 새 문형: "70만원 납입을 유지할 여력이 있다면", "70만원을 낼 수 있는 소득 흐름이라면", "70만원을 꾸준히 납입할 수 있으면",
@@ -53,6 +53,13 @@ const OTHER = new RegExp(`(${VALUE_SRC})(?:을|를|은|는)?\\s*[가-힣]{1,6}(?
  */
 const ABILITY_VERB = '(?:납입|저축|적립|이용|사용|주행|투자|결제|유지)';
 const ABILITY = new RegExp(`((?:월|매월|매달|연|매년|하루|1일)\\s*)?(${VALUE_SRC})(?:을|를|이|은|는)?\\s*(?:${ABILITY_VERB}(?:을|를|이|은|는)?\\s*)?(?:계속|꾸준히|실제로|매달|매월)?\\s*(?:(?:유지|납입|저축|넣|낼|채우|채워|이용|사용|주행)[가-힣]{0,3}\\s*)?(?:여력|가능|수\\s*있|흔들리지\\s*않|부담(?:되|스럽)지\\s*않)[가-힣\\s]{0,10}?(?:다면|으면|면|라면|경우(?:에|라면)?|해야|어야|아야)`, 'g');
+/**
+ * v3.8.763 — 경계 문형(live 223b32): "X 한도로 5년 저축을 유지할 수 있으면 A 가 맞습니다", "X 한도를 유지할 수 있으면", "X까지 유지 가능하면", "X 수준을 유지할 여력이 있으면".
+ * 값 뒤에 한도·까지·수준 이 붙어도, 조건절이 "유지/납입 가능" 이고 그 조건이 추천 행위(맞습니다·낫습니다·검토·봅니다…)의 직접 선행 조건이면 같은 강화다.
+ * 구조: VALUE ROLE(MAXIMUM) + CONDITIONAL RELATION(…으면/다면) + RECOMMENDATION ACTION.
+ */
+const BOUNDARY = new RegExp(`((?:월|매월|매달|연|매년)\\s*)?(${VALUE_SRC})\\s*(?:한도로|한도를|한도까지|한도의|까지|수준을|수준으로|수준의)\\s*[가-힣0-9\\s]{0,10}?(?:유지|납입|저축|이어)[가-힣]{0,3}\\s*(?:여력|가능|수\\s*있)[가-힣\\s]{0,8}?(?:다면|으면|면|라면|경우(?:에|라면)?)`, 'g');
+const RECOMMENDATION = /맞습니다|맞고|맞죠|낫습니다|낫죠|나아요|좋습니다|권합니다|추천|선택(?:합니다|하세요|이 맞)|검토(?:합니다|하는)|봅니다|비교합니다|유지(?:가|하는 편이)\s*(?:맞|낫)/;
 /** 명시적 계산 가정 — "매월 X를 실제로 넣는다고 가정하면 총납입액은" 은 조건이 아니라 계산이다(허용) */
 const CALC_ASSUMPTION = /가정|예를\s*들어|예컨대|이라고\s*(?:놓|치|보|하)|넣는다고\s*하면|낸다고\s*하면|총\s*납입|원금은/;
 
@@ -62,6 +69,7 @@ export function findStrengthened(sentence: string): StrengthenedHit[] {
   const out: StrengthenedHit[] = [];
   if (CALC_ASSUMPTION.test(s)) return out;
   for (const m of s.matchAll(ABILITY)) out.push({ value: m[2]!, match: m[0], kind: 'ability' });
+  if (RECOMMENDATION.test(s)) for (const m of s.matchAll(BOUNDARY)) if (!out.some((o) => o.match.includes(m[2]!))) out.push({ value: m[2]!, match: m[0], kind: 'ability' });
   for (const m of s.matchAll(KNOWN)) if (!out.some((o) => o.match.includes(m[2]!))) out.push({ value: m[2]!, match: m[0], kind: 'known' });
   for (const m of s.matchAll(HADA)) if (!out.some((o) => o.match.includes(m[1]!))) out.push({ value: m[1]!, match: m[0], kind: 'hada' });
   for (const m of s.matchAll(OTHER)) if (!out.some((o) => o.match.includes(m[1]!))) out.push({ value: m[1]!, match: m[0], kind: 'other' });
