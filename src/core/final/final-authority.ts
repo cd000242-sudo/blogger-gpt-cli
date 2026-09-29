@@ -12,16 +12,19 @@ import { inspectFactIntegrity, type FactEvidence, type FactIntegrityViolation } 
 import { weakenHtml, type SemanticChange } from './decision-semantics';
 import { alignSummaryToBody, checkFaqConsistency, type FidelityChange, type FaqConsistencyNote } from './answer-fidelity';
 import { coverCoreQuestions, type CoreQuestion, type CoverageResult } from './core-questions';
+import { criticalStateCoverage, type CriticalState, type CriticalStateCheck } from './critical-state';
 import { parseVisibleArticle } from './visible-article';
 import { annotateHtml, restoreFractionNotation } from './claim-status';
 
-export interface FinalAuthorityInput { html: string; evidence: FactEvidence; keyword: string; coreQuestions?: CoreQuestion[]; dimensions?: string[] }
+export interface FinalAuthorityInput { html: string; evidence: FactEvidence; keyword: string; coreQuestions?: CoreQuestion[]; dimensions?: string[]; criticalStates?: CriticalState[] }
 export interface FinalAuthorityReport {
   fact: { blocks: number; status: 'passed' | 'blocked'; violations: Array<FactIntegrityViolation & { location: string }> };
   decision: SemanticChange[];
   answer: { before: string; after: string; changes: FidelityChange[] };
   faq: { before: number; after: number; notes: FaqConsistencyNote[]; ldSynced: boolean; ldCount: number };
   coreQuestions: CoverageResult[];
+  /** v3.8.768 — 독자의 현재 행동을 바꾸는 상태가 최종 글에 남았는가(COVERED/PARTIAL/MISSING/CONTRADICTED). 보고만 한다 — 문장을 끼워 넣지 않는다 */
+  criticalStates: CriticalStateCheck[];
   /** v3.8.763/764 — 근거보다 확정적으로 쓴 문장(rewritten = 술어를 근거 상태로 고침 · flagged = 못 고쳐 그대로) · 분수 표기 복원 */
   status: Array<{ location: string; sentence: string; action: 'rewritten' | 'flagged'; after: string; reason: string; values: Array<{ value: string; status: string; qualifier: string | null; marker: string }> }>;
   fractions: Array<{ from: string; to: string }>;
@@ -80,6 +83,8 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
   const dims = input.dimensions || [];
   // 5) core questions — Writer 가 답했는가는 **약화 전** 본문으로 잰다(약화가 판단축 이름을 끼워 넣으므로 그 뒤에 재면 부풀려진다)
   const coverage = coverCoreQuestions(plain(mapOutsideScripts(html, (s) => s)), input.coreQuestions || []);
+  // 5b) v3.8.768 — 상태 변화 coverage. 답 상자·FAQ·본문 전부(독자가 보는 글) — 후처리가 지웠거나 반대로 썼는지
+  const criticalStates = criticalStateCoverage(mapOutsideScripts(html, (s) => s).replace(SCRIPT_OR_STYLE, ' '), input.criticalStates || []);
   // 1) fact — 독자가 보는 절·서론·결론을 장부 검사기로 다시 잰다(보고). 본문 필터는 초안 단계에 이미 돌았고, 늦은 재작성의 유입은 게이트가 막는다
   const vis = parseVisibleArticle(html);
   const blocks: Array<{ location: string; html: string }> = [
@@ -130,6 +135,7 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     answer: { before: answerBefore, after: answerAfter, changes: answerChanges },
     faq: { before: faqsBefore.length, after: faqsAfter.length, notes: consistent.notes, ldSynced: ld.synced, ldCount: ld.count },
     coreQuestions: coverage,
+    criticalStates,
     status, fractions: fr.restored,
     changed: html !== String(input.html || ''),
   };

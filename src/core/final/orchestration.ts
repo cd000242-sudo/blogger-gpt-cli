@@ -3335,6 +3335,18 @@ ${quoted}
      * 748a 실측: 값 배정 블록이 부산 숙소 조건·지난 일정·기사 날짜를 밀어 넣어 Critic 이 도로 빼냈다 → 강제하지 말고 입력에서 내린다.
      */
     let writerPacketView: { text: string; decisions: any[]; summary: string; currentSupportText: string } | null = null;
+    /**
+     * ⏱️ v3.8.768 — 독자의 현재 행동을 바꾸는 상태(매진·조기 마감·중단 …). 패킷의 문장·값 문맥에서 코드로 뽑아 하나로 묶고 Writer 보기 맨 앞에 싣는다.
+     * live 69f928: "10월 2일 조기 매진" 이 값 문맥 7줄로만 있다가 전부 보조로 내려가 초안·최종 0회. 호출 0회.
+     */
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { extractCriticalStates } = require('./critical-state');
+      const criticalStates = extractCriticalStates(researchPacket, { keyword, today: todayKst, distinctive: evidenceMod.distinctiveTokens(keyword) });
+      researchPacket = { ...researchPacket, criticalStates };
+      trace.event('critical-state.plan', { states: criticalStates });
+      for (const s of criticalStates) onLog?.(`[PROGRESS] 40% - ⏱️ 현재 행동을 바꾸는 상태: ${s.effective.length ? s.effective.join('·') : '지금'} ${s.actionWord} ${s.stateWord} (${s.sourceIds.join(',')}${s.occurrences > 1 ? ` · 패킷 ${s.occurrences}곳을 하나로` : ''})`);
+    } catch (csErr) { console.warn('[CRITICAL-STATE] 추출 스킵:', String((csErr as Error)?.message || csErr).slice(0, 80)); }
     try {
       const wpv = require('./writer-packet-view');
       writerPacketView = wpv.buildWriterPacketView(researchPacket, { keyword, title: String(h1 || ''), h2Titles, questions: demandSignals?.userQuestions || [] });
@@ -3801,6 +3813,17 @@ ${quoted}
         trace.event('core-questions.coverage', { stage: 'draft', coverage });
         const missing = coverage.filter((c) => c.status === 'MISSING').map((c) => c.id);
         onLog?.(`[PROGRESS] 66% - 🧭 핵심 질문 coverage(초안): ${coverage.map((c) => `${c.id}=${c.status}`).join(' · ')}${missing.length ? ' — 이번 실행에서는 자동으로 채우지 않습니다' : ''}`);
+      }
+    } catch { /* coverage 측정 실패는 넘어간다 */ }
+    // v3.8.768 — 상태 변화를 초안이 실제로 다뤘는가(날짜만 나오면 MISSING · 반대로 쓰면 CONTRADICTED). 새 호출·문장 삽입 없이 기록만
+    try {
+      const states = researchPacket.criticalStates || [];
+      if (states.length) {
+        const draftHtml = [String(allSectionsObj?.introduction || ''), ...(allSectionsObj?.sections || []).flatMap((s: { h2?: string; h3Sections?: Array<{ h3?: string; content?: string }> }) => [`<h2>${s.h2 || ''}</h2>`, ...(s.h3Sections || []).map((h) => `<h3>${h.h3 || ''}</h3>${h.content || ''}`)]), String(allSectionsObj?.conclusion || '')].join('\n');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const cov = require('./critical-state').criticalStateCoverage(draftHtml, states);
+        trace.event('critical-state.coverage', { stage: 'draft', coverage: cov });
+        onLog?.(`[PROGRESS] 66% - ⏱️ 상태 변화 coverage(초안): ${cov.map((c: { effective: string[]; stateWord: string; status: string }) => `${c.effective.join('·') || '지금'} ${c.stateWord}=${c.status}`).join(' · ')}`);
       }
     } catch { /* coverage 측정 실패는 넘어간다 */ }
     trace.meta({ draftModel });
@@ -7509,12 +7532,16 @@ ${conclusionHTML}
     try {
       const faInput = trace.snapshot('html.before-final-authority', html, { ext: 'html', note: '최종 권위 재검사 입력' });
       trace.event('final-authority.input', { artifact: faInput?.id ?? null, keyword, coreQuestions: coreQuestionsPlan.map((q) => `${q.id}:${q.applicable ? 'on' : 'off'}`), dimensions: decisionDimensions });
-      const fa = runFinalAuthority({ html, evidence: validationView().evidence, keyword, coreQuestions: coreQuestionsPlan, dimensions: decisionDimensions });
+      const fa = runFinalAuthority({ html, evidence: validationView().evidence, keyword, coreQuestions: coreQuestionsPlan, dimensions: decisionDimensions, criticalStates: researchPacket.criticalStates || [] });
       trace.event('final-authority.fact', fa.report.fact);
       trace.event('final-authority.decision', { changes: fa.report.decision });
       trace.event('final-authority.answer', fa.report.answer);
       trace.event('final-authority.faq', fa.report.faq);
-      trace.event('final-authority.core', { coverage: fa.report.coreQuestions });
+      trace.event('final-authority.core', { coverage: fa.report.coreQuestions, criticalStates: fa.report.criticalStates });
+      // v3.8.768 — 최종 글에서 상태 변화가 빠졌거나 반대로 쓰였으면 로그로 드러낸다(문장을 끼워 넣지 않는다)
+      for (const c of fa.report.criticalStates.filter((x) => x.status === 'MISSING' || x.status === 'CONTRADICTED')) {
+        onLog?.(`[PROGRESS] 97% - ⚠️ 상태 변화 ${c.status}: ${c.effective.join('·') || '지금'} ${c.stateWord}${c.evidence[0] ? ` — "${c.evidence[0].slice(0, 80)}"` : ''}`);
+      }
       trace.event('final-authority.status', { status: fa.report.status, fractions: fa.report.fractions });
       // 🧭 v3.8.765 — 최종 글의 핵심 답 모순(기록). 최종 권위 자체는 그대로다
       try { trace.event('core-answer.final', { conflicts: findAnswerContradictions(html, coreAnswers) }); } catch { /* 기록 실패는 발행을 막지 않는다 */ }

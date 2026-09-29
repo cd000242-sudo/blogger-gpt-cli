@@ -17,6 +17,7 @@
 import { buildJudgeContext, judgePacketValue, type CoreContext, type PacketValueReason, citiesIn } from './core-values';
 import type { ResearchPacket, SourcedClaim, SourcedValue } from './research-packet';
 import { renderCoreQuestions } from './core-questions';
+import { renderCriticalStates } from './critical-state';
 
 export type ViewTier = 'CORE' | 'SUPPORTING' | 'CONTEXT_ONLY';
 export type ViewVerdict = 'KEEP' | 'DEMOTE' | 'DROP_FROM_WRITER_VIEW';
@@ -134,6 +135,8 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
     `[RESEARCH PACKET — ${packet.currentAsOf} 서울 기준 · 메인 키워드: ${packet.mainKeyword}]`,
     '(Writer 보기 — 판단 기준이 아닌 값은 보조·배경으로 내렸거나 뺐습니다. 핵심 수치는 그 값 그대로 조언 문장의 기준으로 씁니다.)',
     ...(packet.searchIntent ? [`검색 의도: ${packet.searchIntent}`] : []),
+    // v3.8.768 — 상태 변화(매진·조기 마감·중단 …)는 값의 무게와 상관없이 맨 앞에. live 69f928: 이 문장이 값 문맥으로만 7번 있다가 전부 보조로 내려가 Writer 가 버렸다
+    ...renderCriticalStates(packet.criticalStates || []),
     ...section('확인된 사실', facts.map(line)),
     ...section('자격·대상', eligibility.map(line)),
     ...section('조건·절차', conditions.map(line)),
