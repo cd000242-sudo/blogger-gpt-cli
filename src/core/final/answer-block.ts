@@ -232,12 +232,20 @@ const HAS_SENTENCE = /[.!?]|(?:니다|해요|예요|에요|어요|아요|여요|
  * v3.8.675 — 답 상자의 회피 문장을 뺀다. 실측(양육비 글): "양육비이행관리원 이행확보 절차도 함께 확인해요." 가 답 셋 중 하나였다.
  * 첫 화면의 답은 답이어야 한다. 남는 문장이 둘 이상이고 길이가 되면 회피 문장만 지운다 — 전부 회피면 상자를 안 만든다.
  */
+/**
+ * v3.8.763 — 두 판단축을 가르는 문장은 회피가 아니다. 실측(run 223b32): "총급여 6000만원을 넘는 경우에는 청년미래적금 가입 가능 여부와 정부 기여금 수령 여부를
+ * 분리해서 봐야 합니다" 가 "봐야 합니다" 때문에 답 상자에서 빠졌다. "A 와 B 는 분리해서/따로/구분해 본다", "A 와 B 는 다르다·같은 기준이 아니다" 꼴은 실질 정보다.
+ * "자세한 내용은 확인해야 합니다" 처럼 정보축이 없는 문장은 예전대로 회피다.
+ */
+export const DISTINCTION = /(?:와|과|및|이랑|,)\s*[^.]{1,40}?(?:분리(?:해서|하여|해)?|구분(?:해서|하여|해)?|나누어|나눠|따로)\s*(?:봐야|살펴야|보는|판단|보고|봅니다|보세요|합니다)|(?:은|는)\s*(?:같은\s*기준이\s*아니|다릅니다|다르다|다른\s*기준)|(?:여부|조건|기준)(?:와|과)\s*[^.]{1,30}?(?:여부|조건|기준)(?:은|는|을|를)\s*[^.]{0,12}?(?:분리|구분|따로|다르)/;
+export const isInformativeDistinction = (s: string): boolean => DISTINCTION.test(String(s || ''));
+
 export function dropDeferralSentences(answer: string): string {
   let deferral: RegExp;
   try { deferral = new RegExp(require('./narrative-flow').DEFERRAL.source); } catch { return answer; }
   const sentences = String(answer || '').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
   if (sentences.length < 2) return answer;
-  const kept = sentences.filter((s) => !deferral.test(s));
+  const kept = sentences.filter((s) => !deferral.test(s) || isInformativeDistinction(s));
   if (kept.length === sentences.length) return answer;
   if (kept.length === 0) return '';
   return kept.join(' ');
