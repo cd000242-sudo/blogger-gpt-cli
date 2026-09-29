@@ -244,6 +244,9 @@ function splitSentences(value: string): string[] {
     .filter((sentence) => sentence.length >= 4);
 }
 
+/** v3.8.761 — 문단의 값 토큰(정규화)을 밖에서도 쓴다(final-authority · fact-guard 보호 대상 계산) */
+export function extractValueTokens(value: string): string[] { return extractExactValues(value); }
+
 function extractExactValues(value: string): string[] {
   const values = new Set<string>();
   for (const pattern of VALUE_PATTERNS) {

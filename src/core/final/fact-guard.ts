@@ -17,6 +17,8 @@
  * 검수 때문에 발행이 멈추는 일은 만들지 않는다.
  */
 
+import type { FactEvidence } from './fact-integrity';
+
 export interface UngroundedFact {
   /** 자료에서 근거를 못 찾은 표현 — 예: "50만원", "3월 31일", "62.5%" */
   token: string;
@@ -38,6 +40,27 @@ export interface GuardFactsInput {
   keyword: string;
   callLLM: (prompt: string) => Promise<string>;
   onLog?: (msg: string) => void;
+  /**
+   * v3.8.761 — 채택 근거 장부 보기(validationView). 주면 "근거 없음" 판정과 보호 대상 계산을 본문 사실 필터와 **같은 검사기**(fact-integrity:
+   * 장부·범위·파생 차액·가정 예시)로 한다. 실측(run b8cdb4·a280b4): 발췌 문맥(reference)으로 다시 재서 장부가 통과시킨 값을 지웠다.
+   */
+  evidence?: FactEvidence;
+  /** 핵심 질문에 답하는 문장인가 — 그 문장이 사라지는 교체본은 받지 않는다 */
+  isCoreAnswer?: (sentence: string) => boolean;
+}
+
+export interface RepairDecision {
+  paragraphIndex: number;
+  accepted: boolean;
+  /** 이 문단을 고치게 한 값(근거 없음) */
+  issueTokens: string[];
+  /** 교체 뒤 사라진 보호 값(근거 있음·검산·가정) — 하나라도 있으면 거부 */
+  lostProtected: string[];
+  /** 교체본에 새로 들어온 근거 없는 값 — 있으면 거부 */
+  introducedUnsupported: string[];
+  /** 사라진 핵심 질문 답·판단 기준 문장 */
+  lostCore: string[];
+  reason: string;
 }
 
 export interface GuardFactsResult {
@@ -46,6 +69,10 @@ export interface GuardFactsResult {
   checked: number;
   /** 실제로 고쳐진 문단 수 */
   repaired: number;
+  /** v3.8.761 — 문단별 채택/거부 기록 */
+  decisions?: RepairDecision[];
+  /** v3.8.761 — 답 상자·FAQ 안이라 LLM 재작성에서 제외한 문단 수 */
+  excluded?: number;
 }
 
 /** 한 번에 고칠 문단 상한 — 이보다 많으면 글 전체가 문제라 부분 수정이 의미 없다 */
@@ -204,6 +231,77 @@ export function findUngroundedFacts(
   }
 }
 
+/**
+ * v3.8.761 — 답 상자(answer-first)·FAQ(details) 안의 문단은 LLM 재작성 대상이 아니다.
+ * 답 상자는 판정문이 근거 요약문으로(run a280b4), FAQ 답은 질문과 어긋난 문장으로(같은 run) 바뀌었다. 이 블록들은 앞 단계(값 관문·일치 검사·fidelity)가 이미 봤다.
+ */
+export function protectedZones(html: string): Array<{ start: number; end: number; kind: 'answer' | 'faq' }> {
+  const zones: Array<{ start: number; end: number; kind: 'answer' | 'faq' }> = [];
+  for (const m of String(html || '').matchAll(/<section[^>]*class="[^"]*answer-first[^"]*"[^>]*>[\s\S]*?<\/section>/gi)) zones.push({ start: m.index!, end: m.index! + m[0].length, kind: 'answer' });
+  for (const m of String(html || '').matchAll(/<details\b[\s\S]*?<\/details>/gi)) zones.push({ start: m.index!, end: m.index! + m[0].length, kind: 'faq' });
+  return zones;
+}
+const inZone = (zones: Array<{ start: number; end: number }>, at: number) => zones.some((z) => at >= z.start && at < z.end);
+
+/**
+ * 문단이 놓인 블록(앞 소제목부터 다음 소제목 전까지) — 검산 차액·가정 예시는 같은 블록의 표·가정 문장을 봐야 판정된다.
+ * 실측(run b8cdb4): "월 한도 차이는 20만원" 은 같은 절의 표(50만원·70만원)로 검산되는 값인데, 문단만 보면 근거 없음이 된다.
+ */
+export function blockContextOf(html: string, start: number, end: number): string {
+  const src = String(html || '');
+  const headBefore = Math.max(src.lastIndexOf('<h2', start), src.lastIndexOf('<h3', start), src.lastIndexOf('<section', start));
+  const nextH2 = src.indexOf('<h2', end); const nextH3 = src.indexOf('<h3', end);
+  const candidates = [nextH2, nextH3].filter((i) => i >= 0);
+  const tail = candidates.length ? Math.min(...candidates) : src.length;
+  return src.slice(headBefore >= 0 ? headBefore : Math.max(0, start - 4000), Math.min(tail, end + 4000));
+}
+
+/** 장부 검사기로 문단의 값을 가른다 — 지원(직접·범위·검산·가정)과 미지원. blockHtml 은 문단이 놓인 블록(표·가정 문장 포함) */
+function classifyParagraph(paraHtml: string, evidence: FactEvidence, blockHtml?: string): { supported: string[]; unsupported: string[]; sentences: string[] } {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const fi = require('./fact-integrity');
+  const text = stripMarkup(paraHtml);
+  const all: string[] = fi.extractValueTokens(text);
+  const report = fi.inspectFactIntegrity(paraHtml, { ...evidence, blockHtml: blockHtml || paraHtml });
+  const unsupported = new Set<string>();
+  for (const v of report.violations || []) for (const m of String(v.detail || '').matchAll(/값:\s*(.+)$|없음:\s*(.+)$/g)) for (const t of String(m[1] || m[2] || '').split(/,\s*/)) if (t.trim()) unsupported.add(t.trim());
+  const supported = all.filter((t) => !unsupported.has(t));
+  const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+  return { supported, unsupported: [...unsupported], sentences };
+}
+
+/**
+ * v3.8.761 — 교체본 채택 게이트. 고치라고 한 값(issue) 이외의 **보호 값**(장부가 확인한 값·검산 차액·가정 예시)이 사라지거나,
+ * 근거 없는 값이 새로 들어오거나, 핵심 질문 답·판단 기준 문장이 사라지면 그 문단의 교체본을 받지 않는다(원문 유지).
+ * 문체·중복·장황함은 고쳐도 된다 — 값과 판단 기준만 본다.
+ */
+export function gateRepairs(html: string, repairs: FactRepair[], evidence: FactEvidence, options: { issueByIndex?: Map<number, string[]>; isCoreAnswer?: (s: string) => boolean } = {}): { accepted: FactRepair[]; decisions: RepairDecision[] } {
+  const paragraphs = splitParagraphs(html);
+  const accepted: FactRepair[] = [];
+  const decisions: RepairDecision[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const retention = require('./decision-retention');
+  for (const r of repairs) {
+    const idx = Number(r?.paragraphIndex);
+    const before = paragraphs[idx];
+    if (!before) continue;
+    const issue = options.issueByIndex?.get(idx) || [];
+    const block = blockContextOf(html, before.start, before.end);
+    const b = classifyParagraph(before.html, evidence, block);
+    const a = classifyParagraph(String(r.html || ''), evidence, block.replace(before.html, String(r.html || '')));
+    const afterText = stripMarkup(String(r.html || ''));
+    const norm = (s: string) => s.replace(/[,\s]/g, '');
+    const lostProtected = b.supported.filter((t) => !issue.includes(t) && !norm(afterText).includes(norm(t)));
+    const introducedUnsupported = a.unsupported.filter((t) => !b.unsupported.includes(t));
+    const lostCore = b.sentences.filter((s) => (options.isCoreAnswer?.(s) || retention.keyPhrases(s).length >= 2 && /(?:에\s*따라|별로)\s*[^.]{0,30}?(?:다르|달라)|함께\s*(?:놓고|보고|두고)/.test(s))
+      && !retention.keyPhrases(s).some((p: string) => { const [x, y] = p.split(' '); return new RegExp(`${x}[^.]{0,6}${y}`).test(afterText); }));
+    const ok = lostProtected.length === 0 && introducedUnsupported.length === 0 && lostCore.length === 0;
+    decisions.push({ paragraphIndex: idx, accepted: ok, issueTokens: issue, lostProtected, introducedUnsupported, lostCore, reason: ok ? '보호 값·판단 기준 유지' : [lostProtected.length ? `보호 값 사라짐: ${lostProtected.join(', ')}` : '', introducedUnsupported.length ? `근거 없는 값 유입: ${introducedUnsupported.join(', ')}` : '', lostCore.length ? `판단 기준 문장 사라짐: ${lostCore[0]!.slice(0, 60)}` : ''].filter(Boolean).join(' · ') });
+    if (ok) accepted.push(r);
+  }
+  return { accepted, decisions };
+}
+
 /** 고친 문단만 제자리에 갈아끼운다. 지목되지 않은 문단은 글자 하나 건드리지 않는다. */
 export function applyFactRepairs(html: string, repairs: FactRepair[]): string {
   try {
@@ -300,34 +398,73 @@ function parseRepairs(raw: string): FactRepair[] {
  *
  * 근거 없는 수치가 하나도 없으면 AI 를 부르지 않는다(비용 0).
  */
+/**
+ * v3.8.761 — 장부 검사기로 근거 없는 값을 찾는다(evidence 가 있을 때). 답 상자·FAQ 안 문단은 뺀다.
+ * 발췌 문맥(reference) 대조는 evidence 가 없을 때의 옛 경로다.
+ */
+export function findUngroundedFactsByEvidence(html: string, evidence: FactEvidence, options?: { keyword?: string }): { facts: UngroundedFact[]; excluded: number } {
+  const zones = protectedZones(html);
+  const paragraphs = splitParagraphs(html);
+  const facts: UngroundedFact[] = [];
+  const keywordNorm = normalizeForMatch(String(options?.keyword || ''));
+  let excluded = 0;
+  paragraphs.forEach((para, paragraphIndex) => {
+    const c = classifyParagraph(para.html, evidence, blockContextOf(html, para.start, para.end));
+    if (c.unsupported.length === 0) return;
+    if (inZone(zones, para.start)) { excluded += 1; return; }
+    for (const token of c.unsupported) {
+      if (keywordNorm && keywordNorm.includes(normalizeForMatch(token))) continue;
+      facts.push({ token, paragraph: para.html, paragraphIndex });
+    }
+  });
+  return { facts, excluded };
+}
+
 export async function guardFacts(input: GuardFactsInput): Promise<GuardFactsResult> {
-  const { html, reference, keyword, callLLM, onLog } = input;
+  const { html, reference, keyword, callLLM, onLog, evidence } = input;
   const fallback: GuardFactsResult = { html, checked: 0, repaired: 0 };
 
   try {
-    const facts = findUngroundedFacts(html, reference, { keyword });
+    const byEvidence = evidence ? findUngroundedFactsByEvidence(html, evidence, { keyword }) : null;
+    const facts = byEvidence ? byEvidence.facts : findUngroundedFacts(html, reference, { keyword });
     if (facts.length === 0) {
       onLog?.('[사실검증] 근거 없는 수치 없음 — 추가 호출 없이 통과');
-      return fallback;
+      return { ...fallback, ...(byEvidence ? { excluded: byEvidence.excluded, decisions: [] } : {}) };
     }
 
-    onLog?.(`[사실검증] 자료에 없는 수치 ${facts.length}건 — 해당 문단만 다시 씁니다`);
+    onLog?.(`[사실검증] 자료에 없는 수치 ${facts.length}건 — 해당 문단만 다시 씁니다${byEvidence?.excluded ? ` (답 상자·FAQ 문단 ${byEvidence.excluded}개는 제외)` : ''}`);
     const raw = await callLLM(buildPrompt(facts, reference, keyword));
-    const repairs = parseRepairs(raw);
+    let repairs = parseRepairs(raw);
     if (repairs.length === 0) {
       onLog?.('[사실검증] 고칠 내용 없음 — 원본 그대로 발행');
-      return { html, checked: facts.length, repaired: 0 };
+      return { html, checked: facts.length, repaired: 0, ...(byEvidence ? { excluded: byEvidence.excluded, decisions: [] } : {}) };
+    }
+
+    // v3.8.761 — 채택 게이트: 고치라고 한 값 말고 보호 값·판단 기준이 사라지거나 근거 없는 값이 새로 들어온 교체본은 받지 않는다
+    let decisions: RepairDecision[] | undefined;
+    if (evidence) {
+      const issueByIndex = new Map<number, string[]>();
+      for (const f of facts) issueByIndex.set(f.paragraphIndex, [...(issueByIndex.get(f.paragraphIndex) || []), f.token]);
+      const zones = protectedZones(html);
+      const paragraphs = splitParagraphs(html);
+      repairs = repairs.filter((r) => { const p = paragraphs[Number(r.paragraphIndex)]; return p && !inZone(zones, p.start); });   // 답 상자·FAQ 교체본은 무조건 버린다
+      const gated = gateRepairs(html, repairs, evidence, { issueByIndex, ...(input.isCoreAnswer ? { isCoreAnswer: input.isCoreAnswer } : {}) });
+      decisions = gated.decisions;
+      const rejected = gated.decisions.filter((d) => !d.accepted);
+      if (rejected.length) onLog?.(`[사실검증] 교체본 ${rejected.length}개 거부 — ${rejected.map((d) => `[${d.paragraphIndex}] ${d.reason}`).join(' / ').slice(0, 300)}`);
+      repairs = gated.accepted;
+      if (repairs.length === 0) return { html, checked: facts.length, repaired: 0, decisions, excluded: byEvidence?.excluded ?? 0 };
     }
 
     const repaired = applyFactRepairs(html, repairs);
     if (!repaired || repaired.length < Math.floor(html.length * 0.5)) {
       // 결과가 반토막 났다면 뭔가 잘못된 것이다 — 원본을 쓴다
       onLog?.('[사실검증] 결과가 비정상적으로 짧아 원본을 유지합니다');
-      return { html, checked: facts.length, repaired: 0 };
+      return { html, checked: facts.length, repaired: 0, ...(decisions ? { decisions } : {}) };
     }
 
     onLog?.(`[사실검증] ${repairs.length}개 문단 수정 완료`);
-    return { html: repaired, checked: facts.length, repaired: repairs.length };
+    return { html: repaired, checked: facts.length, repaired: repairs.length, ...(decisions ? { decisions, excluded: byEvidence?.excluded ?? 0 } : {}) };
   } catch (e: any) {
     // 검수 때문에 발행이 멈추면 안 된다 — 조용히 원본으로 돌아간다
     onLog?.(`[사실검증] 건너뜀 (${e?.message || e}) — 원본 그대로 발행합니다`);

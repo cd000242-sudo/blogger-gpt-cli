@@ -7053,14 +7053,26 @@ ${conclusionHTML}
      * 근거 없는 수치가 0건이면 AI 를 아예 부르지 않는다(추가 비용 0).
      * 그리고 어떤 경우에도 발행을 막지 않는다 — 실패하면 원본 그대로 나간다.
      */
+    /**
+     * v3.8.761 — 이 단계는 최종 권위가 아니다. (1) 근거 없음 판정은 본문 필터와 같은 장부 검사기(validationView: 범위·검산·가정 포함)로,
+     * (2) 답 상자·FAQ 문단은 재작성 대상에서 빼고, (3) 교체본은 보호 값·판단 기준이 사라지면 받지 않는다. 뒤에 final-authority 가 다시 잰다.
+     * 전후·채택 기록은 trace(change 'fact-guard')에 남긴다 — 라이브 2편에서 이 단계는 이벤트 없이 7·5문단을 바꿨다.
+     */
+    const recordFactGuard = (before: ReturnType<typeof trace.snapshot>, prev: string, guarded: Awaited<ReturnType<typeof guardFacts>>): void => {
+      const fields = { decisions: guarded.decisions || [], excluded: guarded.excluded ?? 0, checked: guarded.checked, repaired: guarded.repaired };
+      if (guarded.html === prev) { trace.event('fact-guard', fields); return; }
+      trace.change('fact-guard', { fn: 'guardFacts', before, after: trace.snapshot('html.after-fact-guard', guarded.html, { ext: 'html' }), beforeText: prev.replace(/<[^>]+>/g, ' '), afterText: guarded.html.replace(/<[^>]+>/g, ' '), reason: `근거 없는 값 ${guarded.checked}건 · 문단 ${guarded.repaired}개 수정`, ...fields, judgeable: true });
+    };
     try {
+      const guardBeforeSnap = trace.snapshot('html.before-fact-guard', html, { ext: 'html', note: '발행 직전 수치 자가 수정 직전' });
       const guarded = await guardFacts({
-        html,
-        reference: factEvidence.context || '',
-        keyword,
+        html, reference: factEvidence.context || '', keyword,
+        evidence: validationView().evidence,
+        isCoreAnswer: (s: string) => isCoreAnswerSentence(s, coreQuestionsPlan),
         callLLM: (p: string) => callGeminiWithRetry(p),
         onLog: (msg: string) => onLog?.(`[PROGRESS] 96% - ${msg}`),
       });
+      recordFactGuard(guardBeforeSnap, html, guarded);
       html = guarded.html;
     } catch (factGuardErr: any) {
       console.warn('[FACT-GUARD] 스킵:', String(factGuardErr?.message || factGuardErr).slice(0, 120));
@@ -7354,6 +7366,29 @@ ${conclusionHTML}
      * 이 아래로는 직렬화·장부·빈 블록 걷기·발행 결정 기록만 있다(본문의 뜻을 바꾸는 단계 없음).
      * 심사 입력은 조립된 HTML 을 되읽은 것 — 제목 · 보이는 도입(답 상자 포함) · 절 · FAQ · CTA · 결론.
      */
+    /**
+     * ⚖️ v3.8.761 — FINAL AUTHORITY. 의미를 바꾸는 마지막 단계(fact-guard·pre-publish-fix) **뒤**에서 독자가 보는 HTML 로 결정론 검사를 다시 돌린다:
+     * 장부 검사(보고) · 상한→요구 조건 약화 · 답 상자 fidelity · FAQ 일치 + visible↔JSON-LD 단일 소스 · 핵심 질문 coverage. 호출 0회. 최종 PASS 는 이 결과가 기준이다.
+     */
+    try {
+      const faInput = trace.snapshot('html.before-final-authority', html, { ext: 'html', note: '최종 권위 재검사 입력' });
+      trace.event('final-authority.input', { artifact: faInput?.id ?? null, keyword, coreQuestions: coreQuestionsPlan.map((q) => `${q.id}:${q.applicable ? 'on' : 'off'}`), dimensions: decisionDimensions });
+      const fa = runFinalAuthority({ html, evidence: validationView().evidence, keyword, coreQuestions: coreQuestionsPlan, dimensions: decisionDimensions });
+      trace.event('final-authority.fact', fa.report.fact);
+      trace.event('final-authority.decision', { changes: fa.report.decision });
+      trace.event('final-authority.answer', fa.report.answer);
+      trace.event('final-authority.faq', fa.report.faq);
+      trace.event('final-authority.core', { coverage: fa.report.coreQuestions });
+      trace.event('final-authority.output', { changed: fa.report.changed, fact: fa.report.fact.status, decisionChanges: fa.report.decision.length, answerChanges: fa.report.answer.changes.length, faq: `${fa.report.faq.before}→${fa.report.faq.after}`, ldSynced: fa.report.faq.ldSynced, core: fa.report.coreQuestions.map((c) => `${c.id}=${c.status}`) });
+      if (fa.report.changed) {
+        html = fa.html;
+        onLog?.(`[PROGRESS] 97% - ⚖️ 최종 권위 재검사: 판단문 ${fa.report.decision.filter((c) => c.action === 'weakened').length}건 약화 · 답 상자 ${fa.report.answer.changes.length}곳 · FAQ ${fa.report.faq.before}→${fa.report.faq.after}(JSON-LD 동기화${fa.report.faq.ldSynced ? '' : ' 없음'})`);
+      }
+      if (fa.report.fact.status === 'blocked') onLog?.(`[PROGRESS] 97% - ⚠️ 최종 사실 재검사 ${fa.report.fact.violations.length}건 미확인 — ${fa.report.fact.violations.slice(0, 2).map((v) => `${v.location}: ${v.detail}`).join(' / ')}`);
+      const missing = fa.report.coreQuestions.filter((c) => c.status === 'MISSING');
+      if (missing.length) onLog?.(`[PROGRESS] 97% - 🧭 핵심 질문 MISSING: ${missing.map((c) => c.id).join(', ')} (최종 원고에 설명 없음)`);
+    } catch (faErr) { console.warn('[FINAL-AUTHORITY] 스킵:', String((faErr as Error)?.message || faErr).slice(0, 120)); }
+
     try {
       visibleArticle = require('./visible-article').parseVisibleArticle(html);
       if (visibleArticle && visibleArticle.notes.length) onLog?.(`[PROGRESS] 97% - 👁️ 보이는 글 되읽기: ${visibleArticle.notes.join(' · ')}`);
