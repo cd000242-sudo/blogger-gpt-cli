@@ -46,6 +46,8 @@ import { findStructureIssues, describeStructureIssues } from './structure-guard'
 import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness, describeOfficialShortfall } from './naver-grounding';
 // v3.8.761: 핵심 판단 질문 계획·coverage 와 최종 권위 재검사 — 마지막 LLM 재작성이 앞의 결정론 검사를 무효화하지 못하게
 import { planCoreQuestions, coverCoreQuestions, isCoreAnswerSentence, type CoreQuestion } from './core-questions';
+// v3.8.765: 핵심 질문의 현재 공식 답 — 렌더 예약·제목 결론·모순 검출·재작성 게이트의 주장 단위 보호
+import { officialAnswers, currentOfficialIds, reservationsFor, coreAnswerCoverage, findAnswerContradictions, claimSupportOf, checkTitleEpistemics, type OfficialAnswer } from './core-answer';
 import { runFinalAuthority } from './final-authority';
 // v3.8.763: 주장의 상태(예정·조건부·추정) 보존 — 패킷·본문이 근거보다 확정성을 높이지 못하게
 import { annotatePacket, annotateArticle } from './claim-status';
@@ -1552,9 +1554,11 @@ export async function generateUltimateMaxModeArticleFinal(
     const { buildOfficialResearchPlan } = require('./official-research-plan');
     const officialPlan = buildOfficialResearchPlan(keyword, sourceScope);
     const officialBoost = { enabled: process.env['OFFICIAL_BOOST'] === '1' || (payload as any).officialBoost === true, maxQueries: 1 };
+    let groundingOfficialStatus: { candidates?: Array<{ url: string; roundRelevance?: string; status?: string }> } | null = null;
     trace.event('grounding.official-plan', { plan: officialPlan, boost: officialBoost });
     try {
       const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost });
+      groundingOfficialStatus = g.officialStatus ?? null;   // v3.8.765 — 현재 회차 공식 문서 판정(핵심 답 찾기에 쓴다)
       if (g.officialStatus && g.officialStatus.needed && !g.officialStatus.sufficient) {
         // v3.8.759 — 상태 이름표·못 답한 핵심 질문까지(describeOfficialShortfall). "공식 문서 1건 읽음" 이 "충분" 이 아니다
         onLog?.(`[PROGRESS] 40% - ⚠️ 핵심 공식자료 부족 ${describeOfficialShortfall(g.officialStatus)}`);
@@ -1619,16 +1623,27 @@ export async function generateUltimateMaxModeArticleFinal(
     let evidenceItems: any[] = [];
     let gate: any = null;
     let evidenceRender: { text: string; used: any[]; selection?: any[] } = { text: '', used: [] };
+    let coreAnswers: OfficialAnswer[] = [];
+    let coreQuestionsForAnswers: CoreQuestion[] | null = null;
     /**
      * v3.8.753 — 문서 키 → id 등록부. run 하나에 하나. 재검색·재정렬·중복 제거 뒤에도 같은 문서는 같은 id 다.
      * 실측(run 1b7d92): 1단계 E11(금융위 87370) 을 인용한 패킷 문장이 2단계에서 E11=asiatime 기사로 바뀐 채 Writer 까지 갔다.
      */
     const evidenceIdRegistry = new Map<string, string>();
     /** 후보 → 중복 제거·품질순 ID → 관문 평가 → Writer 용 렌더 */
+    /**
+     * 🧭 v3.8.765 — 핵심 질문의 현재 공식 답(core-answer). 렌더는 그 답 문장을 먼저 넣고(예약), 값 조각은 앞의 조건 문장과 묶는다. 예산 11,000 그대로.
+     * 계획(coreQuestionsPlan)은 패킷 뒤에 정해지므로 그 전에는 키워드·지식iN 질문으로 미리 세운 계획을 쓴다.
+     */
+    const coreAnswerQuestions = (): CoreQuestion[] => coreQuestionsForAnswers || planCoreQuestions({ keyword, readerQuestions: demandSignals.userQuestions });
+    const computeCoreAnswers = (): OfficialAnswer[] => {
+      try { return officialAnswers(evidenceItems, currentOfficialIds(evidenceItems, groundingOfficialStatus), coreAnswerQuestions()); } catch { return []; }
+    };
     const refreshEvidence = (titleForGate: string): void => {
       evidenceItems = evidenceMod.assembleEvidence(evidenceCandidates, todayKst, evidenceIdRegistry);
       gate = gateMod.evaluateEvidence(evidenceItems, keyword, titleForGate);
-      evidenceRender = evidenceMod.renderEvidence(evidenceItems, 11000);
+      coreAnswers = computeCoreAnswers();
+      evidenceRender = evidenceMod.renderEvidence(evidenceItems, 11000, { reserve: reservationsFor(coreAnswers), bindQualifiers: true });
     };
     refreshEvidence('');
     if (gate.status === 'GROUNDING_WEAK' && !sourceScope && contentMode !== 'shopping') {
@@ -1686,7 +1701,13 @@ export async function generateUltimateMaxModeArticleFinal(
         return plan;
       } catch (cqErr) { console.warn('[CORE-Q] 계획 스킵:', String((cqErr as Error)?.message || cqErr).slice(0, 80)); return []; }
     })();
-    const decisionDimensions = coreQuestionsPlan.filter((q) => q.applicable).map((q) => q.dimension);
+    // v3.8.765 — 사실 질문(전환 가능 여부)은 판단 축이 아니다(빈 dimension) — decision-semantics 문구에 들어가지 않게 거른다
+    const decisionDimensions = coreQuestionsPlan.filter((q) => q.applicable).map((q) => q.dimension).filter(Boolean);
+    // v3.8.765 — 정해진 계획으로 현재 공식 답을 다시 찾는다(2단계 렌더·제목·모순 검출이 이 답을 쓴다)
+    coreQuestionsForAnswers = coreQuestionsPlan.length ? coreQuestionsPlan : null;
+    coreAnswers = computeCoreAnswers();
+    trace.event('core-answer.official', { answers: coreAnswers.map((a) => ({ cqId: a.cqId, verdict: a.verdict, sourceAvailable: a.sourceAvailable, sourceIds: a.sourceIds, spans: a.spans.slice(0, 4).map((x) => ({ itemId: x.itemId, polarity: x.polarity, sentence: x.sentence.slice(0, 200) })) })) });
+    for (const a of coreAnswers) if (a.verdict !== 'NONE') onLog?.(`[PROGRESS] 38% - 🧭 핵심 질문 ${a.cqId} 현재 공식 답: ${a.verdict} (${a.sourceIds.join(',')})`);
     /**
      * 🏷️ v3.8.763 — 패킷은 근거보다 주장의 확정성을 높일 수 없다(claim-status). 실측(run 223b32): 근거 "15%로 높이는 방안을 추진·25% 지원할 계획·가정하면 270만원"
      * → 패킷 "15%로 개선됐으며 25%이다". 값이 근거보다 확정적으로 적힌 문장은 근거 상태로 고쳐 쓰고(764, 상태 메타는 trace 용으로만), 예정·조건부·추정 값은 판단 기준(CORE)에서 내린다. 호출 0회.
@@ -1695,6 +1716,11 @@ export async function generateUltimateMaxModeArticleFinal(
       const claimStatus = annotatePacket(researchPacket, evidenceRender.text || '');
       researchPacket = claimStatus.packet;
       trace.event('packet.claim-status', { claimChanges: claimStatus.claimChanges, valueStatuses: claimStatus.valueStatuses });
+      // v3.8.765 — 패킷 문장이 현재 공식 답과 반대로 말하는가(가능/불가). 뒤집지 않고 기록한다
+      const packetClaimText = ['facts', 'eligibility', 'conditions', 'officialStatements'].flatMap((k) => ((researchPacket?.[k] || []) as Array<{ claim?: string }>).map((c) => String(c?.claim || '').replace(/[.!?]?\s*$/, '.'))).join(' ');
+      const packetConflicts = findAnswerContradictions(packetClaimText, coreAnswers);
+      trace.event('core-answer.packet', { conflicts: packetConflicts });
+      if (packetConflicts.length) onLog?.(`[PROGRESS] 38% - ⚠️ 패킷 문장 ${packetConflicts.length}개가 현재 공식 답과 반대입니다 (${packetConflicts.map((c) => c.verdict).join(',')})`);
       if (claimStatus.claimChanges || claimStatus.valueStatuses.length) onLog?.(`[PROGRESS] 38% - 🏷️ 패킷 상태 보존: 확정성 높인 문장 ${claimStatus.claimChanges}건 고침 · 예정·조건부·추정 값 ${claimStatus.valueStatuses.length}개 표시`);
     } catch (csErr) { console.warn('[CLAIM-STATUS] 패킷 스킵:', String((csErr as Error)?.message || csErr).slice(0, 80)); }
     let researchPacketText: string = packetMod.renderPacket(researchPacket);
@@ -1838,11 +1864,36 @@ export async function generateUltimateMaxModeArticleFinal(
       };
       makeTitleRef = makeTitle;
       const titleModelSnap = require('./model-use').snapshotModels();
+      /**
+       * 🧾 v3.8.765 — 제목 입력을 남긴다. 실측(run 111bcf): 제목이 "갈아타기 불가" 로 먼저 결론을 냈는데 무엇을 보고 그랬는지 캡처가 없었다.
+       * 입력 = 키워드 · 크롤 제목(출처별) · 지식iN 질문 · 수요 힌트 · 패킷 글 앞 5000자. 근거 문서 ID 와 현재 회차 공식 문서 ID·핵심 답을 함께 남긴다.
+       */
+      const titleOfficialIds = (() => { try { return currentOfficialIds(evidenceItems, groundingOfficialStatus); } catch { return []; } })();
+      trace.snapshot('title.input', {
+        keyword, userRequest: Boolean(userRequestTitleBlock), demandTitleHint: demandTitleHint || null,
+        crawledTitles: (crawledPosts as Array<{ title?: string; source?: string; url?: string }>).map((p) => ({ title: String(p?.title || ''), source: String(p?.source || ''), url: String(p?.url || '') })),
+        readerQuestions: demandSignals.userQuestions, packetTextUsed: true, packetText: researchPacketText.slice(0, 5000),
+        evidenceIds: evidenceItems.map((i) => i.id), officialEvidenceIds: evidenceItems.filter((i) => i.isOfficial).map((i) => i.id),
+        currentOfficialIds: titleOfficialIds, olderOfficialIds: evidenceItems.filter((i) => i.isOfficial && !titleOfficialIds.includes(i.id)).map((i) => i.id),
+        coreAnswers: coreAnswers.map((a) => ({ cqId: a.cqId, verdict: a.verdict, sourceIds: a.sourceIds })),
+      }, { note: '제목 생성 입력(수요 힌트는 문자열 그대로) · 패킷 글은 모델에 넘긴 앞 5000자' });
       const firstTitle = await makeTitle('');
       const { ensureGroundedTitle } = require('./title-fact-gate');
       titleGateResult = await ensureGroundedTitle(firstTitle, claimLedger(), makeTitle, { maxRetries: 2, onLog });
       titleGateResult.model = require('./model-use').modelsSince(titleModelSnap);
       h1 = titleGateResult.title;
+      /**
+       * 🧭 v3.8.765 — 제목은 핵심 답보다 강한 결론을 낼 수 없다. 핵심 질문에 가능/불가로 답한 제목이 현재 공식 답과 반대거나 답이 없으면 결론 낱말만 "조건" 으로.
+       * 자동으로 반대 결론을 쓰지 않는다. 새 호출 없음(기존 Title Fact Gate 뒤에 붙는 결정론 검사).
+       */
+      try {
+        const epi = checkTitleEpistemics(String(h1 || ''), coreAnswers);
+        trace.event('title.output', { generated: titleGateResult.title, final: epi.title, changed: epi.changed, claims: epi.claims, factGate: titleGateResult.audit?.status || null });
+        if (epi.changed) {
+          onLog?.(`[PROGRESS] 30% - 🧭 제목 결론을 근거 수준으로: "${h1}" → "${epi.title}" (${epi.claims.map((c) => `${c.cqId}:${c.support}`).join(', ')})`);
+          h1 = epi.title;
+        }
+      } catch (epiErr) { console.warn('[TITLE-EPI] 스킵:', String((epiErr as Error)?.message || epiErr).slice(0, 80)); }
       pipelineStatus.mark('TITLE_FACT', titleGateResult.audit.status === 'PASS' ? 'TITLE_FACT_PASS' : 'TITLE_FACT_FAIL',
         `뒷받침된 값 ${titleGateResult.audit.supportedClaims.length}${titleGateResult.audit.unsupportedClaims.length ? ` · 근거 없는 값 ${titleGateResult.audit.unsupportedClaims.join(', ')}` : ''}${titleGateResult.attempts ? ` · 재생성 ${titleGateResult.attempts}회` : ''}${titleGateResult.stripped ? ' · 값 걷어냄' : ''}`);
 
@@ -3091,6 +3142,12 @@ ${quoted}
     // 🧾 v3.8.752 — 근거 2단계(제목 뒤 보탠 것 포함)와 값을 다시 뽑은 패킷
     trace.snapshot('evidence.stage2', { items: evidenceItems, rejected: evidenceRejected, gate, stats: evidenceLedgerStats, queries: (globalThis as any).__lastEvidenceDebug.queries, channels: (globalThis as any).__lastEvidenceDebug.channels, titleAudit: titleGateResult, renderText: evidenceRender.text, renderUsedIds: (evidenceRender.used || []).map((u: any) => u?.id), renderSelection: evidenceRender.selection }, { note: '제목 확정 뒤 · Writer 에게 가는 근거 블록 = renderText' });
     trace.snapshot('packet.refreshed', { packet: researchPacket, text: researchPacketText }, { note: '수치·날짜 재추출 뒤(LLM 문장은 그대로)' });
+    // 🧭 v3.8.765 — 핵심 질문의 현재 공식 답이 Writer 근거 블록에 실렸는가(FOUND_AND_DELIVERED / FOUND_NOT_DELIVERED / NOT_FOUND_IN_SOURCE / SOURCE_NOT_AVAILABLE)
+    try {
+      const coverage = coreAnswerCoverage(coreAnswers, evidenceRender.text);
+      trace.event('core-answer.coverage', { coverage, reserved: (evidenceRender.selection || []).filter((s) => s.reserved).map((s) => ({ id: s.id, reserved: s.reserved })), bound: (evidenceRender.selection || []).filter((s) => s.bound).map((s) => ({ id: s.id, bound: s.bound })) });
+      for (const c of coverage) if (c.state !== 'NOT_FOUND_IN_SOURCE') onLog?.(`[PROGRESS] 46% - 🧭 핵심 답 전달 ${c.cqId}: ${c.state} (${c.verdict})`);
+    } catch (covErr) { console.warn('[CORE-ANSWER] coverage 스킵:', String((covErr as Error)?.message || covErr).slice(0, 80)); }
     pipelineStatus.mark('WRITER', gate.status === 'GROUNDING_OK' && researchPacket.status !== 'EMPTY' ? 'WRITER_READY' : 'WRITER_READY_WEAK',
       gate.status === 'GROUNDING_OK' ? '' : '근거가 모자랍니다 — 근거 밖의 수치·일정은 쓰지 않도록 지시합니다');
 
@@ -4084,6 +4141,12 @@ ${quoted}
         trace.event('claim-status', { changes: [], fractions: [] });
       }
     } catch (csErr) { console.warn('[CLAIM-STATUS] 본문 스킵:', String((csErr as Error)?.message || csErr).slice(0, 100)); }
+    // 🧭 v3.8.765 — 초안이 핵심 질문에 현재 공식 답과 반대로 답했는가. 뒤집지 않는다(기록·로그) — 늦은 재작성이 지우려 하면 게이트가 막지 않는다
+    try {
+      const draftConflicts = findAnswerContradictions(draftPlain(allSectionsObj), coreAnswers);
+      trace.event('core-answer.draft', { conflicts: draftConflicts });
+      if (draftConflicts.length) onLog?.(`[PROGRESS] 74% - ⚠️ 핵심 답이 현재 공식 안내와 반대인 문장 ${draftConflicts.filter((c) => c.verdict === 'CONTRADICTED').length}개 · 검토 필요 ${draftConflicts.filter((c) => c.verdict === 'NEEDS_REVIEW').length}개`);
+    } catch (dcErr) { console.warn('[CORE-ANSWER] 초안 검사 스킵:', String((dcErr as Error)?.message || dcErr).slice(0, 80)); }
 
     // v3.8.368: 제목이 통째로 키워드로 되돌아가던 버그 fix
     //   과거: 제목에서 키워드를 뺀 나머지에 근거 미확인 값이 하나라도 있으면 h1 = keyword 로 전체 교체.
@@ -7099,6 +7162,7 @@ ${conclusionHTML}
         html, reference: factEvidence.context || '', keyword,
         evidence: validationView().evidence,
         isCoreAnswer: (s: string) => isCoreAnswerSentence(s, coreQuestionsPlan),
+        claimSupport: claimSupportOf(coreAnswers),   // v3.8.765 — 현재 공식 답과 반대인 문장의 값은 보호하지 않는다
         callLLM: (p: string) => callGeminiWithRetry(p),
         onLog: (msg: string) => onLog?.(`[PROGRESS] 96% - ${msg}`),
       });
@@ -7337,7 +7401,7 @@ ${conclusionHTML}
          * v3.8.762 — 마지막 늦은 LLM 재작성 경로도 같은 보호 계약(fact-guard 의 gateRewrite = gateRepairs 재사용). 고친 결함과 무관한 보호 값·검산·가정·핵심 답이
          * 사라진 구간은 원본으로 되돌린다. 두 라이브 run 은 revised=0 이라 실제 손실은 없었지만 구조적 구멍이었다. 추가 호출 0.
          */
-        const rewriteGate = gateRewrite(html, outcome.html, validationView().evidence, { isCoreAnswer: (s: string) => isCoreAnswerSentence(s, coreQuestionsPlan) });
+        const rewriteGate = gateRewrite(html, outcome.html, validationView().evidence, { isCoreAnswer: (s: string) => isCoreAnswerSentence(s, coreQuestionsPlan), claimSupport: claimSupportOf(coreAnswers) });
         trace.event('pre-publish-fix.rewrite', { accepted: rewriteGate.status === 'accepted', status: rewriteGate.status, rolledBack: rewriteGate.rolledBack, reason: rewriteGate.rolledBack ? 'protected-information-loss' : rewriteGate.status, regions: rewriteGate.regions.map((r) => ({ accepted: r.accepted, before: r.beforeText.slice(0, 160), after: r.afterText.slice(0, 160), reasons: r.decisions.filter((d) => !d.accepted).map((d) => d.reason) })) });
         if (rewriteGate.rolledBack) onLog?.(`[PROGRESS] 97% - 🧷 자가 수정 구간 ${rewriteGate.rolledBack}개를 보호 정보 손실로 되돌렸습니다`);
         html = rewriteGate.html;
@@ -7418,6 +7482,8 @@ ${conclusionHTML}
       trace.event('final-authority.faq', fa.report.faq);
       trace.event('final-authority.core', { coverage: fa.report.coreQuestions });
       trace.event('final-authority.status', { status: fa.report.status, fractions: fa.report.fractions });
+      // 🧭 v3.8.765 — 최종 글의 핵심 답 모순(기록). 최종 권위 자체는 그대로다
+      try { trace.event('core-answer.final', { conflicts: findAnswerContradictions(html, coreAnswers) }); } catch { /* 기록 실패는 발행을 막지 않는다 */ }
       trace.event('final-authority.output', { changed: fa.report.changed, fact: fa.report.fact.status, decisionChanges: fa.report.decision.length, answerChanges: fa.report.answer.changes.length, faq: `${fa.report.faq.before}→${fa.report.faq.after}`, ldSynced: fa.report.faq.ldSynced, core: fa.report.coreQuestions.map((c) => `${c.id}=${c.status}`) });
       if (fa.report.changed) {
         html = fa.html;

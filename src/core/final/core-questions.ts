@@ -9,6 +9,8 @@
  * 개인 가입일을 모르므로 잔여 개월 수를 만들지 않는다 — Writer 가 설명할 것은 "원래 만기가 아니라 지금부터 남은 기간으로 비교한다" 는 판단 원리다.
  * MISSING 은 새 LLM 호출로 채우지 않는다(검출·보존 계약까지). 다음 라이브에서 효과를 본다.
  */
+import { answerPolarity } from './core-answer';
+
 export interface CoreQuestion { id: string; question: string; principle: string; dimension: string; applicable: boolean; reason: string }
 export type CoverageStatus = 'ANSWERED' | 'PARTIAL' | 'MISSING' | 'NOT_APPLICABLE';
 export interface CoverageResult { id: string; status: CoverageStatus; evidence: string[] }
@@ -27,6 +29,8 @@ export function planCoreQuestions(input: { keyword: string; searchIntent?: strin
   const contractInIntent = ONGOING_CONTRACT.test(intentText);
   const ongoing = contractInIntent || contractHits >= 2;
   const applicable = switching && ongoing;
+  // v3.8.765 — 독자가 **옮기는 것 자체** 를 묻는가(갈아타기·전환·환승·옮기기). "A vs B" 비교만으로는 켜지 않는다
+  const switchAsked = EXPLICIT_SWITCH.test(intentText) && ongoing;
   return [{
     id: 'CQ-REMAINING-TERM',
     question: '이미 가입(계약) 중이라면 지금부터 남은 기간은 원래 만기와 어떻게 다른가',
@@ -34,8 +38,18 @@ export function planCoreQuestions(input: { keyword: string; searchIntent?: strin
     dimension: '남은 기간',
     applicable,
     reason: applicable ? '전환·비교 의도 + 진행 중인 계약 대상' : !switching ? '전환·비교 의도 아님' : '진행 중인 계약 대상 아님',
+  }, {
+    // v3.8.765 — 실측(run 111bcf): 현재 회차 공식 공고는 "이번 모집에서 전환 기회 추가 제공" 인데 글 전체가 "불가(지난 회차만)" 로 나왔다.
+    // 판단 축(dimension)이 아니라 사실 질문이라 decision-semantics 문구에는 들어가지 않는다(빈 dimension).
+    id: 'CQ-SWITCH-AVAILABILITY',
+    question: '이미 가입(계약)한 사람이 지금 이번 회차에 다른 상품·조건으로 옮길(갈아탈) 수 있는가',
+    principle: '현재 회차의 공식 안내로 답한다 — 지난 회차에만 허용·불가였던 규칙을 지금 규칙으로 쓰지 않는다',
+    dimension: '',
+    applicable: switchAsked,
+    reason: switchAsked ? '전환 자체를 묻는 의도 + 진행 중인 계약 대상' : '전환 자체를 묻지 않음',
   }];
 }
+const EXPLICIT_SWITCH = /갈아타|갈아탈|전환|환승|옮기|옮겨|옮길/;
 
 const REMAINING = /남은\s*(?:기간|만기|개월|계약\s*기간|납입\s*기간)|잔여\s*(?:기간|만기|개월)|남아\s*있는\s*(?:기간|만기)/;
 const EXISTING = /(?:이미|기존|현재)\s*(?:가입|계약|보유|납입)(?:자|한|중|된|되어|해)|가입\s*시점(?:에\s*따라|부터\s*남|기준으로)|계약\s*시점에\s*따라|원래\s*(?:만기|기간|계약)/;
@@ -45,6 +59,11 @@ export function coverCoreQuestions(text: string, questions: CoreQuestion[]): Cov
   const sentences = plain(text).split(/(?<=[.!?])\s+/);
   return questions.map((q) => {
     if (!q.applicable) return { id: q.id, status: 'NOT_APPLICABLE' as const, evidence: [] };
+    if (q.id === 'CQ-SWITCH-AVAILABILITY') {
+      // 가능/불가로 답한 문장이 있으면 답한 것 — 맞는지는 core-answer.findAnswerContradictions 가 따로 본다
+      const answered = sentences.filter((s) => !/\?\s*$/.test(s) && answerPolarity(s, q.id));
+      return answered.length ? { id: q.id, status: 'ANSWERED' as const, evidence: answered.slice(0, 3).map((s) => s.slice(0, 160)) } : { id: q.id, status: 'MISSING' as const, evidence: [] };
+    }
     if (q.id !== 'CQ-REMAINING-TERM') return { id: q.id, status: 'MISSING' as const, evidence: [] };
     const both = sentences.filter((s) => REMAINING.test(s) && EXISTING.test(s));
     if (both.length) return { id: q.id, status: 'ANSWERED', evidence: both.slice(0, 3).map((s) => s.slice(0, 160)) };

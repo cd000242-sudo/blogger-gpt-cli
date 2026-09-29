@@ -106,7 +106,11 @@ export function promiseTargets(chunk: string, keyword: string): string[] {
 export function buildPromiseSearchQuery(chunk: string, keyword: string): string {
   const core = coreEntityOf(keyword, 2);
   if (!core) return '';
-  const targets = promiseTargets(chunk, keyword);
+  // v3.8.765 — 제목이 내린 결론(가능·불가·폐지·확정·인상…)은 검색의 전제가 되지 않는다. 결론 낱말을 떼고 질문 상태("조건")로 찾는다.
+  //   실측(run 111bcf): 제목 "…갈아타기 불가" 가 검색어 "…2026년 갈아타기 불가" 가 되어 지난 회차 기사 3건을 더 불러왔고, 틀린 결론을 굳혔다.
+  const raw = promiseTargets(chunk, keyword);
+  const targets = raw.filter((w) => !SEARCH_CONCLUSION.test(w));
+  if (targets.length < raw.length && targets.length > 0 && !targets.includes('조건')) targets.push('조건');
   if (targets.length === 0) return '';
   // 주제를 가리키는 말을 앞에, 혼자 못 서는 말·연도는 뒤에 — 최대 3개
   const strong = targets.filter((w) => !ALONE_USELESS.has(w) && !isYear(w));
@@ -116,6 +120,9 @@ export function buildPromiseSearchQuery(chunk: string, keyword: string): string 
   const date = String(chunk || '').match(/(?<!\d)(\d{1,2})[·・.](\d{1,2})(?!\d)/);
   return [core, ...ordered, date ? `${date[1]}월 ${date[2]}일` : ''].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
+
+/** 사실 결론 낱말 — 제목에 있어도 검색어로 쓰지 않는다(그 결론을 전제로 한 글만 모인다). 명사형·용언형 모두 */
+export const SEARCH_CONCLUSION = /^(?:가능|불가|불가능|폐지|확정|인상|인하|감소|증가|종료|중단|허용|금지|마감|재개|연장|불허|안됨|못함)(?:됨|됐|된다|했|한다|해|돼)?$/;
 
 /** 검색어에 메인 키워드 핵심어가 들어 있는가 — 회귀 테스트·로그가 이걸로 잰다 */
 export function queryHasCore(query: string, keyword: string): boolean {

@@ -316,7 +316,23 @@ export interface RenderSelection {
   /** cleanedText 의 [start, end) — 붙이면 전달 본문과 같다 */
   ranges: Array<[number, number]>;
   reason?: string;
+  /** v3.8.765 — 예약으로 먼저 넣은 구간(핵심 질문의 현재 공식 답) · 값 조각에 묶어 넣은 앞 단서 문장 */
+  reserved?: Array<{ range: [number, number]; reason: string }>;
+  bound?: Array<{ fragment: [number, number]; qualifier: [number, number] }>;
 }
+
+/**
+ * v3.8.765 렌더 옵션 — 예산(글자)은 그대로, 순서만 바꾼다.
+ *  · reserve: 핵심 질문에 직접 답하는 현재 공식 문장. 1차(몫)보다 먼저 넣는다(문서 상한·전체 예산은 지킨다).
+ *    실측(run 111bcf): 공식 공고 본문을 확보했는데 "이번 2차 모집에서 … 갈아탈 수 있는 기회를 추가로 제공" 이 점수 경쟁에서 밀려 Writer 에게 안 갔다.
+ *  · bindQualifiers: 술어 없는 값 조각(각주·표 칸 "* 매칭비율 : (기존) 12% (개선) 15%")을 넣을 때, 바로 앞 문장이 조건·추진·예정을 말하면 함께 넣는다.
+ *    실측(run 111bcf): 앞 문장 "예산안이 … 확정될 경우 … 소급 지급할 예정" 이 빠지고 각주만 실려 15%·25% 가 현재 값으로 읽혔다.
+ */
+export interface RenderOptions { reserve?: Array<{ id: string; range: [number, number]; reason: string }>; bindQualifiers?: boolean }
+/** 값의 상태를 정하는 앞 문장 — 조건·추진·예정·안(案) 을 말한다(일반 낱말만) */
+const QUALIFIER_SENTENCE = /(?:될|할)\s*경우|확정\s*될|통과\s*(?:시|되면|하면)|승인\s*(?:후|시)|추진|계획|예정|방안|[가-힣]{1,3}(?:편|정|법|산)안|전제로|경우에\s*한해/;
+const FINITE_PREDICATE = /[가-힣](?:다|니다|요|죠)(?=[\s.,!?)"'”’]|$)/;
+const isValueFragment = (text: string) => /\d/.test(text) && (/^[*※(]/.test(text.trim()) || !FINITE_PREDICATE.test(text));
 
 /** 조건·예외·절차를 말하는 낱말 — 이런 문장이 소개문보다 먼저 들어간다 */
 const CONDITION_WORDS = /(이하|이상|초과|미만|제외|포함|유지|해지|중도|우대|일반형|우대형|자격|대상|요건|조건|기간|신청|심사|개설|기여금|비과세|한도|최대|최소|만기|납입|소득|매출|가구|구간|경우|불가|가능|필요|안내|기준|절차|서류|마감|접수)/g;
@@ -376,13 +392,13 @@ const normKey = (s: string) => s.replace(/[\s"'“”‘’.,!?·()[\]]/g, '').t
  *   · 발췌는 원문 문장 그대로다(오프셋을 selection 에 남긴다). 문장을 만들거나 요약하지 않는다
  * 예산(budgetChars)은 늘리지 않는다 — 같은 예산 안에서 보존율을 올리는 것이 목적이다.
  */
-export function renderEvidence(items: EvidenceItem[], budgetChars = 12000): { text: string; used: EvidenceItem[]; selection: RenderSelection[] } {
+export function renderEvidence(items: EvidenceItem[], budgetChars = 12000, opts: RenderOptions = {}): { text: string; used: EvidenceItem[]; selection: RenderSelection[] } {
   const ordered = [...items].sort((a, b) => (Number(b.isOfficial) - Number(a.isOfficial)) || 0);
   // 종류별 상한 — 블로그 700→900: 실측(run 1b7d92)에서 조건·예외 문장이 700자 밖에 있었다. 총예산은 그대로다
   const capOf = (item: EvidenceItem) => (item.isOfficial ? 2600 : item.sourceType === 'news' ? 1800 : item.sourceType === 'web' ? 1200 : item.sourceType === 'knowledge' ? 500 : 900);
   const seen = new Set<string>();
 
-  type Cand = { range: [number, number]; text: string; score: number; key: string; values: string[] };
+  type Cand = { range: [number, number]; text: string; score: number; key: string; values: string[]; idx: number };
   /** 이미 전달된 값(수치·날짜) — 같은 날짜를 되풀이하는 문장보다 새 값을 말하는 문장이 먼저다 */
   const seenValues = new Set<string>();
   const valuesOf = (text: string) => (text.match(VALUE_WORDS) || []).map((v) => v.replace(/\s+/g, ''));
@@ -405,11 +421,11 @@ export function renderEvidence(items: EvidenceItem[], budgetChars = 12000): { te
       // 스펙 나열(✔·▪·: 가 줄줄이)은 기본 소개다 — 새 조건을 말하는 문장보다 뒤로
       if ((text.match(/[✔✓▪■◆▶·]|\s:\s/g) || []).length >= 4) score *= 0.6;
       // 밀도로 세운다 — 스펙을 줄줄이 늘어놓은 긴 문장 하나가 짧은 예외 문장 셋을 밀어내지 않게
-      const cand: Cand = { range: [s, e], text, score: score / (1 + text.length / 200), key: normKey(text), values: valuesOf(text) };
+      const cand: Cand = { range: [s, e], text, score: score / (1 + text.length / 200), key: normKey(text), values: valuesOf(text), idx: i };
       return cand;
     }).filter((c) => c.key.length >= 6);
     cands.sort((a, b) => b.score - a.score);
-    return { item, head: evidenceHeader(item), cap: capOf(item), cands, picked: [] as Cand[], chars: 0, headerCharged: false, maxScore: cands[0]?.score ?? 0 };
+    return { item, head: evidenceHeader(item), cap: capOf(item), cands, all: [...cands], picked: [] as Cand[], chars: 0, headerCharged: false, maxScore: cands[0]?.score ?? 0, reserved: [] as Array<{ range: [number, number]; reason: string }>, bound: [] as Array<{ fragment: [number, number]; qualifier: [number, number] }> };
   });
 
   let left = budgetChars;
@@ -423,8 +439,28 @@ export function renderEvidence(items: EvidenceItem[], budgetChars = 12000): { te
     if (cost > left) return false;
     st.picked.push(next); seen.add(next.key); for (const v of next.values) seenValues.add(v);
     st.chars += len; st.headerCharged = true; left -= cost;
+    // 값 조각이면 바로 앞(최대 두 문장 앞)의 조건·추진·예정 문장을 함께 — 값과 상태를 떼어 싣지 않는다
+    if (opts.bindQualifiers && isValueFragment(next.text)) {
+      for (let d = 1; d <= 2; d += 1) {
+        const prev = st.all.find((c) => c.idx === next.idx - d);
+        if (!prev) continue;
+        if (st.picked.includes(prev)) break;
+        if (!QUALIFIER_SENTENCE.test(prev.text)) continue;
+        if (tryPickCand(st, prev)) st.bound.push({ fragment: next.range, qualifier: prev.range });
+        break;
+      }
+    }
     return true;
   };
+  // 0차 — 예약(핵심 질문의 현재 공식 답). 겹치는 후보를 먼저 넣는다
+  for (const r of opts.reserve || []) {
+    const st = state.find((x) => x.item.id === r.id);
+    if (!st) continue;
+    for (const c of st.all.filter((x) => x.range[0] < r.range[1] && x.range[1] > r.range[0])) {
+      if (st.picked.includes(c) || seen.has(c.key)) continue;
+      if (tryPickCand(st, c)) st.reserved.push({ range: c.range, reason: r.reason });
+    }
+  }
   /** 1차용 — 점수순 다음 후보를 몫까지 */
   const tryPick = (st: typeof state[number], quota: number): boolean => {
     if (st.chars >= Math.min(quota, st.cap)) return false;
@@ -480,7 +516,7 @@ export function renderEvidence(items: EvidenceItem[], budgetChars = 12000): { te
     const body = merged.map(([s, e]) => st.item.cleanedText.slice(s, e).trim()).join(' (…) ');
     blocks.push(`${st.head}\n${body}`);
     used.push(st.item);
-    selection.push({ id: st.item.id, delivered: true, chars: body.length, ranges: merged });
+    selection.push({ id: st.item.id, delivered: true, chars: body.length, ranges: merged, ...(st.reserved.length ? { reserved: st.reserved } : {}), ...(st.bound.length ? { bound: st.bound } : {}) });
   }
   let text = blocks.join('\n\n');
   // 안전망 — 결합 비용 추정이 어긋나 예산을 넘으면 마지막 블록부터 뺀다 (예산은 약속이다)
