@@ -102,7 +102,9 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
   };
 
   const line = (c: SourcedClaim) => `- ${c.claim} [${c.sourceIds.join(',')}]`;
-  const val = (v: SourcedValue) => `- ${v.value} — ${v.context} [${v.sourceIds.join(',')}]`;
+  // v3.8.763 — 예정·조건부·추정 값은 상태를 앞에 달아 준다(Writer 가 현재 값으로 쓰지 않게)
+  const STATUS_LABEL: Record<string, string> = { FUTURE_CONFIRMED: '시행 확정(미래)', PAST: '과거', PLANNED: '예정', ESTIMATED: '추정·예상', PROPOSED: '추진·검토', CONDITIONAL: '조건부' };
+  const val = (v: SourcedValue) => `- ${v.value} — ${v.status && STATUS_LABEL[v.status] ? `[${STATUS_LABEL[v.status]} — 현재 확정 값 아님] ` : ''}${v.context} [${v.sourceIds.join(',')}]`;
   const section = (title: string, rows: string[]) => (rows.length ? [`▸ ${title}`, ...rows] : []);
   // KEEP 만 제자리에 남는다 — CONTEXT_ONLY 문장은 아래 "배경" 묶음으로, DROP 은 Writer 에게 안 간다
   const keepClaims = (kind: ViewDecision['kind'], rows: SourcedClaim[]) => rows.filter((c) => claimDecision(kind, c).verdict === 'KEEP');
@@ -115,7 +117,9 @@ export function buildWriterPacketView(packet: ResearchPacket, ctx: CoreContext):
 
   // 748 — LLM 정리가 빠뜨려 코드가 되살린 값은 표시만 한다(Writer 보기의 KEEP/DEMOTE/DROP 은 똑같이 받는다)
   const recoveredValues = new Set((packet.numbers || []).concat(packet.dates || []).filter((v) => v.origin === 'DETERMINISTIC_RECOVERY').map((v) => v.value));
-  const numberRows = (packet.numbers || []).map((n) => ({ row: n, d: decide('number', n.value, n.context, n.sourceIds) }));
+  // v3.8.763 — 근거에서 예정·조건부·추정으로 읽힌 값은 CORE(판단 기준)가 아니라 SUPPORTING 으로 내린다
+  const demoteByStatus = (d: ViewDecision, status?: string): ViewDecision => (d.tier === 'CORE' && status && status !== 'CURRENT_CONFIRMED' && status !== 'UNKNOWN' ? { ...d, verdict: 'DEMOTE', tier: 'SUPPORTING', reason: d.reason } : d);
+  const numberRows = (packet.numbers || []).map((n) => ({ row: n, d: demoteByStatus(decide('number', n.value, n.context, n.sourceIds), n.status) }));
   const dateRows = (packet.dates || []).map((n) => ({ row: n, d: decide('date', n.value, n.context, n.sourceIds) }));
   const byTier = (tier: ViewTier, rows: Array<{ row: SourcedValue; d: ViewDecision }>) => rows.filter((r) => r.d.tier === tier).map((r) => val(r.row));
 

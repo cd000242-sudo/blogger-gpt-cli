@@ -13,6 +13,7 @@ import { weakenHtml, type SemanticChange } from './decision-semantics';
 import { alignSummaryToBody, checkFaqConsistency, type FidelityChange, type FaqConsistencyNote } from './answer-fidelity';
 import { coverCoreQuestions, type CoreQuestion, type CoverageResult } from './core-questions';
 import { parseVisibleArticle } from './visible-article';
+import { annotateHtml, restoreFractionNotation } from './claim-status';
 
 export interface FinalAuthorityInput { html: string; evidence: FactEvidence; keyword: string; coreQuestions?: CoreQuestion[]; dimensions?: string[] }
 export interface FinalAuthorityReport {
@@ -21,6 +22,9 @@ export interface FinalAuthorityReport {
   answer: { before: string; after: string; changes: FidelityChange[] };
   faq: { before: number; after: number; notes: FaqConsistencyNote[]; ldSynced: boolean; ldCount: number };
   coreQuestions: CoverageResult[];
+  /** v3.8.763 — 근거보다 확정적으로 쓴 문장(상태 주석 붙임) · 분수 표기 복원 */
+  status: Array<{ location: string; sentence: string; values: Array<{ value: string; status: string; marker: string }> }>;
+  fractions: Array<{ from: string; to: string }>;
   changed: boolean;
 }
 
@@ -103,6 +107,16 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     return `${open}${r.text.split(/(?<=[.!?])\s+/).map(escapeHtml).join('<br>')}${close}`;
   });
   // 4) faq — 보이는 FAQ 를 다시 검사하고, JSON-LD 를 그 목록에서 만든다
+  // 3b) v3.8.763 — 상태 강화(예정·조건부·추정 값을 확정처럼) 재검사 + 분수 표기 복원. 늦은 재작성이 상태 주석을 지웠거나 새 문장이 확정처럼 썼을 때를 잡는다
+  const fr = restoreFractionNotation(html, input.evidence.context || '');
+  html = fr.html;
+  const status: Array<{ location: string; sentence: string; values: Array<{ value: string; status: string; marker: string }> }> = [];
+  html = html.split(SCRIPT_OR_STYLE).map((seg, i) => {
+    if (i % 2 === 1) return seg;
+    const r = annotateHtml(seg, input.evidence.context || '', 'final');
+    for (const c of r.changes) status.push({ location: c.location, sentence: c.sentence, values: c.values.map((v) => ({ value: v.value, status: v.source.status, marker: v.source.marker })) });
+    return r.html;
+  }).join('');
   const faqsBefore = parseVisibleFaqs(html);
   const consistent = checkFaqConsistency(faqsBefore, input.keyword);
   const dropped = new Set(consistent.notes.filter((n) => n.action === 'dropped').map((n) => n.question));
@@ -116,6 +130,7 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     answer: { before: answerBefore, after: answerAfter, changes: answerChanges },
     faq: { before: faqsBefore.length, after: faqsAfter.length, notes: consistent.notes, ldSynced: ld.synced, ldCount: ld.count },
     coreQuestions: coverage,
+    status, fractions: fr.restored,
     changed: html !== String(input.html || ''),
   };
   return { html, report };

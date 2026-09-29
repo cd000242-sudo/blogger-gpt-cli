@@ -23,6 +23,8 @@ export interface SourcedValue {
   value: string; context: string; sourceIds: string[];
   /** 748 — 어디서 왔나. LLM 문장에도 있으면 LLM_PACKET, 코드만 잡았고 진입 조건을 통과하면 DETERMINISTIC_RECOVERY, 아니면 CODE_ONLY */
   origin?: ValueOrigin;
+  /** v3.8.763 — 근거에서 읽은 값의 상태(claim-status). 없으면 현재 확정. 예정·조건부·추정 값은 Writer 보기에서 판단 기준(CORE)으로 올리지 않는다 */
+  status?: 'CURRENT_CONFIRMED' | 'FUTURE_CONFIRMED' | 'PAST' | 'PLANNED' | 'ESTIMATED' | 'PROPOSED' | 'CONDITIONAL' | 'UNKNOWN';
 }
 export interface PacketRecovery { added: number; values: string[]; codeOnly: number }
 

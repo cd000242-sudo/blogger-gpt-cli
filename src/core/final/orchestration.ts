@@ -47,6 +47,8 @@ import { fetchGrounding, describeGrounding, checkFreshness, describeFreshness, d
 // v3.8.761: 핵심 판단 질문 계획·coverage 와 최종 권위 재검사 — 마지막 LLM 재작성이 앞의 결정론 검사를 무효화하지 못하게
 import { planCoreQuestions, coverCoreQuestions, isCoreAnswerSentence, type CoreQuestion } from './core-questions';
 import { runFinalAuthority } from './final-authority';
+// v3.8.763: 주장의 상태(예정·조건부·추정) 보존 — 패킷·본문이 근거보다 확정성을 높이지 못하게
+import { annotatePacket, annotateArticle } from './claim-status';
 // v3.8.730: 공고형 글은 주관기관을 먼저 정하고 그 밖의 자료를 뺀다 (사장님 실측: LH 공고 글에 HUG·매물 시세가 섞였다)
 import { deriveSourceScope, selectScopedSources, sourceMatchesScope, isScopedOfficialSource, buildSourceScopeDirective, hasOfficialSource } from './source-scope';
 // 748 (A): 지식iN 질문은 키워드 실체에 대고 거른 뒤에만 패킷·소제목·실로 간다 (경주 APEC live: "국내 여름 휴양지" 가 실이 됐다)
@@ -1685,6 +1687,16 @@ export async function generateUltimateMaxModeArticleFinal(
       } catch (cqErr) { console.warn('[CORE-Q] 계획 스킵:', String((cqErr as Error)?.message || cqErr).slice(0, 80)); return []; }
     })();
     const decisionDimensions = coreQuestionsPlan.filter((q) => q.applicable).map((q) => q.dimension);
+    /**
+     * 🏷️ v3.8.763 — 패킷은 근거보다 주장의 확정성을 높일 수 없다(claim-status). 실측(run 223b32): 근거 "15%로 높이는 방안을 추진·25% 지원할 계획·가정하면 270만원"
+     * → 패킷 "15%로 개선됐으며 25%이다". 값이 근거보다 확정적으로 적힌 문장에는 근거의 표지를 인용한 상태 주석을 붙이고, 예정·조건부·추정 값은 판단 기준(CORE)에서 내린다. 호출 0회.
+     */
+    try {
+      const claimStatus = annotatePacket(researchPacket, evidenceRender.text || '');
+      researchPacket = claimStatus.packet;
+      trace.event('packet.claim-status', { claimChanges: claimStatus.claimChanges, valueStatuses: claimStatus.valueStatuses });
+      if (claimStatus.claimChanges || claimStatus.valueStatuses.length) onLog?.(`[PROGRESS] 38% - 🏷️ 패킷 상태 보존: 확정성 높인 문장 ${claimStatus.claimChanges}건 주석 · 예정·조건부·추정 값 ${claimStatus.valueStatuses.length}개 표시`);
+    } catch (csErr) { console.warn('[CLAIM-STATUS] 패킷 스킵:', String((csErr as Error)?.message || csErr).slice(0, 80)); }
     let researchPacketText: string = packetMod.renderPacket(researchPacket);
     trace.snapshot('packet.raw', { packet: researchPacket, text: researchPacketText, model: packetModel }, { note: 'RAW_PACKET — LLM 정리 직후' });
     /** 2단계에서 근거가 늘면 수치·날짜·출처표만 다시 뽑는다 — 문장(LLM 정리)은 그대로, 호출 0회 */
@@ -4054,6 +4066,23 @@ ${quoted}
         trace.event('decision-semantics', { changes: sem.changes });
       }
     } catch (semErr) { console.warn('[DECISION-SEMANTICS] 스킵:', String((semErr as Error)?.message || semErr).slice(0, 100)); }
+
+    /**
+     * 🏷️ v3.8.763 — 본문도 근거보다 확정성을 높일 수 없다(claim-status.annotateArticle): 예정·조건부·추정 값을 확정처럼 쓴 문장 뒤에 독자용 상태 문장("다만 근거상 현재 적용 중인 확정 값은 아닙니다(…)"),
+     * 근거의 분수 표기(a/b%)를 "a분의 b퍼센트" 로 바꾼 곳은 원 표기로 복원. 약화·복원만, 호출 0회. 요약표·FAQ 는 이 뒤에 만들어지므로 같은 상태를 이어받는다.
+     */
+    try {
+      const csBefore = trace.snapshot('draft.before-claim-status', allSectionsObj);
+      const cs = annotateArticle(allSectionsObj, bodyValidation.evidence.context || '');
+      if (cs.changes.length > 0 || cs.fractions.length > 0) {
+        const csBeforeText = draftPlain(allSectionsObj);
+        allSectionsObj = cs.article;
+        trace.change('claim-status', { fn: 'annotateArticle', before: csBefore, after: trace.snapshot('draft.after-claim-status', allSectionsObj), beforeText: csBeforeText, afterText: draftPlain(allSectionsObj), reason: `확정성 높인 문장 ${cs.changes.length}건 주석 · 분수 표기 복원 ${cs.fractions.length}건`, changes: cs.changes.map((c) => ({ location: c.location, sentence: c.sentence.slice(0, 160), values: c.values.map((v) => `${v.value}:${v.source.status}(${v.source.marker})` ) })), fractions: cs.fractions, judgeable: true });
+        onLog?.(`[PROGRESS] 74% - 🏷️ 근거보다 확정적으로 쓴 문장 ${cs.changes.length}건에 상태 주석${cs.fractions.length ? ` · 분수 표기 ${cs.fractions.length}건 복원` : ''}`);
+      } else {
+        trace.event('claim-status', { changes: [], fractions: [] });
+      }
+    } catch (csErr) { console.warn('[CLAIM-STATUS] 본문 스킵:', String((csErr as Error)?.message || csErr).slice(0, 100)); }
 
     // v3.8.368: 제목이 통째로 키워드로 되돌아가던 버그 fix
     //   과거: 제목에서 키워드를 뺀 나머지에 근거 미확인 값이 하나라도 있으면 h1 = keyword 로 전체 교체.
@@ -7387,6 +7416,7 @@ ${conclusionHTML}
       trace.event('final-authority.answer', fa.report.answer);
       trace.event('final-authority.faq', fa.report.faq);
       trace.event('final-authority.core', { coverage: fa.report.coreQuestions });
+      trace.event('final-authority.status', { status: fa.report.status, fractions: fa.report.fractions });
       trace.event('final-authority.output', { changed: fa.report.changed, fact: fa.report.fact.status, decisionChanges: fa.report.decision.length, answerChanges: fa.report.answer.changes.length, faq: `${fa.report.faq.before}→${fa.report.faq.after}`, ldSynced: fa.report.faq.ldSynced, core: fa.report.coreQuestions.map((c) => `${c.id}=${c.status}`) });
       if (fa.report.changed) {
         html = fa.html;
