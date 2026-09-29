@@ -158,9 +158,26 @@ export async function fetchPageDocument(
   maxChars: number = DEFAULT_MAX_PAGE_CHARS,
   timeoutMs = 8000,
 ): Promise<PageDocument | null> {
+  return (await fetchPageDocumentDetailed(url, maxChars, timeoutMs)).doc;
+}
+
+/**
+ * v3.8.761 — 실패 사유. 실측(run b8cdb4): 보강 검색이 찾은 현재 회차 공고(fsc 87726) 본문이 'fetch-failed' 로만 남아 원인을 사후에 알 수 없었다.
+ * 추측하지 않는다 — 여기서 실제로 판별되는 것만 적고, 나머지는 UNKNOWN 이다. 실패는 "공식자료 없음" 이 아니라 "확보 못 함" 이다(호출부가 그렇게 표기한다).
+ */
+export type FetchFailureReason = 'INVALID_URL' | 'FILE_URL' | 'HTTP_STATUS' | 'TIMEOUT' | 'BLOCKED' | 'UNSUPPORTED_CONTENT' | 'EMPTY_BODY' | 'EXTRACT_FAIL' | 'NETWORK' | 'UNKNOWN';
+export interface FetchFailure { reason: FetchFailureReason; detail?: string; status?: number }
+export interface PageFetchOutcome { doc: PageDocument | null; failure?: FetchFailure; attemptedAt: string }
+
+export async function fetchPageDocumentDetailed(
+  url: string,
+  maxChars: number = DEFAULT_MAX_PAGE_CHARS,
+  timeoutMs = 8000,
+): Promise<PageFetchOutcome> {
+  const attemptedAt = new Date().toISOString();
   const target = String(url || '').trim();
-  if (!/^https?:\/\//i.test(target)) return null;
-  if (looksLikeFileUrl(target)) return null;
+  if (!/^https?:\/\//i.test(target)) return { doc: null, failure: { reason: 'INVALID_URL' }, attemptedAt };
+  if (looksLikeFileUrl(target)) return { doc: null, failure: { reason: 'FILE_URL' }, attemptedAt };
 
   try {
     const response = await fetch(target, {
@@ -171,19 +188,27 @@ export async function fetchPageDocument(
       redirect: 'follow',
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!response.ok) return null;
-    if (!/text\/html/i.test(String(response.headers.get('content-type') || ''))) return null;
+    if (!response.ok) return { doc: null, failure: { reason: response.status === 403 || response.status === 429 ? 'BLOCKED' : 'HTTP_STATUS', status: response.status, detail: `HTTP ${response.status}` }, attemptedAt };
+    const contentType = String(response.headers.get('content-type') || '');
+    if (!/text\/html/i.test(contentType)) return { doc: null, failure: { reason: 'UNSUPPORTED_CONTENT', detail: contentType.slice(0, 60) }, attemptedAt };
 
     const html = await response.text();
+    if (!html || html.replace(/\s+/g, '').length === 0) return { doc: null, failure: { reason: 'EMPTY_BODY', detail: 'response text empty' }, attemptedAt };
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { extractArticleBody, extractPublishedDate } = require('./article-body');
     const article = extractArticleBody(html, maxChars);
-    if (article?.text) return { text: article.text, publishedAt: article.publishedAt ?? null, rawLength: article.rawLength, ...(article.fullText ? { fullText: article.fullText, truncatedAt: article.truncatedAt ?? null } : {}) };
+    if (article?.text) return { doc: { text: article.text, publishedAt: article.publishedAt ?? null, rawLength: article.rawLength, ...(article.fullText ? { fullText: article.fullText, truncatedAt: article.truncatedAt ?? null } : {}) }, attemptedAt };
 
     const page = extractOfficialPageBody(html, maxChars);
-    return page ? { text: page.text, publishedAt: extractPublishedDate(html), rawLength: page.rawLength, ...(page.fullText ? { fullText: page.fullText, truncatedAt: page.truncatedAt ?? null } : {}) } : null;
-  } catch {
-    return null;
+    if (page) return { doc: { text: page.text, publishedAt: extractPublishedDate(html), rawLength: page.rawLength, ...(page.fullText ? { fullText: page.fullText, truncatedAt: page.truncatedAt ?? null } : {}) }, attemptedAt };
+    return { doc: null, failure: { reason: 'EXTRACT_FAIL', detail: `html ${html.length}자에서 본문 추출 실패(기사·기관 추출기 모두)` }, attemptedAt };
+  } catch (e: unknown) {
+    const err = e as { name?: string; code?: string; message?: string; cause?: { code?: string } };
+    const name = String(err?.name || ''); const code = String(err?.code || err?.cause?.code || ''); const msg = String(err?.message || '').slice(0, 80);
+    if (/TimeoutError|AbortError/.test(name) || /timeout/i.test(msg)) return { doc: null, failure: { reason: 'TIMEOUT', detail: `${timeoutMs}ms` }, attemptedAt };
+    if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|CERT|TLS|ssl/i.test(`${code} ${msg}`)) return { doc: null, failure: { reason: 'NETWORK', detail: `${code || name} ${msg}`.trim() }, attemptedAt };
+    const detail = `${code || name} ${msg}`.trim();
+    return { doc: null, failure: { reason: 'UNKNOWN', ...(detail ? { detail } : {}) }, attemptedAt };
   }
 }

@@ -170,6 +170,9 @@ export interface OfficialStatus {
     roundRelevance: 'current' | 'tentative-future' | 'past-or-unknown' | 'n/a';
     /** 공식 본문이 답하는 독자 질문(official-research-plan.OFFICIAL_NEEDS 의 id) */
     answered: string[];
+    /** v3.8.761 — 수집 실패·미시도 사유(FetchAttempt.failureReason) */
+    failureReason?: FetchAttempt['failureReason'];
+    failureDetail?: string;
   }>;
   /**
    * 현재 질문의 핵심 공식 근거를 확보했는가. "공식 도메인 + 본문 확보" 만으로는 true 가 아니다 —
@@ -191,6 +194,14 @@ export interface FetchAttempt {
   chars: number;
   /** 'ok' · 'budget'(예산 소진으로 미시도) · 'file-url'(첨부파일) · 'fetch-failed' · 'scope-mismatch' */
   reason: 'ok' | 'budget' | 'file-url' | 'fetch-failed' | 'scope-mismatch';
+  /** v3.8.761 — 실패 사유(fetch-failed 일 때 실제 판별값 · 미시도는 BUDGET_SKIPPED/FILE_URL). 판별 못 하면 UNKNOWN — 추측하지 않는다 */
+  failureReason?: 'INVALID_URL' | 'FILE_URL' | 'HTTP_STATUS' | 'TIMEOUT' | 'BLOCKED' | 'UNSUPPORTED_CONTENT' | 'EMPTY_BODY' | 'EXTRACT_FAIL' | 'NETWORK' | 'UNKNOWN' | 'BUDGET_SKIPPED' | 'SCOPE_MISMATCH';
+  failureDetail?: string;
+  httpStatus?: number;
+  attemptedAt?: string;
+  /** 후보 제목(출처 ID 는 장부 단계에서 붙으므로 여기서는 제목·주소로 잇는다) */
+  title?: string;
+  retrievedChars?: number;
 }
 
 /**
@@ -365,11 +376,16 @@ export async function fetchGrounding(
   const fetchBody: FetchBodyFn = options.fetchBody
     || (async (url) => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const doc = await require('../crawlers/official-page-body').fetchPageDocument(url, BODY_CHARS);
+      const outcome = await require('../crawlers/official-page-body').fetchPageDocumentDetailed(url, BODY_CHARS);
+      const doc = outcome.doc;
+      // v3.8.761 — 실패 사유를 남긴다(fetchLog 가 읽는다). 성공도 시각을 남긴다
+      fetchOutcomes.set(url, { attemptedAt: outcome.attemptedAt, ...(outcome.failure ? { failure: outcome.failure } : {}) });
       if (doc) pageDates.set(url, doc.publishedAt ?? null);   // 문서에 적힌 게시일 — 못 찾으면 null 그대로
       if (doc?.fullText) pageFull.set(url, { text: doc.fullText, truncatedAt: doc.truncatedAt ?? null });
       return doc ? doc.text : null;
     });
+  /** v3.8.761 — 주소별 수집 결과(실패 사유 포함). 주입된 fetchBody(테스트)는 여기 안 남기므로 그때는 UNKNOWN 이다 */
+  const fetchOutcomes = new Map<string, { attemptedAt: string; failure?: { reason: FetchAttempt['failureReason']; detail?: string; status?: number } }>();
 
   // 뉴스는 originallink 가 실제 언론사 주소다 — 네이버 중계 주소보다 본문이 잘 나온다
   const bodyUrlOf = (it: any) => String(it?.originallink || it?.link || '');
@@ -445,11 +461,14 @@ export async function fetchGrounding(
     return items.map((it, i) => {
       const body = bodies[i];
       const url = bodyUrlOf(it);
-      if (!spend.has(i)) fetchLog.push({ url, tag, attempted: false, ok: false, chars: 0, reason: url && looksLikeFileUrl(url) ? 'file-url' : 'budget' });
-      else if (!body) fetchLog.push({ url, tag, attempted: true, ok: false, chars: 0, reason: 'fetch-failed' });
+      const title = stripTags(it?.title || '');
+      const outcome = fetchOutcomes.get(url);
+      if (!spend.has(i)) fetchLog.push({ url, tag, title, attempted: false, ok: false, chars: 0, reason: url && looksLikeFileUrl(url) ? 'file-url' : 'budget', failureReason: url && looksLikeFileUrl(url) ? 'FILE_URL' : 'BUDGET_SKIPPED' });
+      else if (!body) fetchLog.push({ url, tag, title, attempted: true, ok: false, chars: 0, reason: 'fetch-failed', failureReason: outcome?.failure?.reason || 'UNKNOWN', ...(outcome?.failure?.detail ? { failureDetail: outcome.failure.detail } : {}), ...(outcome?.failure?.status ? { httpStatus: outcome.failure.status } : {}), attemptedAt: outcome?.attemptedAt || new Date().toISOString(), retrievedChars: 0 });
       if (!body) return keep(it, tag, snippet(it, tag), '');
-      if (!sourceMatchesScope({ url, title: stripTags(it?.title), content: body }, sourceScope)) { fetchLog.push({ url, tag, attempted: true, ok: true, chars: body.length, reason: 'scope-mismatch' }); return ''; }
-      fetchLog.push({ url, tag, attempted: true, ok: true, chars: body.length, reason: 'ok' });
+      const at = outcome?.attemptedAt ? { attemptedAt: outcome.attemptedAt } : {};
+      if (!sourceMatchesScope({ url, title, content: body }, sourceScope)) { fetchLog.push({ url, tag, title, attempted: true, ok: true, chars: body.length, reason: 'scope-mismatch', failureReason: 'SCOPE_MISMATCH', ...at, retrievedChars: body.length }); return ''; }
+      fetchLog.push({ url, tag, title, attempted: true, ok: true, chars: body.length, reason: 'ok', ...at, retrievedChars: body.length });
       return keep(it, tag, `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${url}\n[추출 원문]` : ''} ${body}`.trim(), body);
     }).filter(Boolean);
   };
@@ -671,7 +690,8 @@ export async function fetchGrounding(
         const base = rec?.reason === 'ok' ? 'body' : rec?.reason === 'fetch-failed' ? 'fetch-failed' : rec?.reason === 'file-url' ? 'file-url' : 'snippet-only';
         // status = 수집 결과(옛 계약 그대로: 회차가 밝혀졌는데 다르면 round-mismatch) · roundRelevance = 현재 회차와의 관계(본문 기준, v3.8.759)
         const status = currentRound && round && round !== currentRound ? 'round-mismatch' : base;
-        return { url, title: stripTags(it?.title), round, status, roundRelevance: relevance, answered: body ? answeredNeedsOf(body, relevance) : [] };
+        // v3.8.761 — 수집 실패 사유를 후보에도 단다. fetch-failed 는 "공식자료 없음" 이 아니라 "확보 못 함" 이다
+        return { url, title: stripTags(it?.title), round, status, roundRelevance: relevance, answered: body ? answeredNeedsOf(body, relevance) : [], ...(rec?.failureReason ? { failureReason: rec.failureReason, ...(rec.failureDetail ? { failureDetail: rec.failureDetail } : {}) } : {}) };
       }),
       sufficient: evalBefore.sufficient, sufficiency: evalBefore.sufficiency, unansweredNeeds: evalBefore.unanswered, boost,
     };
