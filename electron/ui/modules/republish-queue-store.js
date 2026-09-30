@@ -28,6 +28,27 @@ export function readRepublishQueue(storage) {
   }
 }
 
+/**
+ * v3.8.780 — 에이전트 글을 대기열에 담을 때의 payload.
+ * 기존 발행 payload(userRequest 등)를 그대로 두고, 에이전트 표시 `codexWorkshop`(applyCodexResult 가 붙이는 바로 그 필드)와
+ * 작업 ID 를 보존한다. 이 표시가 빠지면 대기열 [재발행] 이 발행 창구의 에이전트 요구 재검사(777)를 건너뛴다.
+ * forcePublish 는 싣지 않는다 — 대기열에 남은 값이 나중 재발행에서 쓰이면 안 된다.
+ */
+export function agentQueuePayload(basePayload, { agentJobId } = {}) {
+  const { forcePublish: _droppedForce, ...rest } = basePayload || {};
+  return { ...rest, codexWorkshop: true, ...(agentJobId ? { agentJobId } : {}) };
+}
+
+/**
+ * v3.8.780 — 대기열 항목 → 재발행 요청 payload. 저장된 값을 그대로 쓰되 forcePublish 는 버린다:
+ * [🚀 재발행] 은 사람의 강제 발행 승인이 아니다(778 — 승인은 "검토 후 강제 발행" 확인창에서만).
+ * 에이전트 표시를 제목·본문으로 추측해 붙이지 않는다(표시 없는 옛 항목은 그대로 둔다).
+ */
+export function republishPayloadOf(item) {
+  const { forcePublish: _droppedForce, ...rest } = item?.payload || {};
+  return rest;
+}
+
 /** 대기열 항목 id 로 — 재발행 버튼이 쓴다 */
 export const byRepublishItemId = (id) => (item) => !!id && item?.id === id;
 

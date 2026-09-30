@@ -3,7 +3,7 @@ import { DOMCache, getAppState, getErrorHandler, ButtonStateManager, addLog, deb
 import { showTab, setRunning } from './ui.js';
 import { isLicenseValid } from './settings.js';
 import { createPreviewPayload, sameUserRequest } from './posting.js';
-import { resolveRepublishItems, byRepublishItemId } from './republish-queue-store.js';
+import { resolveRepublishItems, byRepublishItemId, republishPayloadOf } from './republish-queue-store.js';
 
 /**
  * 미리보기를 **실제 발행 화면과 같은 치수**로 맞춘다. (v3.8.618)
@@ -373,7 +373,8 @@ export function buildRepublishData(item, platformValue) {
     // v3.8.752 — 생성 실행 ID. 재발행 성공이 원래 장부 줄에 붙는다(A 글: 블로거 실패 → 워드프레스 재발행이 url 빈칸이었다)
     runId: item?.runId || '',
     payload: {
-      ...(item?.payload || {}),
+      // v3.8.780 — 저장된 payload 그대로(에이전트 표시 포함) · 강제 발행 값만 버린다(재발행 버튼은 강제 발행 승인이 아니다)
+      ...republishPayloadOf(item),
       // 세 키를 나란히 명시한다 — 축약형을 쓰면 "세 키가 다 있나"를 눈으로 확인하기 어렵다
       platform: platform,
       targetPlatform: platform,

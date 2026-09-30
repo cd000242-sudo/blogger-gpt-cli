@@ -6,7 +6,7 @@ import { addTodayWorkRecord } from './calendar.js';
 import { getAllKeywords, getH2ImageSections } from './utils.js';
 import { showQualityReportModal, accumulateQualityReport } from './quality-report-modal.js';
 import { renderForcePublishOffer, clearForcePublishOffer, beginAgentJobPublish, endAgentJobPublish } from './agent-force-publish.js';
-import { settleRepublishAfterPublish } from './republish-queue-store.js';
+import { settleRepublishAfterPublish, agentQueuePayload } from './republish-queue-store.js';
 
 const AGENT_PROGRESS_STAGES = [
   { id: 'prepare', label: '작업 준비', range: [0, 20] },
@@ -836,7 +836,8 @@ export async function runPosting() {
           title: publishResult?.title || agentResult?.title || generated.title || payload?.title || '',
           html: agentResult?.html || agentResult?.content || generated.content || generated.html || '',
           thumbnailUrl: agentResult?.thumbnailUrl || generated.thumbnailUrl || '',
-          payload: payload || {},
+          // v3.8.780 — 이 분기는 에이전트 생성만 탄다. 에이전트 표시(codexWorkshop)·작업 ID 를 보존해야 대기열 재발행도 요구 관문을 다시 지난다
+          payload: agentQueuePayload(payload, { agentJobId: generated.payload?.agentJobId || agentResult?.jobId || '' }),
           lastError: publishResult?.error || 'agent_publish_failed',
           keyword: payload?.keyword || payload?.topic || keywordValue || '',
           runId: agentResult?.runId || generated.runId || '',
