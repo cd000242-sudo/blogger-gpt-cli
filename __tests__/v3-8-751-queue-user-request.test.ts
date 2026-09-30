@@ -277,7 +277,8 @@ describe('⑥ 요청사항이 실제 생성 단계까지 간다 (반영 확인)'
 
   it('⭐⭐ 에이전트 모드도 같은 요청을 받는다 (orchestration 을 안 타는 경로)', () => {
     const main = read('electron/main.ts');
-    expect(main).toMatch(/buildUserRequestBlock\(\(payload as any\)\?\.userRequest\)/);
+    // v3.8.777 — 같은 계약(parseUserRequirements)으로 만든 지시서 블록. 블록 내용은 777 테스트가 본다
+    expect(main).toMatch(/agentInstructionsBlock\(captureAgentRequirements\(payload\?\.userRequest\)\)/);
   });
 
   it('⭐ 예약(스케줄러)은 payload 를 통째로 넘긴다 — 요청사항만 빠질 자리가 없다', () => {

@@ -124,7 +124,8 @@ describe('④ API 모드와 에이전트 모드 **양쪽 다** 배선돼 있다'
   it('⭐⭐ 에이전트 경로: 지시서에도 따로 넣는다 (orchestration 을 안 타므로)', () => {
     const main = read('electron/main.ts');
     expect(main).toContain("require('../dist/core/final/user-request')");
-    expect(main).toMatch(/buildUserRequestBlock\(\(payload as any\)\?\.userRequest\)/);
+    // v3.8.777 — 같은 계약 블록(Writer 정본 블록 + 에이전트 우선순위)으로 바뀌었다. 블록 내용은 777 테스트가 본다
+    expect(main).toMatch(/agentInstructionsBlock\(captureAgentRequirements\(payload\?\.userRequest\)\)/);
   });
 
   it('⭐ 충돌 검사 채널이 실재한다 (렌더러가 부르는 이름을 메인이 등록)', () => {
