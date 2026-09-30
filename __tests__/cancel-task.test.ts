@@ -437,7 +437,7 @@ describe('v3.8.415 - 렌더러가 취소와 실패를 구분해서 보여준다'
   });
 
   it('publishToPlatform() 도 성공/실패 분기와 catch 양쪽에서 canceled 를 본다', () => {
-    const block = braceBlock(postingSrc2, 'export async function publishToPlatform()');
+    const block = braceBlock(postingSrc2, 'export async function publishToPlatform(options)');   // v3.8.778 — 사람 승인 인자
     expect(block).toContain('} else if (result?.canceled) {');
     expect(block).toContain('if (error?.canceled)');
   });

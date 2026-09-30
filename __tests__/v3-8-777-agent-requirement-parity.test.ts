@@ -270,7 +270,7 @@ describe('8·9 발행 창구 — 에이전트라고 우회 금지 · forcePublis
       expect(passed.error).toBe('알 수 없는 플랫폼: test-noop-777');
       const forced = await run({ forcePublish: true }, article({ faq: true }));
       expect(forced.blockedReason).toBeUndefined();
-      expect(logs.some((l) => l.includes('forcePublished=true — 에이전트 글의 작성자 요구 보류를 우회'))).toBe(true);
+      expect(logs.some((l) => l.includes('forcePublished=true — 에이전트 글의 작성자 요구 보류를 사람이 승인해 발행합니다'))).toBe(true);
       expect(logs.filter((l) => l.includes('🛑')).length).toBe(2);
       expect(global.fetch).not.toHaveBeenCalled();
     } finally {
@@ -287,7 +287,13 @@ describe('8·9 발행 창구 — 에이전트라고 우회 금지 · forcePublis
     expect(fn).toContain("recordPublishOverride('forcePublish', title, agentCheck.reason)");
   });
   test('에이전트 결과는 payload 에 닿지 않는다 — 결과·메타데이터가 forcePublish 를 켤 길이 없다', () => {
-    for (const src of [WORKSHOP, POSTING, PREVIEW]) expect(src).not.toMatch(/\bforcePublish\b/);   // _enforcePublishGap(발행 간격)은 다른 낱말
+    for (const src of [WORKSHOP, PREVIEW]) expect(src).not.toMatch(/\bforcePublish\b/);   // _enforcePublishGap(발행 간격)은 다른 낱말
+    // v3.8.778 — posting.js 의 forcePublish 는 publishToPlatform 의 사람 승인 인자 하나뿐(그 밖의 곳엔 없다). 자세한 것은 778 T6
+    const postingCode = POSTING.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const outsidePublish = postingCode
+      .replace(between(postingCode, 'export async function publishToPlatform(options) {', 'const titleToPublish'), '')
+      .replace(between(postingCode, 'renderForcePublishOffer(document, result, {', 'return result || { ok: false, error: publishError };'), '');
+    expect(outsidePublish).not.toMatch(/\bforcePublish\b/);
     const job = between(MAIN, "ipcMain.handle('agent-mode:run-job'", "ipcMain.handle('transform-content'");
     expect(job).not.toMatch(/\bforcePublish\b/);
     // 화면에 싣는 payload 는 화면 payload(state.payload) + 표시뿐이다
@@ -312,7 +318,7 @@ describe('7 재시도·재사용 — 원래 계약 보존 · 같은 키워드 + 
   });
   test('에이전트 글도 776 재사용 가드를 탄다 — 적용된 payload 에 원래 userRequest 가 실린다', () => {
     // applyCodexResult 가 payload 를 펼쳐 싣고(위 테스트), publishToPlatform 은 그 payload.userRequest 와 화면 값을 비교한다
-    const pub = between(POSTING, 'export async function publishToPlatform()', 'const currentPayload = await createPayload({ previewOnly: false });');
+    const pub = between(POSTING, 'export async function publishToPlatform(options)','const currentPayload = await createPayload({ previewOnly: false });');
     expect(pub).toContain("!sameUserRequest(appState.generatedContent.payload?.userRequest, document.getElementById('userRequestNote')?.value)");
     const semi = between(PREVIEW, "if (executionMode === 'agent') {", 'runAgentJobFromPosting(payload)');
     expect(semi.length).toBeGreaterThan(0);
