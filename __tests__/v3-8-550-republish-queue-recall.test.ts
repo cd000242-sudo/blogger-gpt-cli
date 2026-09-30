@@ -101,7 +101,8 @@ describe('③ 불러오는 쪽 배선 — 끝까지 이어져 있는가', () => 
 
   it('재발행에 성공하면 대기열에서 빠진다', () => {
     const btn = braceBlock(preview, "banner.querySelectorAll('.republishBtn')");
-    expect(btn).toContain('currentQueue.filter(x => x.id !== id)');
+    // v3.8.779 — 제거는 공용 함수(에이전트 강제 발행 성공과 같은 규칙). 항목 id 로만 뺀다 — 동작은 779 T8 이 실제로 돌려 본다
+    expect(btn).toContain('resolveRepublishItems(byRepublishItemId(id)');
     expect(btn).toContain('renderRepublishQueueBanner()');
   });
 });
