@@ -122,6 +122,8 @@ const REPAIR_RULES = `당신은 빈 절 하나만 채우는 작성자입니다. 
 
 export function buildRepairPrompt(input: {
   title: string; mainKeyword: string; section: any; finding: EmptyFinding; packetText: string; evidenceText: string; prevContext: string; nextContext: string;
+  /** v3.8.776 — 작성자 명시 요구(압축 계약) */
+  requirements?: string | undefined;
 }): string {
   const { section, finding } = input;
   const targets = finding.emptyH3Indexes.map((i) => `[index ${i}] <h3>${finding.h3Titles[i]}</h3>`).join('\n');
@@ -131,6 +133,7 @@ export function buildRepairPrompt(input: {
     `절 소제목(h2): ${section.h2}`,
     finding.answersTo ? `이 절이 답할 검색 질문: ${finding.answersTo}` : '',
     '', input.packetText.slice(0, 4500), '',
+    ...(input.requirements ? [input.requirements, ''] : []),
     `===== FACT EVIDENCE(요약) =====\n${input.evidenceText.slice(0, 6000)}`, '',
     input.prevContext ? `===== 앞 절 끝(문맥) =====\n${input.prevContext}` : '',
     input.nextContext ? `===== 뒤 절 시작(문맥) =====\n${input.nextContext}` : '',
@@ -155,6 +158,8 @@ export interface RepairDeps {
   intentQuestions?: string[];
   packetText: string;
   evidenceText: string;
+  /** v3.8.776 — 작성자 명시 요구(압축 계약). 값 장부에는 넣지 않는다 */
+  requirements?: string | undefined;
   ledger: LedgerItem[];
   callModel: (prompt: string, opts?: { json?: boolean }) => Promise<string>;
   onLog?: (m: string) => void;
@@ -218,7 +223,7 @@ export async function repairEmptySections(article: any, deps: RepairDeps): Promi
     const next = sections[f.sectionIndex + 1];
     const prevContext = prev ? strip((prev.h3Sections || []).map((h: any) => h.content).join(' ')).slice(-300) : strip(article.introduction || '').slice(-300);
     const nextContext = next ? strip((next.h3Sections || []).map((h: any) => h.content).join(' ')).slice(0, 300) : '';
-    const prompt = buildRepairPrompt({ title: deps.title, mainKeyword: deps.mainKeyword, section, finding: f, packetText: deps.packetText, evidenceText: deps.evidenceText, prevContext, nextContext });
+    const prompt = buildRepairPrompt({ title: deps.title, mainKeyword: deps.mainKeyword, section, finding: f, packetText: deps.packetText, evidenceText: deps.evidenceText, prevContext, nextContext, ...(deps.requirements ? { requirements: deps.requirements } : {}) });
     let parsed: any = null;
     try { parsed = readJson(await deps.callModel(prompt, { json: true })); result.calls += 1; }
     catch (err: any) { if ((err as any)?.canceled) throw err; result.unresolved.push({ sectionIndex: f.sectionIndex, h2: f.h2, reason: `수리 호출 실패: ${String(err?.message || err).slice(0, 80)}` }); continue; }

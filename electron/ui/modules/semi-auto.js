@@ -1166,6 +1166,8 @@ window.generateSemiAutoContent = async function () {
       h2ImageSource: resolvedImageSource,
       h2ImageSections: h2ImageSettings.sections || [],
       h2Images: h2ImageSettings, // 전체 객체도 전달 (호환성)
+      // v3.8.776 — 옛 반자동 탭도 같은 작성자 요청 칸(#userRequestNote)을 싣는다(감사 775: 이 경로만 요청이 빠졌다)
+      userRequest: (document.getElementById('userRequestNote')?.value || '').trim() || undefined,
       dryRun: true
     };
 

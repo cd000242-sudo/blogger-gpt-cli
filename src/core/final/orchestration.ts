@@ -172,6 +172,8 @@ function ledgerPath(): string {
 // 🧠 v3.8.734 — 고른 모델 / 실제로 쓴 모델 / 하향 여부 (model-use.ts)
 import { describeModelUse } from './model-use';
 import type { VariantLedger } from './variant-ledger';
+import { parseUserRequirements, structurePlan, compactRequirementBlock, hypotheticalInputs, type StructurePlan, type UserRequirementContract } from './user-requirement';
+import { checkUserRequirements, requirementGate, requirementRegressions, draftHtml, type RequirementResult } from './user-requirement-coverage';
 
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
@@ -1416,6 +1418,16 @@ export async function generateUltimateMaxModeArticleFinal(
      * 거주 후기로 채워졌다. 요청사항에 "LH 공고 기준"이라 적어도 수집 단계는 그 글을 안 봤다 — 이제 본다(hints).
      * 기관을 못 정하면 아무것도 걸러지지 않는다(예전 그대로).
      */
+    /**
+     * 📌 v3.8.776 — 작성자 요청을 명시 계약으로(user-requirement). 원문은 그대로 Writer 로 간다 — 계약은 구조 설정(FAQ·표·CTA)·유지 검사·최종 판정에 쓴다.
+     * 우선순위: 사실 근거 > 작성자 명시 요구 > 기본 편집 규칙. 새 AI 호출 없음.
+     */
+    const userRequestRaw: unknown = payload?.userRequest;
+    const userContract: UserRequirementContract | null = (() => { try { return parseUserRequirements(userRequestRaw); } catch { return null; } })();
+    const userPlan: StructurePlan = structurePlan(userContract);
+    const userCompact: string = compactRequirementBlock(userContract);
+    trace.event('user-requirement.capture', { present: !!userContract?.rawText, chars: userContract?.rawText.length || 0, truncated: !!userContract?.truncated, removed: userContract?.removed || [], origin: String(payload?.userRequestOrigin || 'payload'), fingerprint: userContract?.fingerprint || '' });
+    if (userContract?.requirements.length) trace.event('user-requirement.contract', { fingerprint: userContract.fingerprint, requirements: userContract.requirements.map((r) => ({ id: r.id, type: r.type, priority: r.priority, directive: r.directive, sourceText: r.sourceText })), plan: userPlan });
     const sourceScope = deriveSourceScope(keyword, [
       ...crawledPosts.filter((p) => manualUrls.includes(p.url)),
       ...(Array.isArray((payload as any)?.cpcReportSlot?.urls) ? (payload as any).cpcReportSlot.urls.map((url: string) => ({ url })) : []),
@@ -1781,7 +1793,13 @@ export async function generateUltimateMaxModeArticleFinal(
         });
       } catch { return null; }
     };
-    const withVariant = <T extends object>(evidence: T, ledger: VariantLedger | null): T => (ledger ? { ...evidence, variant: { ledger } } : evidence);
+    // v3.8.776 — 같은 자리에서 작성자 가정 입력(userHypothetical)도 싣는다 — 사실 필터·요약표 정리가 "1,000만원 가상 사례" 를 근거 없는 사실로 지우지 않게
+    const userHypothetical: string[] = hypotheticalInputs(userContract);
+    const withVariant = <T extends object>(evidence: T, ledger: VariantLedger | null): T => ({
+      ...evidence,
+      ...(ledger ? { variant: { ledger } } : {}),
+      ...(userHypothetical.length ? { userHypothetical } : {}),
+    });
     /** v3.8.767 — 사실 필터가 근거 값으로 한 단계 검산한 값(DERIVED_FROM_EVIDENCE)과 명시적 가정 값. 본문 관문·계보 추적이 같은 기록을 쓴다 */
     const derivedLedger: Array<{ claim: string; operation: string; sourceIds: string[] }> = [];
     const hypotheticalLedger: string[] = [];
@@ -3716,24 +3734,7 @@ ${quoted}
         }
       }
 
-      /**
-       * 📝 v3.8.718 — 이 글에만 적용할 **작성자 요청사항**.
-       *
-       * 사장님: "실제 발행할 때도 API 한테 요청사항을 적어주는 기능도 추가하면 어떠니?"
-       * 경험 메모가 "무엇을 겪었나"라면 이건 "어떻게 써달라"다.
-       * 경험 블록 **뒤에** 붙인다 — 규칙과 재료가 다 자리잡은 다음에 와야 참고 자격이 유지된다.
-       */
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { buildUserRequestBlock, describeUserRequest } = require('./user-request');
-        const requestBlock = buildUserRequestBlock((payload as any).userRequest);
-        if (requestBlock) {
-          scopedSectionBlock += requestBlock;
-          onLog?.(`[PROGRESS] 43% - 📝 ${describeUserRequest((payload as any).userRequest)}`);
-        }
-      } catch (reqErr) {
-        console.warn('[USER-REQUEST] 주입 스킵:', (reqErr as Error)?.message || reqErr);
-      }
+      // 📝 작성자 요청 블록은 v3.8.776 부터 이 try 밖(Writer 호출 직전, 맨 끝)에서 따로 붙인다 — 경험 처리 실패가 요청을 떨어뜨리지 않게
 
       /**
        * 🗣️ v3.8.470 — **겪은 사람의 말투는 어떤 경우에도 넣는다.**
@@ -3831,6 +3832,24 @@ ${quoted}
 - 전체 분량은 줄이지 마세요. **같은 내용을 더 잘게 나누는 것**입니다.
 `;
 
+    /**
+     * 📌 v3.8.776 — 작성자 명시 요구(정본 블록: 원문 + 계약 요약). 감사 775 에서 이 블록은 경험 블록 try 안에 있어 앞 오류에 같이 빠질 수 있었고,
+     * 뒤에 말투·초점·가독성 블록이 더 붙어 "마지막 말" 이 아니었다. 이제 **독립 try · 맨 끝**. 기본 편집 규칙(위 "표 최대 3개" 등)보다 우선한다고 블록이 말한다.
+     */
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { buildUserRequestBlock, describeUserRequest } = require('./user-request');
+      const requestBlock = buildUserRequestBlock(userRequestRaw);
+      if (requestBlock) {
+        scopedSectionBlock += requestBlock;
+        onLog?.(`[PROGRESS] 43% - 📝 ${describeUserRequest(userRequestRaw)}${userContract?.requirements.length ? ` · 계약 ${userContract.requirements.length}건` : ''}`);
+      }
+      trace.event('user-requirement.writer', { delivered: !!requestBlock, chars: requestBlock.length, requirements: (userContract?.requirements || []).map((r) => r.id), position: 'scopedSectionBlock:last' });
+    } catch (reqErr) {
+      console.warn('[USER-REQUEST] 주입 실패:', (reqErr as Error)?.message || reqErr);
+      trace.event('user-requirement.writer', { delivered: false, error: String((reqErr as Error)?.message || reqErr).slice(0, 160) });
+    }
+
     const draftModelSnap = require('./model-use').snapshotModels();
     // 🧾 v3.8.752 — Writer 가 실제로 받는 재료(프롬프트 자체는 generation.ts 가 호출 직전에 남긴다)
     trace.snapshot('writer.materials', { keyword, h2Titles, factEnrichedContents, draftContent, scopedSectionBlock, skipQualityBoost, thread: articleThread ? { question: articleThread.question, source: articleThread.source } : null }, { note: 'generateAllSectionsFinal 인자' });
@@ -3847,6 +3866,15 @@ ${quoted}
     );
     const draftModel = require('./model-use').modelsSince(draftModelSnap);
     trace.snapshot('draft.returned', allSectionsObj, { note: 'generateAllSectionsFinal 반환(보강·takeaway 반영 뒤)' });
+    // 📌 v3.8.776 — Writer 단계에서 충족된 요구(유지 검사의 기준). 뒤 단계가 지우면 최종 판정에 "회귀" 로 남는다
+    const writerRequirementResults: RequirementResult[] = (() => {
+      if (!userContract?.requirements.length) return [];
+      try {
+        const r = checkUserRequirements(userContract, { html: draftHtml(allSectionsObj) });
+        trace.event('user-requirement.draft', { stage: 'writer', results: r.map((x) => ({ id: x.id, status: x.status, reason: x.reason })) });
+        return r;
+      } catch { return []; }
+    })();
     // v3.8.761 — 좋은 지시를 받았다고 답한 것이 아니다: 계획한 핵심 질문을 초안이 실제로 답했는지 잰다(ANSWERED/PARTIAL/MISSING). MISSING 을 새 호출로 채우지 않는다
     try {
       if (coreQuestionsPlan.some((q) => q.applicable)) {
@@ -4320,6 +4348,8 @@ ${quoted}
         const esInput = allSectionsObj;   // 수리는 새 객체를 돌려준다(원본 불변) — 빈 절이 있을 때만 전 상태를 스냅샷한다
         const es = await repairEmptySections(allSectionsObj, {
           title: String(h1 || ''), mainKeyword: keyword,
+          // v3.8.776 — 수리도 작성자 명시 요구를 안다(압축 계약 — 값 장부에는 넣지 않는다)
+          ...(userCompact ? { requirements: userCompact } : {}),
           intentQuestions: [String(articleThread?.question || '')].filter(Boolean),
           packetText: researchPacketText, evidenceText: evidenceRender.text, ledger: claimLedger(),
           callModel: (p: string, o?: { json?: boolean; cacheSegments?: Array<{ text: string; cache?: boolean }> }) => callGeminiWithRetry(p, 1, { timeoutMs: 180000, ...(o?.json ? { json: true } : {}), ...(o?.cacheSegments ? { cacheSegments: o.cacheSegments } : {}) }),
@@ -4373,6 +4403,8 @@ ${quoted}
           title: String(h1 || ''), mainKeyword: keyword, article: allSectionsObj,
           packetText: researchPacketText, evidenceText: evidenceRender.text, items: currentEvidenceItems(),
           callModel: loopModel, onLog, modelOf, maxRevisions: 2,
+          // v3.8.776 — 비평·수정도 작성자 명시 요구를 안다(충족된 MUST·EXCLUDE 를 깨지 않게)
+          ...(userCompact ? { requirements: userCompact } : {}),
           // v3.8.746 — Research Recovery 비용을 따로 잰다(usage-cost 장부 델타)
           usageUsd: () => { try { return require('../llm/usage-cost').estimateCost().usd; } catch { return 0; } },
           /**
@@ -4518,7 +4550,15 @@ ${quoted}
     }
 
     // 4.5. 🔥 FAQ 생성 (별도 API 호출 — Schema.org FAQPage 포함)
-    let faqs = await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux);
+    /**
+     * 📌 v3.8.776 — FAQ 는 작성자 명시 요구가 없을 때만 기본값(5개). "FAQ 빼주세요" 면 만들지도 싣지도 않는다(JSON-LD 포함) ·
+     * "FAQ 3개" 면 그 개수로 만든다. 감사 775: FAQ 생성기는 요청을 몰라 제외 요청이 코드 구조상 지켜질 수 없었다.
+     */
+    let faqs: Awaited<ReturnType<typeof generateFAQFinal>> = userPlan.faq.enabled
+      ? await generateFAQFinal(keyword, h2Titles, onLog, articleTextForAux, { ...(userPlan.faq.explicit ? { count: userPlan.faq.count } : {}), requirementsBlock: userCompact })
+      : [];
+    if (!userPlan.faq.enabled) onLog?.('[PROGRESS] 67% - ❓ 작성자 요청에 따라 FAQ 를 만들지 않습니다');
+    trace.event('user-requirement.structure', { faq: userPlan.faq, maxTables: userPlan.maxTables, minTables: userPlan.minTables, cta: userPlan.cta, ...(userPlan.steps ? { steps: userPlan.steps } : {}) });
 
     /**
      * v3.8.645 — 본문이 이미 한 말을 되풀이하는 FAQ 는 버린다.
@@ -4636,8 +4676,13 @@ ${quoted}
       }
     }
 
+    // 📌 v3.8.776 — "CTA 빼주세요" 면 자동·수동 CTA 모두 싣지 않는다(기본값 자동 CTA 보다 명시 요구가 우선)
+    if (!userPlan.cta.enabled) {
+      if (ctas.length) onLog?.(`[PROGRESS] 70% - 🔗 작성자 요청에 따라 CTA ${ctas.length}개를 싣지 않습니다`);
+      ctas = [];
+    }
     // 수동 CTA가 없으면 자동 생성
-    if (ctas.length === 0) {
+    if (ctas.length === 0 && userPlan.cta.enabled) {
       // v3.8.542: onLog 를 넘긴다 — CTA 단계가 화면에 아무 말도 안 해서
       //   라우터가 돌았는지 안 돌았는지 확인할 방법이 없었다.
       ctaBlogUrl = String(
@@ -4875,7 +4920,8 @@ ${quoted}
        * 숫자가 가장 적은 표부터 뺀다 — 표를 빼도 글이 성립하도록 이미 시켜 두었다(표는 보조).
        */
       try {
-        const MAX_TABLES = 3;
+        // 📌 v3.8.776 — 3개는 기본 편집 규칙이다. 작성자가 "표 5개" 를 요청하면 그 수까지, "표 빼주세요" 면 0(본문 표는 목록으로 바뀐다)
+        const MAX_TABLES = userPlan.maxTables;
         const all: Array<{ si: number; hi: number; ti: number; digits: number }> = [];
         sections.forEach((section: any, si: number) => {
           (section.h3Sections || []).forEach((h: any, hi: number) => {
@@ -5900,6 +5946,9 @@ ${quoted}
     //   외부/내부 모드도 LLM이 FAQ 성격 H2를 자주 만들어내는데 그 위에 또
     //   `buildFAQHtml` 가시 블록을 append → 같은 글에 FAQ가 두 번 노출되던 문제.
     const hasFaqH2 = Array.isArray(h2Titles) && h2Titles.some((t: string) => /faq|자주\s*묻는|q\s*&\s*a|질의\s*응답/i.test(t || ''));
+    // 📌 v3.8.776 — 렌더 직전에도 계약을 한 번 더: 제외면 비우고(가시 블록·JSON-LD 모두 안 나감), 개수 요청이면 그 수로
+    if (!userPlan.faq.enabled) faqs = [];
+    else if (userPlan.faq.explicit && faqs.length > userPlan.faq.count) faqs = faqs.slice(0, userPlan.faq.count);
     if (faqs && faqs.length > 0) {
       if (!hasFaqH2) {
         html += buildFAQHtml(faqs);
@@ -7656,8 +7705,10 @@ ${conclusionHTML}
         const ledger = variantLedger();
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const variant = ledger ? { ledger, units: require('./variant-ledger').bodyUnits(ledger, html, String(h1 || '')) } : undefined;
+        // v3.8.776 — 작성자가 "가정·예시" 로 둔 값(1,000만원 가상 사례)은 근거 없는 사실이 아니라 가정 입력이다 — 파생 지지로 싣는다
+        const userHypo = userHypothetical.map((v) => ({ claim: v, operation: 'USER_HYPOTHETICAL_INPUT', sourceIds: ['USER_REQUEST'] }));
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const check = require('./fact-claims').checkClaims(judgeBodyText, claimLedger(), new Date(), derivedLedger, variant);
+        const check = require('./fact-claims').checkClaims(judgeBodyText, claimLedger(), new Date(), [...derivedLedger, ...userHypo], variant);
         if (check.variant?.length) trace.event('body-fact.variant', { judgements: check.variant });
         return check;
       } catch { return { supported: [], unsupported: [] }; }
@@ -7708,6 +7759,7 @@ ${conclusionHTML}
         finalJudge = await require('./critique-loop').runFinalJudge({
           title: judgeTitle, mainKeyword: keyword, article: judgeArticle,
           packetText: researchPacketText, evidenceText: evidenceRender.text,
+          ...(userCompact ? { requirements: userCompact } : {}),   // v3.8.776
           items: evidenceItems.map((i: any) => ({ id: i.id, title: i.title, cleanedText: i.cleanedText })),
           faqText: judgeFaqItems.map((f) => `Q. ${f.question}\nA. ${f.answer}`).join('\n'),
           faqItems: judgeFaqItems,   // v3.8.742 — 질문 값은 가정값
@@ -7768,6 +7820,32 @@ ${conclusionHTML}
     if (!surfaceGate.pass) trace.event('factual-surface.gate', { pass: false, reason: surfaceGate.reason, blockers: surfaceGate.blockers });
     if (criticalFinal.length) trace.event('critical-state.gate', { coverage: criticalFinal, pass: criticalGate.pass, reason: criticalGate.reason });
     /**
+     * 📌 v3.8.776 — 작성자 명시 요구가 최종 글에서 지켜졌나(USER_REQUIREMENT_COVERAGE). 유형별 결정론 판정 · Writer 단계에서 충족됐다가 사라진 요구는 회귀로 적는다.
+     * MUST 누락·모순 · EXCLUDE 위반 · 근거와 충돌한 값 요청 → 품질 루프와 상관없이 자동 발행하지 않는다(보류). PREFER·말투는 막지 않는다.
+     */
+    const userRequirementFinal: RequirementResult[] = (() => {
+      if (!userContract?.requirements.length) return [];
+      try {
+        const primary = new Set(['SUBJECT_OWNER_PRIMARY', 'PUBLIC_AUTHORITY_OFFICIAL']);
+        const results = checkUserRequirements(userContract, {
+          html,
+          evidenceText: evidenceItems.map((i) => `${i.title}\n${i.cleanedText}`).join('\n'),
+          officialSources: evidenceItems.filter((i) => primary.has(String(i.authority || '')) || i.isOfficial).length,
+        });
+        const regressed = requirementRegressions(writerRequirementResults, results, 'writer→final');
+        return results.map((r) => (regressed.some((x) => x.id === r.id) ? { ...r, reason: `${r.reason} · 회귀: Writer 에서는 충족 → 뒤 단계에서 사라짐` } : r));
+      } catch (reqCovErr) {
+        console.warn('[USER-REQUIREMENT] 최종 판정 실패:', String((reqCovErr as Error)?.message || reqCovErr).slice(0, 120));
+        return [];
+      }
+    })();
+    const userGate = requirementGate(userRequirementFinal);
+    if (userRequirementFinal.length) {
+      trace.event('user-requirement.final', { results: userRequirementFinal.map((r) => ({ id: r.id, type: r.type, priority: r.priority, status: r.status, reason: r.reason, evidence: r.evidence })) });
+      trace.event('user-requirement.publish', { pass: userGate.pass, reason: userGate.reason, blockers: userGate.blockers.map((b) => b.id) });
+      onLog?.(`[PROGRESS] 96% - 📌 작성자 요구 ${userRequirementFinal.filter((r) => r.status === 'COVERED').length}/${userRequirementFinal.length} 충족${userGate.pass ? '' : ` · 보류: ${userGate.reason}`}`);
+    }
+    /**
      * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
      * 전부 PASS 이고 비평 루프가 수렴했고 심사가 "한 번 더 고쳐도 별 차이 없다"고 하면 QUALITY_CONVERGED → 자동 발행.
      * 아니면 MANUAL_REVIEW — 글은 돌려주되 자동으로 발행하지 않는다.
@@ -7787,20 +7865,23 @@ ${conclusionHTML}
       CRITICAL_STATE_PASS: criticalGate.pass,
       // v3.8.770/771 — 제목·사실 소제목이 최종 본문·채택 팩트체크와 정면으로 어긋나면 자동 발행하지 않는다(보류 하나로 묶음)
       FINAL_FACTUAL_SURFACE_PASS: surfaceGate.pass,
+      // v3.8.776 — 작성자 명시 요구(MUST 누락·EXCLUDE 위반·근거 충돌 값 요청)가 지켜지지 않았으면 자동 발행하지 않는다. 요구가 없으면 늘 true
+      USER_REQUIREMENT_PASS: userGate.pass,
     };
     hardGatesAllPass = Object.values(hardGates).every(Boolean);
     qualityConverged = runFinalQa
       ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
       : hardGatesAllPass;
     manualReviewReason = qualityConverged ? '' : [
-      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k === 'FINAL_FACTUAL_SURFACE_PASS' ? `${k}(${surfaceGate.reason})` : k)),
+      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k === 'FINAL_FACTUAL_SURFACE_PASS' ? `${k}(${surfaceGate.reason})` : k === 'USER_REQUIREMENT_PASS' ? `${k}(${userGate.reason})` : k)),
       ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
       ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
     ].filter(Boolean).join(' · ');
     publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
     // v3.8.769 — 현재 상태와 반대로 안내하는 글은 품질 루프와 상관없이 막는다(enforced). 사람이 편집하거나 forcePublish 로 명시하면 예전처럼 지나간다
     // v3.8.770 — 제목 모순도 같은 계약: 품질 루프와 상관없이 보류(PUBLISH_HELD)
-    const publishEnforced = qualityLoopOn || !criticalGate.pass || !surfaceGate.pass;
+    // v3.8.776 — 작성자 명시 요구 위반도 같은 계약(품질 루프와 상관없이 보류)
+    const publishEnforced = qualityLoopOn || !criticalGate.pass || !surfaceGate.pass || !userGate.pass;
     /**
      * v3.8.752 (감사 F12) — 상태 이름표를 여섯 개념으로 가른다(quality-status.ts).
      * 4편 실측: 루프 OFF 인데 `FINAL: QUALITY_CONVERGED` 가 찍혔다 — 미실행 관문이 true 라 '수렴' 별칭이 붙은 것.
@@ -7863,6 +7944,9 @@ ${conclusionHTML}
         url: '',
         title: String(h1 || keyword || ''),
         keyword: String(keyword || ''),
+        // v3.8.776 — 원래 요청(빈 요청도 '' 로 남긴다 — 재생성 때 "요청 없음" 과 "기록 없음(옛 글)" 을 가른다)·계약 지문
+        userRequest: userContract?.rawText || '',
+        ...(userContract?.fingerprint ? { userRequestFingerprint: userContract.fingerprint } : {}),
         // v3.8.752 — 실행 ID(발행 시도가 이 값으로 이 줄에 붙는다) · 점수의 대상 원고 · 품질 상태 여섯 개념
         runId,
         auditScoreTarget: 'final-html',

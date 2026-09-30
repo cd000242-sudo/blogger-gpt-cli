@@ -2121,9 +2121,13 @@ JSON만 출력 (설명/마크다운 금지):
       const threadFixBlock = thread && threadBefore.length
         ? `\n🧵 [실 위반 — 반드시 고칠 것]\n독자의 문제: 「${thread.question}」\n${threadBefore.map((v, i) => `${i + 1}) ${v}`).join('\n')}\n- 서론의 마지막 문장은 이 문제를 독자에게 묻는 질문 한 문장(물음표)으로.\n- 절마다 "takeaway" 에 필자의 반응 한 문장: 조건(누가·어떤 경우) + 행동 + 이유. "확인하세요·점검하세요" 목록은 반응이 아닙니다.\n- "conclusion" 은 서론의 질문을 한 문장으로 되받고 답을 줍니다 — "A 라면 된다 / B 라면 안 된다".\n- 위반이 없는 절과 문장은 그대로 둡니다. 새 수치를 지어내지 않습니다.\n`
         : '';
+      // v3.8.776 — 보강도 작성자 명시 요구(표·단계·FAQ 제외 등)를 안다. 감사 775: 이 호출에는 요청이 전혀 없었다
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const boostRequirements = (() => { try { return require('./user-requirement').compactFromGuide(sectionGuideBlock || ''); } catch { return ''; } })();
       const improvePrompt = `
 키워드: ${keyword}
 아래 JSON은 블로그 본문 초안입니다. **${lowQuality ? '품질이 낮아서 보강이 필요합니다!' : '흐름(실)이 끊겨 손질이 필요합니다.'}**
+${boostRequirements}
 
 🔴🔴🔴 필수 보강 규칙 🔴🔴🔴
 1) JSON 구조(객체/필드명)는 그대로 유지
@@ -2420,8 +2424,14 @@ export async function generateFAQFinal(
   keyword: string,
   h2Titles: string[],
   onLog?: (s: string) => void,
-  groundedContent?: string
+  groundedContent?: string,
+  /**
+   * v3.8.776 — 작성자 명시 요구. count 가 있으면 기본 5개 대신 그 개수로 만들고, requirementsBlock(압축 계약)을 프롬프트 끝에 싣는다.
+   * FAQ 제외는 호출부가 이 함수를 부르지 않는 것으로 지킨다.
+   */
+  options?: { count?: number; requirementsBlock?: string },
 ): Promise<FAQItem[]> {
+  const faqCount = Math.max(1, Math.min(10, Math.round(Number(options?.count) || 5)));
   const faqToday = kstToday();
   // v3.7.21: 키워드 한정자 감지 — FAQ도 본문과 동일 스코프 유지 (한정자 외 질문 금지)
   const faqScope = detectKeywordScope(keyword);
@@ -2444,7 +2454,7 @@ export async function generateFAQFinal(
     ? `\n===== 백그라운드 (독자 앞에서 언급 금지) =====\n${groundedText}\n=====\n\nFAQ는 위 컨텍스트와 H2 제목에서만 파생하세요. 컨텍스트에 없는 숫자/금액/기간/마감일/기관명/URL은 만들지 마세요.\n🚫 답변에 "본문 근거", "제공된 자료", "본문에 나와 있지 않다" 같은 메타 표현 금지 — 독자는 이 컨텍스트를 모릅니다.\n`
     : '\n컨텍스트가 부족합니다. 키워드와 H2 제목에서 자연스럽게 파생되는 질문만 만들고, 확인되지 않은 수치는 쓰지 말고 일반 원칙+공식 확인 안내로 서술하세요.\n🚫 "본문 근거가 없어요" 같은 메타 표현 금지.\n';
   // v3.8.567 (E2): 영어면 FAQ 프롬프트도 통째로 바꾼다. 아래 한국어판은 그대로 둔다.
-  const prompt = getActiveLanguage() === 'en'
+  const basePrompt = getActiveLanguage() === 'en'
     ? buildEnglishFaqPrompt({
       keyword,
       h2Titles,
@@ -2487,6 +2497,11 @@ JSON 형식:
 
 JSON만 출력:
 `;
+  // v3.8.776 — 작성자가 개수를 정했으면 그 개수(기본 5개는 기본 편집 규칙) · 압축 계약을 끝에 싣는다
+  const prompt = (faqCount === 5 ? basePrompt : basePrompt
+    .replace('자주 묻는 질문(FAQ) 5개를', `자주 묻는 질문(FAQ) ${faqCount}개를`)
+    .replace('답변 5개 중 최소 3개는', `답변 ${faqCount}개 중 최소 ${Math.min(3, faqCount)}개는`)
+    .replace('...총 5개', `...총 ${faqCount}개`)) + (options?.requirementsBlock ? `\n${options.requirementsBlock}` : '');
 
   // v3.7.21: FAQ 응답 파싱 헬퍼 — 검증/재시도 흐름에서 재사용
   const parseFaqRespToValid = (resp: string): FAQItem[] => {
@@ -2563,7 +2578,7 @@ JSON만 출력:
       }
     }
 
-    if (valid.length < 3) throw new Error(`Too few valid FAQs: ${valid.length}`);
+    if (valid.length < Math.min(3, faqCount)) throw new Error(`Too few valid FAQs: ${valid.length}`);
     onLog?.(`[PROGRESS] 68% - ✅ FAQ ${valid.length}개 생성 완료`);
     return valid;
   } catch (e) {

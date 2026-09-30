@@ -473,6 +473,17 @@ export function showAutoImageSourceModal() {
  * ⚠️ 사용자가 입력한 값(키워드·링크·엔진 선택)은 건드리지 않는다.
  *    그건 다음 글에도 쓸 설정이지 '이 글'의 상태가 아니다.
  */
+/**
+ * v3.8.776 — 생성물 동일성(같은 글인가)의 작성자 요청 부분. 공백·줄바꿈 차이만 같게 본다(core user-requirement.requestKey 와 같은 규칙).
+ * "FAQ 넣기" 와 "FAQ 빼기" 처럼 글자가 다르면 다른 글이다 — 같은 키워드라도 예전 생성물을 쓰지 않는다.
+ */
+export function userRequestKey(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+export function sameUserRequest(saved, current) {
+  return userRequestKey(saved) === userRequestKey(current);
+}
+
 export function resetArticleStateAfterPublish(reason = 'publish') {
   const cleared = [];
   try {
@@ -1409,6 +1420,10 @@ export async function publishToPlatform() {
         current: currentKeyword,
         saved: savedKeyword,
       });
+      appState.generatedContent = null;
+    } else if (!sameUserRequest(appState.generatedContent.payload?.userRequest, document.getElementById('userRequestNote')?.value)) {
+      // v3.8.776 — 같은 키워드라도 작성자 요청이 바뀌면 다른 글이다(감사 775: 요청만 바꾸면 예전 글이 발행됐다)
+      debugLog('PUBLISH', '작성자 요청 변경 감지 → 이전 콘텐츠 폐기 (새 글 생성)', {});
       appState.generatedContent = null;
     }
   }

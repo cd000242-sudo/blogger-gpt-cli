@@ -2,7 +2,7 @@
 import { DOMCache, getAppState, getErrorHandler, ButtonStateManager, addLog, debugLog, sanitizeHTML, getTextLength } from './core.js';
 import { showTab, setRunning } from './ui.js';
 import { isLicenseValid } from './settings.js';
-import { createPreviewPayload } from './posting.js';
+import { createPreviewPayload, sameUserRequest } from './posting.js';
 
 /**
  * 미리보기를 **실제 발행 화면과 같은 치수**로 맞춘다. (v3.8.618)
@@ -293,7 +293,9 @@ export async function startSemiAutoPublish() {
       || ''
     ).trim();
     const sameKeyword = keyword && savedKeyword && keyword === savedKeyword;
-    if (sameKeyword) {
+    // v3.8.776 — 같은 키워드라도 작성자 요청이 바뀌면 새로 만든다(감사 775: 편집기만 열려 요청이 무시됐다)
+    const sameRequest = sameUserRequest(appState.generatedContent?.payload?.userRequest, document.getElementById('userRequestNote')?.value);
+    if (sameKeyword && sameRequest) {
       window.__semiAutoMode = true;
       window.openVisualEditor?.({ kind: 'appstate' });
       return;

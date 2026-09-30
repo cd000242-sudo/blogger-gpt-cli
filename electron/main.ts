@@ -4245,6 +4245,8 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
   title?: string;
   mode?: 'article' | 'images';
   payload?: any;
+  /** v3.8.776 — 새 작성자 요청(비우면 원래 요청을 장부에서 되살린다) */
+  userRequest?: string;
 }) => {
   const send = (line: string) => {
     try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ }
@@ -4279,8 +4281,26 @@ ipcMain.handle('regenerate-published-post', async (_evt, args: {
     if (mode === 'article') {
       send(`[PROGRESS] 5% - 🔄 "${title.slice(0, 30)}" 본문을 다시 만듭니다 (주소 유지)`);
       const { generateUltimateMaxModeArticleFinal } = require('../dist/core/ultimate-final-functions');
+      /**
+       * 📌 v3.8.776 — 재생성은 원래 작성자 요청을 되살린다(감사 775: 여기서 요청이 사라졌다). 새로 적은 요청이 있으면 그것이 이긴다.
+       * 장부에 칸이 없는 옛 글은 UNKNOWN — 빈 요청이었다고 단정하지 않는다.
+       */
+      let requestPatch: Record<string, unknown> = {};
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const ur = require('../dist/core/final/user-requirement');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const ledger = require('../dist/core/final/publish-ledger');
+        const resolved = ur.resolveRegenerateRequest({
+          explicit: args?.userRequest ?? args?.payload?.userRequest,
+          stored: ur.findStoredRequest(ledger.readLedger(ledger.defaultLedgerPath()), { url: current.url, title }),
+        });
+        requestPatch = { ...(resolved.userRequest ? { userRequest: resolved.userRequest } : {}), userRequestOrigin: `regenerate:${resolved.origin}` };
+        send(`[PROGRESS] 6% - 📌 작성자 요청: ${resolved.origin === 'UNKNOWN' ? '원래 요청 기록 없음(이 기능 전의 글)' : resolved.origin === 'STORED_EMPTY' ? '원래 요청 없음' : resolved.origin === 'EXPLICIT' ? '새로 적은 요청 사용' : '원래 요청을 되살림'}`);
+      } catch { /* 되살리기 실패가 재생성을 막지 않는다 */ }
       const payload = {
         ...(args?.payload || {}),
+        ...requestPatch,
         topic: title,
         keyword: title,
         platform: creds.platform,

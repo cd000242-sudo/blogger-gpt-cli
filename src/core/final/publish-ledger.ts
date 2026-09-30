@@ -42,6 +42,10 @@ export interface LedgerEntry {
   url: string;
   title: string;
   keyword: string;
+  /** v3.8.776 — 생성 때의 작성자 요청 원문(없었으면 ''). 칸 자체가 없는 줄은 이 기능 전의 글(요청 여부 모름) */
+  userRequest?: string;
+  /** v3.8.776 — 요청 계약 지문(정규화 원문 + 구조 요구) */
+  userRequestFingerprint?: string;
   /** 하네스 점수 0~100 */
   auditScore?: number;
   /** 잡힌 결함 종류별 개수 */

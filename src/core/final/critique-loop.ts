@@ -118,6 +118,8 @@ export interface LoopInput {
   article: ArticleSections;
   packetText: string;
   evidenceText: string;
+  /** v3.8.776 — 작성자 명시 요구(압축 계약). 값 장부(ledgerOf)에는 넣지 않는다 — 요청 속 수치는 근거가 아니다 */
+  requirements?: string | undefined;
   items: Array<{ id: string; title: string; cleanedText: string }>;
   callModel: CallModel;
   onLog?: (m: string) => void;
@@ -379,6 +381,7 @@ async function callCritic(input: LoopInput, units: Unit[], rules: string, extra:
     manuscript: manuscriptFor(manuscriptUnits),
     tail: [
       '===== 단계 과제 =====', rules, '', `제목: ${input.title}`,
+      ...(input.requirements ? ['', input.requirements] : []),   // v3.8.776 — 작성자 명시 요구를 어기는 곳도 지적 대상
       ...(extra ? ['', extra] : []),
     ].join('\n'),
   });
@@ -497,7 +500,8 @@ export async function reviseSections(input: LoopInput, units: Unit[], open: Issu
     const body = u.kind === 'section' ? u.h3Sections.map((h, i) => `[index ${i}] <h3>${h.h3}</h3>\n${h.content}`).join('\n\n') : u.text;
     return `===== [${u.id}] ${u.h2} =====\n--- 지적 ---\n${issuesText}\n${ev ? `--- 관련 근거 ---\n${ev}\n` : ''}--- 원문 ---\n${body}`;
   });
-  const prompt = [EDITOR_RULES, '', `제목: ${input.title}`, `메인 키워드: ${input.mainKeyword}`, '', input.packetText.slice(0, 4500), '', ...blocks].join('\n');
+  // v3.8.776 — 고치면서 작성자 명시 요구(표·단계·제외)를 깨지 않게 압축 계약을 함께 준다
+  const prompt = [EDITOR_RULES, '', `제목: ${input.title}`, `메인 키워드: ${input.mainKeyword}`, '', input.packetText.slice(0, 4500), '', ...(input.requirements ? [input.requirements, ''] : []), ...blocks].join('\n');
   let parsed: any = null;
   try { parsed = readJson(await input.callModel(prompt, { json: true })); outcome.calls = 1; } catch (err: any) { if ((err as any)?.canceled) throw err; for (const id of targets) outcome.rejected.push({ sectionId: id, reason: `호출 실패: ${String(err?.message || err).slice(0, 60)}` }); return { article, outcome }; }
   if (input.modelOf) outcome.models.push(input.modelOf());
@@ -546,6 +550,8 @@ BLOCK 사유는 각각 sectionId · 본문 원문 구절(exactSpan) · type(CONT
 export async function runFinalJudge(input: {
   title: string; mainKeyword: string; article: ArticleSections; packetText: string; evidenceText: string; items: LoopInput['items'];
   faqText?: string; summaryText?: string; ctaText?: string; gateSummary?: string; callModel: CallModel; modelOf?: () => string; onLog?: (m: string) => void;
+  /** v3.8.776 — 작성자 명시 요구(압축 계약) */
+  requirements?: string | undefined;
   /** v3.8.742 — 질문/답변을 따로 주면 FAQ 값 검사는 faq-fact-guard 와 같은 규칙(질문 값은 가정, 답변 값만 대조)을 쓴다 */
   faqItems?: Array<{ question: string; answer: string }>;
 }): Promise<JudgeResult> {
@@ -578,6 +584,7 @@ export async function runFinalJudge(input: {
     manuscript: manuscriptFor(units, 2000),
     tail: [
       '===== 단계 과제 =====', JUDGE_RULES, '', `제목: ${input.title}`, '',
+      ...(input.requirements ? [input.requirements, ''] : []),   // v3.8.776
       `===== 관문 결과 =====\n${input.gateSummary || '(없음)'}\n코드 값 대조: 근거 없는 값 ${blockers.filter((b) => b.type === 'UNSUPPORTED_VALUE').length}개`, '',
       ...(input.summaryText ? [`===== 요약표 =====\n${stripHtml(input.summaryText).slice(0, 1200)}`, ''] : []),
       ...(input.faqText ? [`===== FAQ =====\n${stripHtml(input.faqText).slice(0, 2000)}`, ''] : []),

@@ -31,6 +31,11 @@ export interface FactEvidence {
    * 본문 관문(checkClaims)과 같은 장부·같은 판정. scope 는 이 블록이 속한 절(소제목)의 범위.
    */
   variant?: { ledger: VariantLedger; scope?: VariantScope };
+  /**
+   * v3.8.776 — 작성자가 "가정·예시" 로 둔 입력 값(user-requirement.hypotheticalInputs). 가정 표지가 있는 문장에서는 근거 없는 사실이 아니라 가정 입력이다.
+   * 표지 없이 사실처럼 쓴 문장("보험금 1,000만원을 받을 수 있습니다")은 예전처럼 근거가 필요하다.
+   */
+  userHypothetical?: string[];
 }
 
 export type FactIntegrityViolationKind =
@@ -350,6 +355,9 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 
+/** v3.8.776 — 가정 예시 표지(작성자 가정 입력 값을 살리는 문장 조건) */
+const USER_HYPO_MARK = /가정|가상|예를\s*들|예시|사례|라고\s*하면|라면|경우를\s*들/;
+
 /** v3.8.774 — 근거 문맥의 사양값(한 문맥당 한 번 계산) — 장부 원문에 없는 사양값이 문맥 어딘가에 글자로 있는지(값 존재 판정) */
 let specCache: { context: string; values: Set<string> } = { context: '', values: new Set() };
 function contextSpecValues(context: string): Set<string> {
@@ -399,6 +407,11 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
       const { resolved, checks } = resolveHypotheticalValues(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
       derivedOut?.push(...checks);
       unsupported = unsupported.filter((value) => !resolved.has(value));
+    }
+    // v3.8.776 — 작성자가 가정 입력으로 둔 값은 가정 표지가 있는 문장에서 지우지 않는다(R7 "1,000만원 가상 사례")
+    if (unsupported.length > 0 && evidence.userHypothetical?.length && USER_HYPO_MARK.test(sentence)) {
+      const hypo = new Set(evidence.userHypothetical.map((h) => normalize(h)));
+      unsupported = unsupported.filter((v) => !hypo.has(v));
     }
     /**
      * v3.8.773 — 값이 근거에 있어도 모델·트림이 붙은 주장이면 같은 변형의 원문 값이어야 한다(variant-ledger).
