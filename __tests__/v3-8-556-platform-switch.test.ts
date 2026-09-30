@@ -92,7 +92,9 @@ describe('③ 발행 대기 콘텐츠 — 배너에서 플랫폼을 고른다', 
       expect(build).toContain(`${key}: platform`);
     }
     // 원래 payload 를 버리지 않는다 — 카테고리·공개설정 등이 날아가면 안 된다
-    expect(build).toContain('...(item?.payload || {})');
+    // v3.8.780 — 공용 함수로 펼친다(강제 발행 값 하나만 버리고 나머지는 그대로 — 780 테스트가 실제로 돌려 본다)
+    expect(build).toContain('...republishPayloadOf(item),');
+    expect(read('electron/ui/modules/republish-queue-store.js')).toContain('const { forcePublish: _droppedForce, ...rest } = item?.payload || {};\n  return rest;');
   });
 
   it('⭐ 재발행 버튼이 buildRepublishData 를 쓴다 (옛 조립을 그대로 두면 무동작이 된다)', () => {

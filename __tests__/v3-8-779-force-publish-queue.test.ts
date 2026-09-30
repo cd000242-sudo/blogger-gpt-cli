@@ -209,7 +209,7 @@ describe('T8 일반 재발행 성공 계약 회귀 없음 — 같은 공용 함�
     const fail = between(handler, '} else {', '} catch (err) {');
     expect(fail).not.toContain('resolveRepublishItems');
     expect(PREVIEW).not.toContain('const filtered = currentQueue.filter(x => x.id !== id);\n            localStorage.setItem');
-    expect(PREVIEW).toContain("import { resolveRepublishItems, byRepublishItemId } from './republish-queue-store.js';");
+    expect(PREVIEW).toMatch(/import \{ resolveRepublishItems, byRepublishItemId(, [a-zA-Z]+)* \} from '\.\/republish-queue-store\.js';/);   // v3.8.780 에서 republishPayloadOf 추가
   });
   test('대기열 저장은 에이전트 작업 ID 를 항목에 싣는다(payload 는 예전 그대로)', () => {
     const save = between(POSTING, 'function saveToRepublishQueue(entry = {}) {', 'const queue = JSON.parse');
