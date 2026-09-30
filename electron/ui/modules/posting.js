@@ -5,7 +5,8 @@ import { loadSettings } from './settings.js';
 import { addTodayWorkRecord } from './calendar.js';
 import { getAllKeywords, getH2ImageSections } from './utils.js';
 import { showQualityReportModal, accumulateQualityReport } from './quality-report-modal.js';
-import { renderForcePublishOffer, clearForcePublishOffer } from './agent-force-publish.js';
+import { renderForcePublishOffer, clearForcePublishOffer, beginAgentJobPublish, endAgentJobPublish } from './agent-force-publish.js';
+import { settleRepublishAfterPublish } from './republish-queue-store.js';
 
 const AGENT_PROGRESS_STAGES = [
   { id: 'prepare', label: '작업 준비', range: [0, 20] },
@@ -57,6 +58,8 @@ function saveToRepublishQueue(entry = {}) {
       keyword: entry.keyword || entry.title || '',
       // v3.8.752 — 생성 실행 ID. 재발행이 성공하면 이 값으로 원래 장부 줄에 주소가 붙는다(제목으로 추측하지 않는다)
       runId: entry.runId || '',
+      // v3.8.779 — 에이전트 작업 ID. 같은 글이 다른 길(검토 후 강제 발행)로 발행되면 이 값으로 이 항목을 뺀다
+      agentJobId: entry.agentJobId || '',
     };
     const queue = JSON.parse(localStorage.getItem('pendingRepublishQueue') || '[]');
     queue.push(item);
@@ -837,6 +840,7 @@ export async function runPosting() {
           lastError: publishResult?.error || 'agent_publish_failed',
           keyword: payload?.keyword || payload?.topic || keywordValue || '',
           runId: agentResult?.runId || generated.runId || '',
+          agentJobId: generated.payload?.agentJobId || agentResult?.jobId || '',
         });
       }
       setFinalResult({
@@ -1401,6 +1405,8 @@ export async function publishToPlatform(options) {
   if (!isQueueRun && !(await passesShoppingCooldown())) return;
   const agentFlowActive = !!window.__agentPublishFlowActive;
   let publishSucceeded = false;
+  let agentJobForPublish = '';     // v3.8.779 — 이번 발행이 다루는 에이전트 작업 ID(없으면 '')
+  let agentJobClaimed = false;     // v3.8.779 — 이 호출이 그 작업의 발행 자리를 잡았나(잡은 호출만 풀거나 PUBLISHED 로 닫는다)
   debugLog('PUBLISH', 'publishToPlatform 호출', {
     hasContent: !!appState.generatedContent?.content?.trim(),
     isRunning: appState.isRunning,
@@ -1469,6 +1475,15 @@ export async function publishToPlatform(options) {
       const titleToPublish = appState.generatedContent.title || currentPayload.title || currentPayload.topic || '';
       const htmlToPublish = appState.generatedContent.content || '';
       const thumbnailToPublish = appState.generatedContent.thumbnailUrl || appState.generatedContent.thumbnail || '';
+      // v3.8.779 — 에이전트 글이면 그 작업 ID 로 같은 글을 두 번 발행하지 않는다(PUBLISHING/PUBLISHED). 성공하면 대기열 항목도 이 ID 로 뺀다
+      agentJobForPublish = String(appState.generatedContent.payload?.agentJobId || '');
+      if (agentJobForPublish) {
+        if (!beginAgentJobPublish(agentJobForPublish)) {
+          addLog('⛔ 이미 발행 중이거나 발행한 에이전트 글입니다 — 두 번째 발행을 막았습니다', 'warning');
+          return { ok: false, duplicateBlocked: true, error: '이미 발행 중이거나 발행한 에이전트 글입니다' };
+        }
+        agentJobClaimed = true;
+      }
       // v3.8.102: 자동 진단 트래커 시작 — 사용자가 캡처할 필요 없이 자동 결론 출력
       window.__bodyTrace = [];
       const trace = (stage, htmlText) => {
@@ -1495,6 +1510,8 @@ export async function publishToPlatform(options) {
           thumbnailUrl: thumbnailToPublish,
           // v3.8.752 — 생성 실행 ID (장부 줄에 주소를 잇는 열쇠)
           runId: appState.generatedContent.runId || '',
+          // v3.8.779 — 에이전트 글 ID(장부 줄이 없어도 강제 발행 감사 기록과 이 발행 시도가 같은 ID 로 이어진다)
+          articleId: agentJobForPublish ? `agent-job:${agentJobForPublish}` : '',
         });
       } else if (window.blogger?.publishContent) {
         result = await window.blogger.publishContent(
@@ -1520,6 +1537,17 @@ export async function publishToPlatform(options) {
 
       if (result?.ok || result?.success) {
         publishSucceeded = true;
+        // v3.8.779 — 발행 성공이 확인된 지금만: 같은 에이전트 작업이 재발행 대기열(보류 → 대기열)에 있으면 뺀다.
+        //   재발행 버튼과 같은 공용 함수 · 작업 ID 로만(제목 대조 없음). 실패·취소·불확실이면 여기 오지 않는다 = 항목 유지
+        if (agentJobForPublish) {
+          try {
+            const resolved = settleRepublishAfterPublish({ result, agentJobId: agentJobForPublish, forced: userApprovedForce });
+            if (resolved.length) {
+              addLog(`🧹 재발행 대기열에서 같은 글 ${resolved.length}개를 뺐습니다(이미 발행됨 — 중복 발행 방지)`, 'info');
+              window.renderRepublishQueueBanner?.();
+            }
+          } catch { /* 대기열 정리 실패가 발행 성공을 뒤집지 않는다 */ }
+        }
         // v3.8.400: 쇼핑모드 발행 시각을 남긴다 — 다음 연속 발행 간격 계산에 쓰인다
         //   v3.8.404: **쿠팡을 쓴 발행만** 기록한다. 토스·네이버 발행이 쿠팡 쿨다운을
         //   시작시키면, 쿠팡을 한 번도 안 건드렸는데 다음 쿠팡 글이 막힌다.
@@ -1643,6 +1671,7 @@ export async function publishToPlatform(options) {
           renderForcePublishOffer(document, result, {
             confirmFn: (message) => window.confirm(message),
             onApprove: () => publishToPlatform({ forcePublish: true }),
+            jobId: agentJobForPublish,
           });
         } catch { /* 안내 실패가 보류를 풀지 않는다 */ }
         return result || { ok: false, error: publishError };
@@ -1658,6 +1687,8 @@ export async function publishToPlatform(options) {
       getErrorHandler().handle(error, { function: 'publishToPlatform' });
       return { ok: false, error: error?.message || String(error || 'publish_error') };
     } finally {
+      // v3.8.779 — 이 호출이 잡은 에이전트 작업 자리만 닫는다: 성공이면 PUBLISHED(다시 못 보냄), 아니면 풀어 재시도 허용
+      if (agentJobClaimed) endAgentJobPublish(agentJobForPublish, publishSucceeded);
       appState.isRunning = false;
       setRunning(false);
       restoreKeywordInputInteractivity();

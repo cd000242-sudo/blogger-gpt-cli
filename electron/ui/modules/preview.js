@@ -3,6 +3,7 @@ import { DOMCache, getAppState, getErrorHandler, ButtonStateManager, addLog, deb
 import { showTab, setRunning } from './ui.js';
 import { isLicenseValid } from './settings.js';
 import { createPreviewPayload, sameUserRequest } from './posting.js';
+import { resolveRepublishItems, byRepublishItemId } from './republish-queue-store.js';
 
 /**
  * 미리보기를 **실제 발행 화면과 같은 치수**로 맞춘다. (v3.8.618)
@@ -481,9 +482,8 @@ export function renderRepublishQueueBanner() {
           const result = await window.electronAPI.invoke('publish-content', publishData);
           if (result?.ok || result?.success || result?.url) {
             addLog(`✅ 재발행 성공: ${result.url || item.title}`, 'success');
-            // 성공 시 큐에서 제거
-            const filtered = currentQueue.filter(x => x.id !== id);
-            localStorage.setItem('pendingRepublishQueue', JSON.stringify(filtered));
+            // 성공 시 큐에서 제거 — v3.8.779 에이전트 강제 발행 성공과 같은 공용 함수(항목 id 로만)
+            resolveRepublishItems(byRepublishItemId(id), { resolution: 'REPUBLISHED', url: result.url || '' });
             renderRepublishQueueBanner();
             alert(`✅ 재발행 성공!\n${result.url || ''}`);
           } else {

@@ -6752,7 +6752,7 @@ safeRegisterHandler('run-semi-auto-post', async (_evt: Electron.IpcMainInvokeEve
  * 이제 성공·실패 모두 시도로 남고, runId 가 없으면 제목으로 추측하지 않고 미연결 파일에 남긴다.
  * 기록 실패가 발행 결과를 바꾸지 않는다.
  */
-function recordPublishAttemptSafely(input: { runId?: string; platform?: string; target?: string; ok: boolean; url?: string; postId?: string; error?: string; source: string }): void {
+function recordPublishAttemptSafely(input: { runId?: string; platform?: string; target?: string; ok: boolean; url?: string; postId?: string; error?: string; source: string; articleId?: string; resolution?: string }): void {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { recordPublishAttempt, defaultLedgerPath, appendRunTracePublishAttempt } = require('../dist/core/final/publish-ledger');
@@ -6768,6 +6768,9 @@ function recordPublishAttemptSafely(input: { runId?: string; platform?: string; 
       postId: String(input.postId || ''),
       error: String(input.error || ''),
       source: input.source,
+      // v3.8.779 — 에이전트 글 ID·강제 발행 결말(감사 기록과 같은 ID 로 이어진다). 없으면 빈 값 — 예전 기록과 같다
+      articleId: String(input.articleId || ''),
+      resolution: String(input.resolution || ''),
     });
     console.log(`[LEDGER] 🔗 발행 시도 기록 (${input.source} · ${input.ok ? '성공' : '실패'}): ${rec.linked ? `run ${input.runId} 에 연결${rec.duplicate ? ' (같은 주소 이미 있음 — 중복 안 붙임)' : ''}` : 'run 미연결(runId 없음 또는 장부에 없음) — 미연결 파일에 남김'}`);
   } catch (ledgerErr: any) {
@@ -8054,6 +8057,9 @@ ipcMain.handle('publish-content', async (_evt, data) => {
       postId: String(result?.postId || result?.id || ''),
       error: result && !result.ok ? String(result.error || '발행 실패') : '',
       source: 'publish-content',
+      // v3.8.779 — 강제 발행이 실제로 성공했을 때만 그 결말을 남긴다(승인 감사 기록은 발행 창구가 이미 남겼다)
+      articleId: String(data?.articleId || ''),
+      resolution: result?.ok && data?.payload?.forcePublish === true ? 'PUBLISHED_BY_FORCE_OVERRIDE' : '',
     });
 
     console.log('[PUBLISH] 발행 결과:', {

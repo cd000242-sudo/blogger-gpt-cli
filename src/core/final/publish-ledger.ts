@@ -179,6 +179,10 @@ export interface PublishAttempt {
   error?: string;
   /** 어느 창구에서 왔나 — run-post · publish-content · schedule … */
   source?: string;
+  /** v3.8.779 — 장부 줄이 없는 글(에이전트)의 ID — 강제 발행 감사 기록(articleId)과 같은 값 */
+  articleId?: string;
+  /** v3.8.779 — 이 시도로 끝난 결말. 강제 발행 성공이면 'PUBLISHED_BY_FORCE_OVERRIDE' */
+  resolution?: string;
 }
 
 export interface PublishAttemptInput {
@@ -190,6 +194,8 @@ export interface PublishAttemptInput {
   postId?: string | undefined;
   error?: string | undefined;
   source?: string | undefined;
+  articleId?: string | undefined;
+  resolution?: string | undefined;
 }
 
 export interface PublishAttemptRecord {
@@ -302,6 +308,8 @@ function toAttempt(input: PublishAttemptInput, attemptId: string): PublishAttemp
     ...(input.postId ? { postId: String(input.postId) } : {}),
     ...(input.error ? { error: String(input.error).slice(0, 300) } : {}),
     ...(input.source ? { source: String(input.source) } : {}),
+    ...(input.articleId ? { articleId: String(input.articleId) } : {}),
+    ...(input.resolution ? { resolution: String(input.resolution) } : {}),
   };
 }
 

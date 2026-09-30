@@ -24,6 +24,32 @@ export const HOLD_CATEGORY_LABELS = {
 
 const OFFER_ID = 'agentForcePublishOffer';
 
+/**
+ * v3.8.779 — 같은 에이전트 작업을 두 번 발행하지 않는다. 새 멱등 시스템이 아니라 작업 ID 별 두 상태뿐:
+ *   PUBLISHING(발행 요청 중) · PUBLISHED(성공 확인). 실패하면 지워서 다시 시도할 수 있다.
+ * 발행 창구 앞(publishToPlatform)이 잡고 푼다. 앱을 다시 켜면 비워진다 — 그때는 대기열 정리가 중복을 막는다.
+ */
+const agentJobPublishState = new Map();
+
+/** 발행 자리를 잡는다 — 이미 발행 중이거나 발행한 작업이면 false(두 번째 요청 차단). 빈 ID 는 늘 true */
+export function beginAgentJobPublish(jobId) {
+  if (!jobId) return true;
+  if (agentJobPublishState.has(jobId)) return false;
+  agentJobPublishState.set(jobId, 'PUBLISHING');
+  return true;
+}
+
+/** 잡은 자리를 닫는다 — 성공이면 PUBLISHED 로 남기고, 아니면 풀어 준다 */
+export function endAgentJobPublish(jobId, succeeded) {
+  if (!jobId) return;
+  if (succeeded === true) agentJobPublishState.set(jobId, 'PUBLISHED');
+  else agentJobPublishState.delete(jobId);
+}
+
+export function agentJobPublishPhase(jobId) {
+  return (jobId && agentJobPublishState.get(jobId)) || 'NONE';
+}
+
 /** 에이전트 작성자 요구 보류인가 — 다른 실패(네트워크·인증·일반 글 보류)에는 버튼을 내지 않는다 */
 export function isAgentPublishHeld(result) {
   return !!(result && result.ok === false && result.blockedReason === 'MANUAL_REVIEW' && result.hold && result.hold.source === 'agent-requirement');
@@ -89,9 +115,11 @@ export function clearForcePublishOffer(doc) {
  * 보류면 화면 오른쪽 아래에 안내 + "검토 후 강제 발행" 버튼을 띄운다(body 직속 — 진행 모달은 실패 때 닫힌다).
  * 보류가 아니면 남아 있던 안내를 지우고 null.
  */
-export function renderForcePublishOffer(doc, result, { onApprove, confirmFn } = {}) {
+export function renderForcePublishOffer(doc, result, { onApprove, confirmFn, jobId } = {}) {
   clearForcePublishOffer(doc);
   if (!doc || !isAgentPublishHeld(result)) return null;
+  // v3.8.779 — 이미 발행 중이거나 발행한 작업이면 안내를 다시 띄우지 않는다
+  if (agentJobPublishPhase(jobId) !== 'NONE') return null;
   const hold = result.hold;
   const panel = doc.createElement('div');
   panel.id = OFFER_ID;
@@ -116,11 +144,18 @@ export function renderForcePublishOffer(doc, result, { onApprove, confirmFn } = 
   close.textContent = '닫기(보류 유지)';
   close.style.cssText = 'padding:8px 14px;border-radius:8px;border:1px solid #6b7280;background:transparent;color:#e5e7eb;cursor:pointer;';
 
+  // v3.8.779 — 이 안내의 상태: HELD → PUBLISHING → PUBLISHED. HELD 가 아니면 눌러도 아무것도 하지 않는다(연속 클릭·재클릭 차단)
+  let phase = 'HELD';
   force.addEventListener('click', async () => {
+    if (phase !== 'HELD') return;
+    phase = 'CONFIRMING';
     const approved = await approveForcePublish(hold, confirmFn);
-    if (!approved) { status.textContent = '취소했습니다 — 보류가 그대로 유지됩니다.'; return; }
+    if (!approved) { phase = 'HELD'; status.textContent = '취소했습니다 — 보류가 그대로 유지됩니다.'; return; }
+    phase = 'PUBLISHING';
+    force.disabled = true;
     clearForcePublishOffer(doc);
-    if (typeof onApprove === 'function') await onApprove();
+    const outcome = typeof onApprove === 'function' ? await onApprove() : null;
+    phase = outcome && (outcome.ok || outcome.success) ? 'PUBLISHED' : 'HELD';
   });
   close.addEventListener('click', () => clearForcePublishOffer(doc));
 
