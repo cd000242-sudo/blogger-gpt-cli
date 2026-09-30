@@ -12,6 +12,7 @@
 
 import { kstYear } from './kst-date';
 import { extractRanges, isRangeBound, type ValueRange } from './range-value';
+import { isLexicalValue } from './value-boundary';
 
 export type ClaimKind = 'date' | 'range' | 'amount' | 'percent' | 'count' | 'rank' | 'duration';
 
@@ -48,6 +49,8 @@ export function extractClaims(text: string): Claim[] {
     while ((m = r.exec(src)) !== null) {
       const raw = m[0].trim();
       if (kind === 'count' && /^\d{1,2}\s*회$/.test(raw)) continue;   // "2회" 같은 차수는 값이 아니다
+      // v3.8.770 — 낱말 경계: "정부24 대상"→24대 · 목차 "6 위임장"→6위 는 값이 아니다(live 48417f BODY_FACT 가짜 실패)
+      if (!isLexicalValue(src, m.index, m[0])) continue;
       found.push({ text: raw, kind, keys: claimKeys(raw, kind), start: m.index, end: m.index + m[0].length });
     }
   }

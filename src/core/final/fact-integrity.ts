@@ -1,6 +1,7 @@
 import { containsValueToken, normalizeForMatch } from './number-token';
 import { resolveDerivedDifferences, resolveHypotheticalValues, type DerivedCheck } from './derived-difference';
 import { resolveEvidenceArithmetic } from './derived-arithmetic';
+import { isLexicalValue, lexicalMatches } from './value-boundary';
 import { extractRanges, rangesOf, sameRange, isRangeBound, boundTokens } from './range-value';
 
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
@@ -264,8 +265,8 @@ function extractExactValues(value: string): string[] {
   // v3.8.767 — 태그가 남은 글도 칸·블록 경계를 살린 평문으로 읽는다(경계 너머 글자와 붙은 값을 만들지 않는다)
   const text = /<[a-z/][^>]*>/i.test(String(value || '')) ? toPlainText(value) : String(value || '');
   for (const pattern of VALUE_PATTERNS) {
-    const matches = text.match(pattern) || [];
-    for (const match of matches) values.add(normalize(match));
+    // v3.8.770 — 원문 자리로 낱말 경계를 본다: "정부24 일반용"→24일 · "6 위임장"→6위 같은 가짜 값을 만들지 않는다
+    for (const { value: match } of lexicalMatches(text, pattern)) values.add(normalize(match));
   }
   return [...values].filter(Boolean);
 }
@@ -423,7 +424,7 @@ export function inspectFactIntegrity(html: string, evidence: FactEvidence): Fact
 function sanitizeHeadingText(block: string, evidence: FactEvidence, fallback: string): string {
   let value = toPlainText(block).replace(FACT_META_BOILERPLATE_PATTERN, '');
   for (const pattern of VALUE_PATTERNS) {
-    value = value.replace(pattern, (match) => isSupportedToken(match, evidence) ? match : '');
+    value = value.replace(pattern, (match: string, ...rest: unknown[]) => (!isLexicalValue(String(rest[rest.length - 1]), Number(rest[rest.length - 2]), match) || isSupportedToken(match, evidence) ? match : ''));
   }
   value = value.replace(INSTITUTION_PATTERN, (match) => isSupportedToken(match, evidence) ? match : '');
   return value.replace(/\s{2,}/g, ' ').replace(/^[\s,·\-:]+|[\s,·\-:]+$/g, '').trim() || fallback;
@@ -451,7 +452,8 @@ function stripUnsafeValuesPreservingMarkup(html: string, evidence: FactEvidence)
     if (tag) return tag;                       // 태그 안은 절대 건드리지 않는다
     let value = String(text || '');
     for (const pattern of VALUE_PATTERNS) {
-      value = value.replace(pattern, (match) => (isSupportedToken(match, evidence) ? match : ''));
+      // v3.8.770 — 값이 아닌 자리("정부24 일반용" 의 "24 일")는 도려내지 않는다
+      value = value.replace(pattern, (match: string, ...rest: unknown[]) => (!isLexicalValue(String(rest[rest.length - 1]), Number(rest[rest.length - 2]), match) || isSupportedToken(match, evidence) ? match : ''));
     }
     value = value.replace(INSTITUTION_PATTERN, (match) => (isSupportedToken(match, evidence) ? match : ''));
     return value.replace(/\s{2,}/g, ' ');
