@@ -13255,6 +13255,9 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         (line: string) => console.log(`[AGENT-PREFLIGHT] ${line}`),
       );
       if (outcome.revised > 0) {
+        // v3.8.778 — API 경로와 같은 단계 유지 검사(공통 stageRegressions). 되돌리지 않는다 — 발행 창구가 실제 본문으로 보류한다
+        const rewriteLoss: Array<{ id: string; before: string; after: string }> = agentReqMod ? agentReqMod.agentStageRegressions(agentReq, String(result.content || ''), outcome.html, 'pre-publish-rewrite') : [];
+        if (rewriteLoss.length) console.log(`[AGENT] 📌 user-requirement.rewrite — 자가 수정이 작성자 요구를 깼습니다: ${rewriteLoss.map((g) => `${g.id} ${g.before}→${g.after}`).join(', ')}`);
         result.content = outcome.html;
         console.log(`[AGENT-PREFLIGHT] 🩺 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회 · 구독이라 비용 0)`);
       }

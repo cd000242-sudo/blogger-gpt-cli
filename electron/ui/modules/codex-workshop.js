@@ -4071,6 +4071,8 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   //   해결: < 3,000자 또는 H2 < 3개면 강화된 instructions로 1회 재호출.
   let plainLen = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
   let h2Count = (content.match(/<h2[^>]*>/gi) || []).length;
+  // v3.8.778 — 실제로 쓰인 글의 작업 ID(재시도 글을 쓰면 재시도 작업 ID). 강제 발행 감사 기록의 글 ID 가 된다
+  let adoptedJobId = result.jobId || '';
   if (source === 'posting') {
     updateAgentProgress(72, `Agent 산출물 회수 (${plainLen.toLocaleString()}자, H2 ${h2Count}개)`, plainLen < 3000 ? 'warning' : 'success');
   }
@@ -4107,6 +4109,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
         const newH2 = (retryResult.content.match(/<h2[^>]*>/gi) || []).length;
         if (newLen > plainLen) {
           content = retryResult.content;
+          adoptedJobId = retryResult.jobId || adoptedJobId;
           plainLen = newLen;
           h2Count = newH2;
           addLog(`✅ Agent 재시도 성공: ${plainLen.toLocaleString()}자 / H2 ${h2Count}개`, 'success');
@@ -4131,6 +4134,7 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   setAgentRunStatus(`생성 완료: ${result.title || topic}${result.jobId ? ` · 작업 ID ${result.jobId}` : ''}`);
   setSettingsStatus(`${providerLabel} 작업 1회를 로컬 실행 기록에 저장했습니다.`);
   addLog(`Agent 출력물을 회수했습니다. (${getTextLength(content).toLocaleString()}자)`, 'success');
+  state.payload = { ...state.payload, agentJobId: adoptedJobId };
   await applyCodexResult({ thumbnailUrl: imageEnhancement.thumbnailUrl || '' });
   if (source === 'posting') {
     updateAgentProgress(82, 'Agent 글과 API 이미지를 미리보기에 적용했습니다. 발행 단계로 넘어갑니다.', 'success');

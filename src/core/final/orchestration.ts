@@ -172,8 +172,8 @@ function ledgerPath(): string {
 // 🧠 v3.8.734 — 고른 모델 / 실제로 쓴 모델 / 하향 여부 (model-use.ts)
 import { describeModelUse } from './model-use';
 import type { VariantLedger } from './variant-ledger';
-import { parseUserRequirements, structurePlan, compactRequirementBlock, hypotheticalInputs, type StructurePlan, type UserRequirementContract } from './user-requirement';
-import { checkUserRequirements, requirementGate, requirementRegressions, draftHtml, type RequirementResult } from './user-requirement-coverage';
+import { parseUserRequirements, structurePlan, compactRequirementBlock, hypotheticalInputs, withRequirementContract, type StructurePlan, type UserRequirementContract } from './user-requirement';
+import { checkUserRequirements, requirementGate, requirementRegressions, stageRegressions, draftHtml, type RequirementResult } from './user-requirement-coverage';
 
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
@@ -7574,7 +7574,8 @@ ${conclusionHTML}
       const preflightBeforeSnap = trace.snapshot('html.before-preflight', html, { ext: 'html', note: '발행 전 자가 수정 직전(답 상자 조립 뒤)' });
       const outcome = await fixBeforePublish(
         { title: h1 || keyword, html, reportSlot: (payload as any)?.cpcReportSlot, question: articleThread?.question },
-        (prompt: string) => callGeminiWithRetry(prompt, 1, { timeoutMs: 120000 }),
+        // v3.8.778 — 다시 쓰는 호출도 작성자 요구(압축 계약)를 안다. 에이전트와 같은 공통 함수 · 요청이 없으면 프롬프트 그대로
+        (prompt: string) => callGeminiWithRetry(withRequirementContract(prompt, userCompact), 1, { timeoutMs: 120000 }),
         onLog,
       );
       if (outcome.revised > 0) {
@@ -7585,6 +7586,10 @@ ${conclusionHTML}
         const rewriteGate = gateRewrite(html, outcome.html, validationView().evidence, { isCoreAnswer: (s: string) => isCoreAnswerSentence(s, coreQuestionsPlan), claimSupport: claimSupportOf(coreAnswers) });
         trace.event('pre-publish-fix.rewrite', { accepted: rewriteGate.status === 'accepted', status: rewriteGate.status, rolledBack: rewriteGate.rolledBack, reason: rewriteGate.rolledBack ? 'protected-information-loss' : rewriteGate.status, regions: rewriteGate.regions.map((r) => ({ accepted: r.accepted, before: r.beforeText.slice(0, 160), after: r.afterText.slice(0, 160), reasons: r.decisions.filter((d) => !d.accepted).map((d) => d.reason) })) });
         if (rewriteGate.rolledBack) onLog?.(`[PROGRESS] 97% - 🧷 자가 수정 구간 ${rewriteGate.rolledBack}개를 보호 정보 손실로 되돌렸습니다`);
+        // v3.8.778 — 자가 수정이 작성자 요구를 깼는지 이 단계에서 잰다(되돌리지는 않는다 — 사실·안전 수정일 수 있다. 최종 관문이 보류한다)
+        const rewriteLoss = stageRegressions(userContract, html, rewriteGate.html, 'pre-publish-rewrite');
+        if (userContract?.requirements.length) trace.event('user-requirement.rewrite', { regressions: rewriteLoss });
+        if (rewriteLoss.length) onLog?.(`[PROGRESS] 97% - 📌 자가 수정이 작성자 요구를 깼습니다: ${rewriteLoss.map((g) => `${g.id} ${g.before}→${g.after}`).join(', ')} — 최종 관문이 확인합니다`);
         html = rewriteGate.html;
         onLog?.(`[PROGRESS] 97% - 🩺 발행 전 자가 수정 — 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회)`);
         // 🧾 v3.8.752 — 자가 수정 전후(문장 diff) · 반려/수정 사유(notes)

@@ -158,6 +158,13 @@ export function compactRequirementBlock(contract: UserRequirementContract | null
   return ['', '## 📌 작성자 명시 요구(계약) — 사실 규칙 다음으로 우선, 기본 편집 규칙보다 우선', '고치거나 새로 쓸 때 아래를 깨뜨리지 마세요(이미 충족된 것을 지우지 마세요):',
     ...reqs.map((r) => `- [${r.priority}] ${describe(r)}`), ''].join('\n');
 }
+/**
+ * 하위 재작성 호출(발행 전 자가 수정 등) 프롬프트 — 압축 계약을 앞에 붙인다. 계약이 비면 프롬프트 그대로(요청 없는 글은 예전 동작).
+ * v3.8.778 — API 경로와 에이전트 경로가 같은 함수를 쓴다(에이전트 전용 복사 없음).
+ */
+export function withRequirementContract(prompt: string, compact: string): string {
+  return compact && compact.trim() ? `${compact.trim()}\n\n${prompt}` : prompt;
+}
 /** Writer 정본 블록 — 원문 전체 + 계약 요약. 요청 블록은 이것 하나(user-request.buildUserRequestBlock 이 같은 문구) */
 export function writerRequirementBlock(contract: UserRequirementContract | null | undefined): string {
   if (!contract?.rawText) return '';

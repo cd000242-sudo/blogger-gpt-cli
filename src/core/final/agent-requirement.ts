@@ -14,8 +14,8 @@
  *   3. 발행 창구 재검사 — 회수 뒤 화면에서 이미지가 들어가 본문 지문이 바뀐다. 그래서 지문 장부가 아니라
  *      발행 직전의 실제 본문을 같은 판정으로 다시 잰다. 근거(값 단정·공식 출처용)는 회수 시점에 기억해 둔 것을 쓴다.
  */
-import { parseUserRequirements, structurePlan, compactRequirementBlock, writerRequirementBlock, describeRequirement, requestKey, type UserRequirementContract, type StructurePlan } from './user-requirement';
-import { checkUserRequirements, requirementGate, requirementRegressions, OFFICIAL_HOST, type RequirementResult, type RequirementGate } from './user-requirement-coverage';
+import { parseUserRequirements, structurePlan, compactRequirementBlock, writerRequirementBlock, describeRequirement, requestKey, withRequirementContract, type UserRequirementContract, type StructurePlan } from './user-requirement';
+import { checkUserRequirements, requirementGate, requirementRegressions, stageRegressions, holdSummary, OFFICIAL_HOST, type RequirementResult, type RequirementGate, type HoldSummary } from './user-requirement-coverage';
 
 export interface AgentRequirementCapture { contract: UserRequirementContract; plan: StructurePlan; compact: string }
 
@@ -61,9 +61,14 @@ export function agentInstructionsBlock(capture: AgentRequirementCapture | null):
   ].join('\n');
 }
 
-/** 하위 작업(발행 전 자가 수정 등) 프롬프트 — 원문을 되풀이하지 않고 압축 계약을 앞에 붙인다 */
+/** 하위 작업(발행 전 자가 수정 등) 프롬프트 — API 경로와 같은 공통 함수(withRequirementContract)로 압축 계약을 앞에 붙인다 */
 export function withRequirements(prompt: string, capture: AgentRequirementCapture | null): string {
-  return capture?.compact ? `${capture.compact.trim()}\n\n${prompt}` : prompt;
+  return withRequirementContract(prompt, capture?.compact || '');
+}
+
+/** 한 단계 앞뒤 유지 검사 — 공통 stageRegressions 를 에이전트 판정용 보기로 부른다 */
+export function agentStageRegressions(capture: AgentRequirementCapture | null, beforeHtml: string, afterHtml: string, stage: string): ReturnType<typeof stageRegressions> {
+  return capture ? stageRegressions(capture.contract, agentEvaluationView(beforeHtml), agentEvaluationView(afterHtml), stage) : [];
 }
 
 /** 본문 표 상한 — 계약이 없으면 예전 값 3 */
@@ -127,7 +132,8 @@ export function rememberAgentEvidence(fingerprint: string, keyword: unknown, evi
 /** 에이전트 글 표시 — applyCodexResult 가 payload 에 남긴다(작업실 붙여넣기 포함) */
 export const isAgentContent = (payload: unknown): boolean => (payload as { codexWorkshop?: unknown } | null)?.codexWorkshop === true;
 
-export interface AgentPublishCheck { applies: boolean; pass: boolean; reason: string; results: RequirementResult[]; evidence: 'REMEMBERED' | 'NONE' }
+export interface AgentPublishCheck { applies: boolean; pass: boolean; reason: string; results: RequirementResult[]; evidence: 'REMEMBERED' | 'NONE'; blockers: RequirementResult[]; summary: HoldSummary }
+const EMPTY_SUMMARY: HoldSummary = { categories: [], missingMust: [], excludeViolations: [], ctaProblems: [], factConflicts: [] };
 
 /**
  * 발행 창구 재검사 — 에이전트 글 + 작성자 요청이 있을 때만. 일반(API) 글은 손대지 않는다(applies=false).
@@ -135,13 +141,14 @@ export interface AgentPublishCheck { applies: boolean; pass: boolean; reason: st
  */
 export function agentPublishCheck(payload: unknown, html: string): AgentPublishCheck {
   const p = (payload || {}) as { userRequest?: unknown; topic?: unknown; keyword?: unknown };
-  if (!isAgentContent(payload)) return { applies: false, pass: true, reason: '', results: [], evidence: 'NONE' };
+  const none: AgentPublishCheck = { applies: false, pass: true, reason: '', results: [], evidence: 'NONE', blockers: [], summary: EMPTY_SUMMARY };
+  if (!isAgentContent(payload)) return none;
   const capture = captureAgentRequirements(p.userRequest);
-  if (!capture) return { applies: false, pass: true, reason: '', results: [], evidence: 'NONE' };
+  if (!capture) return none;
   const memo = evidenceMemo.get(memoKey(capture.contract.fingerprint, p.topic ?? p.keyword));
   const results = checkUserRequirements(capture.contract, { html: agentEvaluationView(html), evidenceText: memo?.evidenceText || '', officialSources: memo?.officialSources || 0 });
   const gate = requirementGate(results);
-  return { applies: true, pass: gate.pass, reason: gate.reason, results, evidence: memo ? 'REMEMBERED' : 'NONE' };
+  return { applies: true, pass: gate.pass, reason: gate.reason, results, evidence: memo ? 'REMEMBERED' : 'NONE', blockers: gate.blockers, summary: holdSummary(gate.blockers) };
 }
 
 /** 테스트용 */

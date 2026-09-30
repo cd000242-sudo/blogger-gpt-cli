@@ -100,6 +100,8 @@ type PublishGeneratedContentResult = {
   skipped?: boolean;
   duplicateBlocked?: boolean;
   duplicateOf?: string;
+  /** v3.8.778 — 에이전트 글 작성자 요구 보류의 내용(화면 "검토 후 강제 발행" 확인창용) */
+  hold?: { source: 'agent-requirement'; reason: string; categories: string[]; groups: Record<'missingMust' | 'excludeViolations' | 'ctaProblems' | 'factConflicts', Array<{ id: string; type: string; priority: string; status: string; reason: string; sourceText: string }>> };
 };
 
 const TISTORY_DUPLICATE_WINDOW_MS = 3 * 60 * 1000;
@@ -1821,14 +1823,45 @@ export async function publishGeneratedContent(
     const agentCheck = agentPublishCheck(payload, html);
     if (agentCheck.applies && !agentCheck.pass) {
       const agentForced = payload?.forcePublish === true;
+      // v3.8.778 — 화면이 "검토 후 강제 발행" 확인창을 그릴 재료(사유 구분·요구별 판정). 점수는 없다
+      type Blocker = { id: string; type: string; priority: string; status: string; reason: string; sourceText: string };
+      const brief = (list: Blocker[]) => list.map((b) => ({ id: b.id, type: b.type, priority: b.priority, status: b.status, reason: b.reason, sourceText: b.sourceText }));
+      const hold = {
+        source: 'agent-requirement' as const,
+        reason: agentCheck.reason,
+        categories: agentCheck.summary.categories,
+        groups: {
+          missingMust: brief(agentCheck.summary.missingMust),
+          excludeViolations: brief(agentCheck.summary.excludeViolations),
+          ctaProblems: brief(agentCheck.summary.ctaProblems),
+          factConflicts: brief(agentCheck.summary.factConflicts),
+        },
+      };
       if (!agentForced) {
-        const reason = `MANUAL_REVIEW — 에이전트 글이 작성자 요구를 지키지 않아 자동 발행하지 않았습니다. 사유: ${agentCheck.reason}. 미리보기에서 고친 뒤 발행하거나, 그대로 발행하려면 forcePublish 를 켜 주세요.`;
+        const reason = `MANUAL_REVIEW — 에이전트 글이 작성자 요구를 지키지 않아 자동 발행하지 않았습니다. 사유: ${agentCheck.reason}. 미리보기에서 고친 뒤 발행하거나, 확인창에서 "검토 후 강제 발행" 을 승인해 주세요.`;
         emit(`[PUBLISH] 🛑 ${reason}`);
-        return { ok: false, error: reason, blockedReason: 'MANUAL_REVIEW', recoverable: true };
+        return { ok: false, error: reason, blockedReason: 'MANUAL_REVIEW', recoverable: true, hold };
       }
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const o = require('./final/publish-gate').recordPublishOverride('forcePublish', title, agentCheck.reason);
-      emit(`[PUBLISH] ⚠️ forcePublished=true — 에이전트 글의 작성자 요구 보류를 우회해 발행합니다 (사유: ${agentCheck.reason} · ${o.at})`);
+      /** 🧾 v3.8.778 — 강제 발행은 발행 장부에도 남긴다: 글 ID · 보류 사유 · 요구별 판정 · 사실/CTA 차단 여부 */
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const ledger = require('./final/publish-ledger');
+        const runId = String(payload?.runId || '');
+        ledger.recordPublishOverrideAudit(ledger.defaultLedgerPath(), {
+          source: 'agent-requirement',
+          articleId: runId || (payload?.agentJobId ? `agent-job:${payload.agentJobId}` : ''),
+          title: String(title || ''),
+          holdReasons: agentCheck.reason,
+          categories: agentCheck.summary.categories,
+          coverage: agentCheck.results.map((r: { id: string; type: string; priority: string; status: string }) => ({ id: r.id, type: r.type, priority: r.priority, status: r.status })),
+          factualBlocker: agentCheck.summary.factConflicts.length > 0,
+          ctaBlocker: agentCheck.summary.ctaProblems.length > 0,
+          criticalStateBlocker: false,
+        }, runId);
+      } catch { /* 기록 실패가 발행을 막지 않는다 */ }
+      emit(`[PUBLISH] ⚠️ forcePublished=true — 에이전트 글의 작성자 요구 보류를 사람이 승인해 발행합니다 (사유: ${agentCheck.reason} · ${o.at})`);
     } else if (agentCheck.applies) {
       emit(`[PUBLISH] 📌 에이전트 글 작성자 요구 ${agentCheck.results.length}개 확인 — 통과`);
     }

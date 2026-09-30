@@ -142,6 +142,29 @@ export interface LedgerEntry {
   qualityStatusLabel?: string;
   /** auditScore 가 어느 원고를 잰 것인가 — 'final-html' = 자가 수정까지 끝난 발행 직전 HTML */
   auditScoreTarget?: string;
+  /** v3.8.778 — 사람이 보류를 알고 강제 발행한 기록(자동 강제 발행은 없다) */
+  publishOverrides?: PublishOverrideAudit[];
+}
+
+/**
+ * 🧾 v3.8.778 — 강제 발행 감사 기록. 보류 사유·요구 판정·사실/CTA 차단 여부를 그때 그대로 남긴다.
+ * 사람이 확인창에서 승인했을 때만 생긴다(userOverride 는 늘 true — 자동 강제 발행 경로가 없다).
+ */
+export interface PublishOverrideAudit {
+  at: string;
+  kind: 'forcePublish';
+  userOverride: true;
+  /** 어느 창구의 보류를 넘었나 */
+  source: 'agent-requirement';
+  /** run ID(장부 줄) 또는 에이전트 작업 ID */
+  articleId: string;
+  title: string;
+  holdReasons: string;
+  categories: string[];
+  coverage: Array<{ id: string; type: string; priority: string; status: string }>;
+  factualBlocker: boolean;
+  ctaBlocker: boolean;
+  criticalStateBlocker: boolean;
 }
 
 export interface PublishAttempt {
@@ -338,6 +361,29 @@ export function recordPublishAttempt(ledgerPath: string, input: PublishAttemptIn
     appendUnlinked(ledgerPath, attempt, runId, 'LEDGER_WRITE_FAILED');
     return none;
   }
+}
+
+/**
+ * 🧾 v3.8.778 — 강제 발행을 장부에 남긴다. 발행 시도(recordPublishAttempt)와 같은 규칙:
+ * runId 가 장부 줄과 맞으면 그 줄의 publishOverrides 에, 아니면(에이전트 글은 장부 줄이 없다) 미연결 파일에 남긴다. 기록 실패가 발행을 막지 않는다.
+ */
+export function recordPublishOverrideAudit(ledgerPath: string, audit: Omit<PublishOverrideAudit, 'at' | 'kind' | 'userOverride'>, runId?: string): { linked: boolean } {
+  const record: PublishOverrideAudit = { at: new Date().toISOString(), kind: 'forcePublish', userOverride: true, ...audit, holdReasons: String(audit.holdReasons || '').slice(0, 800) };
+  const id = String(runId || '').trim();
+  try {
+    if (id) {
+      const entries = readLedger(ledgerPath);
+      const index = entries.map((e) => String(e.runId || '')).lastIndexOf(id);
+      if (index >= 0) {
+        const entry = entries[index]!;
+        const next = entries.map((e, i) => (i === index ? { ...entry, publishOverrides: [...(entry.publishOverrides || []), record] } : e));
+        fs.writeFileSync(ledgerPath, JSON.stringify(next, null, 2), 'utf-8');
+        return { linked: true };
+      }
+    }
+  } catch { /* 아래 미연결 기록으로 */ }
+  appendUnlinked(ledgerPath, { attemptId: newAttemptId(), at: record.at, platform: '', ok: false, source: 'publish-override', override: record } as PublishAttempt & { override: PublishOverrideAudit }, id || undefined, id ? 'RUN_NOT_IN_LEDGER' : 'NO_RUN_ID');
+  return { linked: false };
 }
 
 export function readLedger(ledgerPath: string): LedgerEntry[] {

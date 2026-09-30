@@ -166,6 +166,30 @@ export function draftHtml(draft: DraftShape | null | undefined): string {
   return [String(draft?.introduction || ''), ...(draft?.sections || []).flatMap((s) => [`<h2>${s?.h2 || ''}</h2>`, ...(s?.h3Sections || []).flatMap((h) => [`<h3>${h?.h3 || ''}</h3>`, String(h?.content || ''), ...(h?.tables || []).map(table)])]), String(draft?.conclusion || '')].join('\n');
 }
 
+/** 한 단계 앞뒤 본문으로 유지 검사 — 발행 전 자가 수정처럼 본문을 다시 쓰는 단계가 요구를 깼는지(v3.8.778, API·에이전트 공용) */
+export function stageRegressions(contract: UserRequirementContract | null | undefined, beforeHtml: string, afterHtml: string, stage: string, extra: Omit<RequirementCoverageInput, 'html'> = {}): ReturnType<typeof requirementRegressions> {
+  if (!contract?.requirements.length) return [];
+  return requirementRegressions(checkUserRequirements(contract, { ...extra, html: beforeHtml }), checkUserRequirements(contract, { ...extra, html: afterHtml }), stage);
+}
+
+/** 보류 사유 구분 — 점수가 아니라 이름만(v3.8.778). 강제 발행 확인창과 감사 기록이 쓴다 */
+export type HoldCategory = 'USER_REQUIREMENT_MISSING' | 'EXCLUDE_VIOLATED' | 'CTA_CONTRADICTED' | 'FACT_CONFLICT' | 'CRITICAL_STATE_CONTRADICTION';
+export interface HoldSummary { categories: HoldCategory[]; missingMust: RequirementResult[]; excludeViolations: RequirementResult[]; ctaProblems: RequirementResult[]; factConflicts: RequirementResult[] }
+export function holdSummary(blockers: ReadonlyArray<RequirementResult>): HoldSummary {
+  const fact = (r: RequirementResult) => r.status === 'CONFLICTS_WITH_EVIDENCE' || (r.directive.kind === 'ASSERT_VALUE' && r.status === 'CONTRADICTED');
+  const factConflicts = blockers.filter(fact);
+  const excludeViolations = blockers.filter((r) => !fact(r) && r.priority === 'EXCLUDE');
+  const ctaProblems = blockers.filter((r) => !fact(r) && r.type === 'CTA' && r.priority !== 'EXCLUDE');
+  const missingMust = blockers.filter((r) => !fact(r) && r.priority === 'MUST' && r.type !== 'CTA');
+  const categories: HoldCategory[] = [
+    ...(missingMust.length || ctaProblems.some((r) => r.status !== 'CONTRADICTED') ? ['USER_REQUIREMENT_MISSING' as const] : []),
+    ...(excludeViolations.length ? ['EXCLUDE_VIOLATED' as const] : []),
+    ...(ctaProblems.some((r) => r.status === 'CONTRADICTED') ? ['CTA_CONTRADICTED' as const] : []),
+    ...(factConflicts.length ? ['FACT_CONFLICT' as const] : []),
+  ];
+  return { categories, missingMust, excludeViolations, ctaProblems, factConflicts };
+}
+
 /** 유지 검사 — 앞 단계(Writer)에서 충족됐던 요구가 뒤에서 사라졌나 */
 export function requirementRegressions(before: ReadonlyArray<RequirementResult>, after: ReadonlyArray<RequirementResult>, stage: string): Array<{ id: string; stage: string; before: RequirementStatus; after: RequirementStatus; sourceText: string }> {
   return after.filter((a) => {

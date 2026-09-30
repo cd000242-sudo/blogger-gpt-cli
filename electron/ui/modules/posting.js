@@ -5,6 +5,7 @@ import { loadSettings } from './settings.js';
 import { addTodayWorkRecord } from './calendar.js';
 import { getAllKeywords, getH2ImageSections } from './utils.js';
 import { showQualityReportModal, accumulateQualityReport } from './quality-report-modal.js';
+import { renderForcePublishOffer, clearForcePublishOffer } from './agent-force-publish.js';
 
 const AGENT_PROGRESS_STAGES = [
   { id: 'prepare', label: '작업 준비', range: [0, 20] },
@@ -1388,7 +1389,12 @@ async function passesShoppingCooldown() {
   }
 }
 
-export async function publishToPlatform() {
+/**
+ * @param {{ forcePublish?: boolean }} [options] v3.8.778 — 사람이 "검토 후 강제 발행" 확인창에서 승인했을 때만 { forcePublish: true }.
+ *   버튼 클릭 핸들러로 그대로 붙으면 Event 가 들어오므로 반드시 `=== true` 로만 본다.
+ */
+export async function publishToPlatform(options) {
+  const userApprovedForce = options?.forcePublish === true;
   const appState = getAppState();
   const isQueueRun = !!(window.__queueRunning || window.__queueProgressActive);
   // 쇼핑모드 연속 발행이면 잠그고 카운트다운 — 시간이 되면 자동으로 풀린다
@@ -1451,10 +1457,14 @@ export async function publishToPlatform() {
       }
 
       const currentPayload = await createPayload({ previewOnly: false });
+      // v3.8.778 — forcePublish 는 이 함수의 인자(사람의 승인)로만 실린다. 생성 결과·저장 payload 에 들어 있던 값은 버린다(에이전트가 켤 수 없다)
+      const { forcePublish: _storedForce, ...storedPayload } = appState.generatedContent.payload || {};
+      const { forcePublish: _currentForce, ...freshPayload } = currentPayload || {};
       const publishPayload = {
-        ...(appState.generatedContent.payload || {}),
-        ...currentPayload,
+        ...storedPayload,
+        ...freshPayload,
         previewOnly: false,
+        ...(userApprovedForce ? { forcePublish: true } : {}),
       };
       const titleToPublish = appState.generatedContent.title || currentPayload.title || currentPayload.topic || '';
       const htmlToPublish = appState.generatedContent.content || '';
@@ -1526,6 +1536,7 @@ export async function publishToPlatform() {
         if (agentFlowActive) updateAgentProgressModal(100, '글 생성, 이미지 생성, 발행이 모두 완료되었습니다.', 'success', 'publish');
         addLog('✅ 콘텐츠 발행 완료!', 'success');
         resetArticleStateAfterPublish('콘텐츠 발행 완료');   // v3.8.414
+        try { clearForcePublishOffer(document); } catch { /* noop */ }   // v3.8.778 — 발행됐으면 보류 안내를 걷는다
         try { window.updateFreeQuotaCounter?.(); } catch {}
 
         // v3.8.102: 자동 진단 결론 출력 — 사용자가 캡처할 필요 없이 콘솔에 직접 표시
@@ -1627,6 +1638,13 @@ export async function publishToPlatform() {
         const publishError = result?.error || '알 수 없는 오류';
         addLog('❌ 발행 실패: ' + publishError, 'error');
         if (agentFlowActive) updateAgentProgressModal(94, `발행 실패: ${publishError}`, 'error', 'publish');
+        // v3.8.778 — 에이전트 글이 작성자 요구로 보류됐을 때만 "검토 후 강제 발행" 안내(그 밖의 실패는 null — 버튼 없음)
+        try {
+          renderForcePublishOffer(document, result, {
+            confirmFn: (message) => window.confirm(message),
+            onApprove: () => publishToPlatform({ forcePublish: true }),
+          });
+        } catch { /* 안내 실패가 보류를 풀지 않는다 */ }
         return result || { ok: false, error: publishError };
       }
     } catch (error) {
