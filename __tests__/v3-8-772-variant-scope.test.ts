@@ -96,6 +96,12 @@ describe('VARIANT SCOPE (T1~T8)', () => {
     expect(verdict('Product A+ 25W 고속 충전', both, '25W').verdict).toBe('SUPPORTED');
     const coordinated = '<h1>Product A | Product A+</h1><p>Product A와 Product A+는 25W 고속 충전을 지원합니다.</p>';
     expect(verdict('Product A 25W 고속 충전', coordinated, '25W').verdict).toBe('SUPPORTED');
+    // 평문으로 납작해진 비교표(이름만 나란히 · 값만 나란히)는 열 관계가 없다 — 가까운 이름을 붙이지 않는다(live a4fc1b E06 "구분 갤럭시 A36 갤럭시 S26 … 25W 45W")
+    const flat = '<h1>갤럭시 A36 vs S26</h1><p>구분 갤럭시 A36 갤럭시 S26 배터리 5,000mAh 4,000mAh 충전속도 25W 유선 충전 45W 유선</p>';
+    expect(before('갤럭시 S26 충전속도 25W', flat, '25W').verdict).toBe('SUPPORTED'); // BEFORE
+    expect(verdict('갤럭시 S26 충전속도 25W', flat, '25W').verdict).not.toBe('SUPPORTED');
+    // 조사가 붙은 주어("S26은 45W")는 표 머리가 아니다 — 그대로 그 모델
+    expect(verdict('갤럭시 S26 45W 초고속 충전', '<h1>갤럭시 A36 vs S26</h1><p>A36은 25W, S26은 45W 초고속 충전을 지원한다.</p>', '45W').verdict).toBe('SUPPORTED');
     // 나란히 적지 않고 각자 값을 말하면 공통이 아니다
     const each = '<h1>Product A | Product A+</h1><p>Product A는 25W, Product A+는 45W 고속 충전입니다.</p>';
     expect(verdict('Product A 45W 고속 충전', each, '45W').verdict).not.toBe('SUPPORTED');

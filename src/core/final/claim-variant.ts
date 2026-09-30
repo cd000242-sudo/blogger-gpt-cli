@@ -216,9 +216,13 @@ function clauseAround(text: string, index: number, from: number, to: number): [n
 /** 나란히 적은 변형("S26과 S26+는 25W" · "A, A+ 및 B")은 함께 주어다 — 고른 언급 앞으로 "와·과·및·쉼표"로 이어진 언급을 모은다 */
 function coordinated(text: string, ms: ReadonlyArray<VariantMention>, pick: VariantMention): VariantScope {
   const chain = [pick];
+  const bare = (m: VariantMention) => /[A-Za-z0-9+]/.test(text.charAt(m.end - 1));
   for (let k = ms.indexOf(pick) - 1; k >= 0; k -= 1) {
     const between = text.slice(ms[k]!.end - 1, chain[0]!.index);
-    if (/^[와과]\s+$/.test(between) || /^\S\s*(?:,|·|\/|및|&|and)\s*$/.test(between)) chain.unshift(ms[k]!); else break;
+    if (/^[와과]\s+$/.test(between) || /^\S\s*(?:,|·|\/|및|&|and)\s*$/.test(between)) { chain.unshift(ms[k]!); continue; }
+    // 평문으로 납작해진 표 머리("구분 갤럭시 A36 갤럭시 S26 … 25W 45W") — 조사 없이 이름만 나란히면 열 관계를 잃은 것이다. 가까운 이름을 붙이지 않는다
+    if (chain.length === 1 && bare(ms[k]!) && bare(pick) && /^\S\s+(?:[^\s\d]+\s+)?$/.test(between)) return ambiguous([ms[k]!, pick].map((m) => keyLabel(m.key)).join('·'));
+    break;
   }
   const keys = dedupe(chain.filter((m) => !m.family).map((m) => m.key));
   return keys.length >= 2 ? scopeOf(keys, 'common') : scopeOf([pick.key], 'sentence');
