@@ -97,7 +97,8 @@ describe('HEADING (T6~T10)', () => {
     expect(g).toMatchObject({ pass: false, reason: '4000mAh(소제목 "배터리 용량 4000mAh 성능")' });
     const orch = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
     expect(orch).toMatch(/FINAL_FACTUAL_SURFACE_PASS: surfaceGate\.pass,/);
-    expect(orch).toContain('const publishEnforced = qualityLoopOn || !criticalGate.pass || !surfaceGate.pass;');
+    // v3.8.776 — 작성자 명시 요구 위반(userGate)도 같은 enforced 계약에 들어간다
+    expect(orch).toMatch(/const publishEnforced = qualityLoopOn \|\| !criticalGate\.pass \|\| !surfaceGate\.pass(?: \|\| !userGate\.pass)?;/);
     expect(orch).not.toMatch(/TITLE_AUTHORITY_PASS/);
   });
   test('T10 제목 + 소제목이 같은 틀린 값 → 둘 다 기록하되 사유는 값마다 한 번 (live a4fc1b)', () => {

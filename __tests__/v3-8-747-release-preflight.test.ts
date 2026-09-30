@@ -40,7 +40,8 @@ describe('① Publish Gate — OFF 는 참고, ON 은 차단', () => {
     const orch = read('src/core/final/orchestration.ts');
     // v3.8.769 — enforced = 품질 루프 ON 또는 현재 상태와 반대 안내(CRITICAL_STATE_PASS 실패). 상태 모순이 없으면 예전 그대로 qualityLoopOn
     // v3.8.770/771 — 제목·사실 소제목 모순(FINAL_FACTUAL_SURFACE_PASS 실패)도 같은 계약으로 루프 OFF 여도 보류
-    expect(orch).toContain('const publishEnforced = qualityLoopOn || !criticalGate.pass || !surfaceGate.pass;');
+    // v3.8.776 — 작성자 명시 요구 위반(userGate)도 같은 enforced 계약에 들어간다
+    expect(orch).toMatch(/const publishEnforced = qualityLoopOn \|\| !criticalGate\.pass \|\| !surfaceGate\.pass(?: \|\| !userGate\.pass)?;/);
     expect(orch).toMatch(/recordPublishDecision\(html, publishDecision, manualReviewReason, String\(h1 \|\| ''\), publishEnforced\)/);
     expect(orch).toContain('publishHoldEnforced: publishEnforced');
     expect(orch).toContain('qualityLoopEnabled: qualityLoopOn');

@@ -216,7 +216,7 @@ describe('PROVENANCE (T16~T18) — 최종 값마다 계보, 재작성 경로도 
     expect(orch).toMatch(/trace\.event\('empty-section\.input'/);
     expect(orch).toMatch(/trace\.change\('empty-section', \{ fn: 'repairEmptySections'[^\n]*model: require\('\.\/model-use'\)\.modelsSince\(esModelSnap\)[^\n]*outputs: es\.result\.outputs/);
     expect(orch).toMatch(/trace\.event\('provenance'/);
-    expect(orch).toMatch(/checkClaims\(judgeBodyText, claimLedger\(\), new Date\(\), derivedLedger(?:, variant)?\)/);
+    expect(orch).toMatch(/checkClaims\(judgeBodyText, claimLedger\(\), new Date\(\), (?:derivedLedger|\[\.\.\.derivedLedger, \.\.\.userHypo\])(?:, variant)?\)/);
   });
 });
 

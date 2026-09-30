@@ -145,7 +145,7 @@ describe('WIRING — orchestration', () => {
     expect(orch).toMatch(/trace\.event\('critical-state\.coverage', \{ stage: 'answer-box'/);
     expect(orch).toMatch(/criticalStateCoverage\(String\(html \|\| ''\)\.replace\([^\n]*researchPacket\.criticalStates \|\| \[\]\)/);
     expect(orch).toMatch(/CRITICAL_STATE_PASS: criticalGate\.pass,/);
-    expect(orch).toMatch(/const publishEnforced = qualityLoopOn \|\| !criticalGate\.pass(?: \|\| !(?:titleGate|surfaceGate)\.pass)?;/);
+    expect(orch).toMatch(/const publishEnforced = qualityLoopOn \|\| !criticalGate\.pass(?: \|\| !(?:titleGate|surfaceGate)\.pass)?(?: \|\| !userGate\.pass)?;/);
     expect(orch).toMatch(/recordPublishDecision\(html, publishDecision, manualReviewReason, String\(h1 \|\| ''\), publishEnforced\)/);
     expect(orch.indexOf("const criticalGate = criticalStateGate(criticalFinal)")).toBeLessThan(orch.indexOf('CRITICAL_STATE_PASS: criticalGate.pass'));
   });

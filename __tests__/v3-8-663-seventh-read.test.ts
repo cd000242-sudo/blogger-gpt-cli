@@ -61,7 +61,9 @@ describe('v3.8.663 일곱 번째 읽기', () => {
 
   test('④⑤ 표 상한과 분량 상한이 코드와 프롬프트에 있다', () => {
     const o = read('src/core/final/orchestration.ts');
-    expect(o).toContain('const MAX_TABLES = 3;');
+    // v3.8.776 — 3개는 기본 편집 규칙(작성자가 표 개수를 정하지 않았을 때). 상한 자체는 코드에 그대로 있다
+    expect(o).toContain('const MAX_TABLES = userPlan.maxTables;');
+    expect(require('../src/core/final/user-requirement').structurePlan(null).maxTables).toBe(3);
     expect(o).toContain('숫자가 적은');
     expect(DEPTH_VOICE_RULES).toContain('분량은 전체 6,000~9,000자');
     expect(DEPTH_VOICE_RULES).toContain('H2 하나에 H3 는 하나가 기본');
