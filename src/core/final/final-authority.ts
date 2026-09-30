@@ -148,7 +148,7 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     coreQuestions: coverage,
     criticalStates,
     title: input.title ? checkTitleAuthority(input.title, html, input.factcheck || []) : null,
-    headings: checkHeadingAuthority(html, input.factcheck || []),
+    headings: checkHeadingAuthority(html, input.factcheck || [], input.title),
     status, fractions: fr.restored,
     changed: html !== String(input.html || ''),
   };

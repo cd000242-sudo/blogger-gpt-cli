@@ -22,7 +22,8 @@ const CLAUSE_END = /(?:하고|되고|이고|있고|없고|했고|하며|되며|�
 const BOUNDARY_TOKEN = /[,|·:;]$|^[|·:;]$/;
 
 function normalizeWord(w: string): string {
-  let s = String(w || '').replace(/[.,!?()[\]"'“”‘’…]+/g, '');
+  // v3.8.772 — 각주 표지("충전*" · "용량¹")는 낱말이 아니다
+  let s = String(w || '').replace(/[.,!?()[\]"'“”‘’…*※†‡¹²³⁴⁵]+/g, '');
   for (let i = 0; i < 2; i += 1) s = s.replace(PARTICLE_END, '');
   return s;
 }
@@ -54,6 +55,11 @@ export function propertyWindow(text: string, index: number, length: number): str
     }
   }
   return [...new Set(words)];
+}
+
+/** v3.8.772 — 표 행 머리("30분 충전")처럼 값 없는 이름표의 속성 낱말. 칸 값 곁에 낱말이 없을 때 호출부가 쓴다 */
+export function propertyWords(text: string): string[] {
+  return [...new Set(String(text || '').split(/\s+/).map(normalizeWord).filter(usable))];
 }
 
 export function propertyRelation(a: ReadonlyArray<string>, b: ReadonlyArray<string>): PropertyRelation {

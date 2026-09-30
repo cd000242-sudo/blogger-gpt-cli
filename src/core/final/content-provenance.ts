@@ -12,6 +12,7 @@
  */
 import { extractClaims, norm, type DerivedSupport, type LedgerItem } from './fact-claims';
 import { lexicalMatches } from './value-boundary';
+import { describeScope } from './claim-variant';
 
 export type ProvenanceKind = 'EVIDENCE_SOURCE' | 'DERIVED_FROM_EVIDENCE' | 'HYPOTHETICAL' | 'FACTCHECK_SOURCE' | 'NONE';
 
@@ -48,7 +49,7 @@ export function splitFactcheck(context: string, sourceUrls: ReadonlyArray<string
  *   LLM 요약 자체는 출처가 아니다 — 주소 없는 문단·다른 대상 문단은 장부에 넣지 않는다.
  * 실측(live a4fc1b): "삼성은 약 30분 충전으로 최대 55%" 문단은 사실 필터에선 근거였는데 본문 관문 장부엔 없어 "55%" 로 MANUAL_REVIEW.
  */
-export function factcheckWithLineage(context: string, sourceUrls: ReadonlyArray<string> = [], distinctive: ReadonlyArray<string> = []): { context: string; dropped: number; ledger: LedgerItem[]; offTopic: number } {
+export function factcheckWithLineage(context: string, sourceUrls: ReadonlyArray<string> = [], distinctive: ReadonlyArray<string> = []): { context: string; dropped: number; ledger: Array<LedgerItem & { scope: ReturnType<typeof describeScope> }>; offTopic: number } {
   const paragraphs = splitFactcheck(context, sourceUrls);
   const subjects = distinctive.map((w) => w.toLowerCase().replace(/\s+/g, '')).filter((w) => w.length >= 2);
   const onTopic = (p: FactcheckParagraph) => !subjects.length || subjects.some((w) => p.text.toLowerCase().replace(/\s+/g, '').includes(w));
@@ -58,7 +59,8 @@ export function factcheckWithLineage(context: string, sourceUrls: ReadonlyArray<
     context: kept.map((p) => p.text).join('\n\n'),
     dropped: paragraphs.length - kept.length,
     offTopic: withLineage.length - kept.length,
-    ledger: kept.map((p, i) => ({ id: `FACTCHECK${i + 1}`, text: `${p.text}\n[출처] ${p.urls.slice(0, 5).join(' ')}` })),
+    // v3.8.772 — scope: 문단이 말하는 모델·트림(문단 안 언급·각주). 장부 글자(text)는 그대로라 사실 필터 문맥과의 장부 일치는 변하지 않는다
+    ledger: kept.map((p, i) => ({ id: `FACTCHECK${i + 1}`, text: `${p.text}\n[출처] ${p.urls.slice(0, 5).join(' ')}`, scope: describeScope(p.text) })),
   };
 }
 

@@ -10,7 +10,8 @@
  *   · 새 소제목을 짓지 않는다. 모순이면 HEADING_CONTRADICTED 로 기록하고 발행 판단에서 보류한다.
  *   · 제목과 소제목이 같은 틀린 값을 가지면 둘 다 기록하되, 보류 사유는 값 하나에 위치를 모아 한 번만 쓴다(FINAL_FACTUAL_SURFACE_PASS 하나).
  */
-import { authorityClaims, authoritySentences, type TitleAuthorityClaim, type TitleAuthorityResult } from './title-authority';
+import { authorityClaims, authorityContext, type TitleAuthorityClaim, type TitleAuthorityResult } from './title-authority';
+import { scopeFromMentions, variantMentions } from './claim-variant';
 
 export interface HeadingAuthorityResult { heading: string; level: 'h2' | 'h3'; pass: boolean; claims: TitleAuthorityClaim[] }
 export interface SurfaceBlocker { claim: string; locations: string[]; reason: string }
@@ -21,16 +22,25 @@ const plain = (s: string) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&
 const stripLabel = (s: string) => plain(s).replace(/^[^\p{L}\p{N}]+/u, '').replace(/^\d+(?:-\d+)*\.\s*/, '').trim();
 
 /** 최종 HTML 의 소제목들 — 사실 주장이 있는 것만 결과에 남는다 */
-export function checkHeadingAuthority(finalDocument: string, factcheck: ReadonlyArray<string> = []): HeadingAuthorityResult[] {
+export function checkHeadingAuthority(finalDocument: string, factcheck: ReadonlyArray<string> = [], title?: string): HeadingAuthorityResult[] {
   const html = String(finalDocument || '').replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' ');
-  const authority = authoritySentences(html, factcheck);
+  const headingTags = [...html.matchAll(/<(h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/gi)];
+  /**
+   * v3.8.772 — 소제목도 모델 축으로 잰다. 소제목에 모델 이름이 없으면 h3 는 위 h2 의, h2 는 제목(title · 없으면 h1)의 모델을 따른다.
+   * 제목은 소제목 검사 대상이 아니다 — 권위에서 뺄 줄로만 쓴다(exclude).
+   */
+  const ctx = authorityContext(html, factcheck, { pageTitle: title, claimLines: [...(title ? [title] : []), ...headingTags.map((m) => stripLabel(m[2] || ''))], exclude: title ? [title] : [] });
   const out: HeadingAuthorityResult[] = [];
   const seen = new Set<string>();
-  for (const m of html.matchAll(/<(h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+  let h2Scope = ctx.docScope;
+  for (const m of headingTags) {
     const heading = stripLabel(m[2] || '');
+    const own = variantMentions(heading, ctx.anchors);
+    const parent = m[1]!.toLowerCase() === 'h2' ? ctx.docScope : h2Scope;
+    if (m[1]!.toLowerCase() === 'h2') h2Scope = own.length ? scopeFromMentions(own, heading, 'heading') : ctx.docScope;
     if (!heading || seen.has(heading)) continue;
     seen.add(heading);
-    const claims = authorityClaims(heading, authority);
+    const claims = authorityClaims(heading, ctx.units, { anchors: ctx.anchors, docScope: parent });
     if (claims.length) out.push({ heading, level: m[1]!.toLowerCase() as 'h2' | 'h3', pass: !claims.some((c) => c.verdict === 'CONTRADICTED'), claims });
   }
   return out;

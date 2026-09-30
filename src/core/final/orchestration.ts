@@ -3228,9 +3228,10 @@ ${quoted}
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { factcheckWithLineage } = require('./content-provenance');
     // v3.8.770 — 주제 범위까지 본 채택 문단을 사실 필터 문맥과 본문 관문 장부(claimLedger)에 똑같이 싣는다(장부 일치)
-    const paidWithLineage: { context: string; dropped: number; ledger: Array<{ id: string; text: string }>; offTopic: number } = factcheckWithLineage(paidFactContext, paidFactSourceUrls, evidenceMod.distinctiveTokens(keyword));
+    const paidWithLineage: { context: string; dropped: number; ledger: Array<{ id: string; text: string; scope?: unknown }>; offTopic: number } = factcheckWithLineage(paidFactContext, paidFactSourceUrls, evidenceMod.distinctiveTokens(keyword));
     factcheckLedger = paidWithLineage.ledger;
-    if (paidWithLineage.ledger.length) trace.event('factcheck.accepted', { provider: paidFactProvider, paragraphs: paidWithLineage.ledger.map((l) => ({ id: l.id, chars: l.text.length, urls: (l.text.match(/https?:\/\/\S+/g) || []).slice(0, 5) })), dropped: paidWithLineage.dropped, offTopic: paidWithLineage.offTopic });
+    // v3.8.772 — 문단이 어느 모델·트림을 말하는지(문서 범위·언급·각주)도 계보에 남긴다. 주소가 공식이라는 것만으로 변형을 정하지 않는다
+    if (paidWithLineage.ledger.length) trace.event('factcheck.accepted', { provider: paidFactProvider, paragraphs: paidWithLineage.ledger.map((l) => ({ id: l.id, chars: l.text.length, urls: (l.text.match(/https?:\/\/\S+/g) || []).slice(0, 5), scope: l.scope })), dropped: paidWithLineage.dropped, offTopic: paidWithLineage.offTopic });
     if (paidWithLineage.dropped) onLog?.(`[PROGRESS] 44% - 🧬 팩트체크 요약 중 출처 주소가 없는 문단 ${paidWithLineage.dropped}개는 검사 근거에서 뺍니다`);
     const validationView = () => buildValidationEvidence(evidenceItems, factEvidence, {
       paidContext: paidWithLineage.context,
@@ -7709,7 +7710,7 @@ ${conclusionHTML}
      * 🧾 v3.8.771 — 사실을 말하는 소제목(h2·h3)도 같은 최종 권위로 검사한다(live a4fc1b 2절 "4000mAh 45W 충전 성능"). 새 소제목을 짓지 않는다.
      * 제목·소제목의 모순은 보류 하나(FINAL_FACTUAL_SURFACE_PASS)로 묶고, 같은 값은 위치를 모아 한 번만 사유에 쓴다 — 위치별 상세는 캡처에.
      */
-    const headingAuth = checkHeadingAuthority(html, factcheckLedger.map((l) => l.text));
+    const headingAuth = checkHeadingAuthority(html, factcheckLedger.map((l) => l.text), String(h1 || ''));
     if (headingAuth.length) trace.event('heading.final-authority', { headings: headingAuth });
     const surfaceGate = factualSurfaceGate(titleAuth, headingAuth);
     if (!surfaceGate.pass) trace.event('factual-surface.gate', { pass: false, reason: surfaceGate.reason, blockers: surfaceGate.blockers });

@@ -13,10 +13,12 @@
  * 처리(resolveTitleAuthority): 이미 만든 제목 후보(제목 사실 관문 기록) 중 통과하는 것이 있으면 그것으로, 없으면 보류(MANUAL_REVIEW) — 새 제목을 짓지 않는다.
  */
 import { isLexicalValue } from './value-boundary';
-import { propertyWindow, propertyRelation } from './claim-property';
+import { propertyWindow, propertyRelation, propertyWords } from './claim-property';
+import { anchorsFrom, labelsOf, scopeHtml, scopePlain, scopeFromMentions, valueScope, variantRelation, variantMentions, NO_SCOPE, type Anchors, type ScopedUnit, type VariantScope } from './claim-variant';
 
 export type TitleClaimVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'UNCHECKED';
-export interface TitleAuthorityClaim { claim: string; kind: 'numeric' | 'categorical'; verdict: TitleClaimVerdict; reason: string; evidence: string[] }
+/** variant — 주장 값이 묶인 모델·트림(v3.8.772). variantExcluded — 같은 값이지만 다른·모호한 변형이라 지지로 세지 않은 권위 문장 */
+export interface TitleAuthorityClaim { claim: string; kind: 'numeric' | 'categorical'; verdict: TitleClaimVerdict; reason: string; evidence: string[]; variant?: string; variantExcluded?: string[] }
 export interface TitleAuthorityResult { title: string; pass: boolean; claims: TitleAuthorityClaim[] }
 
 const QUANTITY = /(\d[\d,]*(?:\.\d+)?)\s*(mAh|kWh|kW|W|km|㎞|인치|GB|TB|mm|kg|%|퍼센트|만\s*원|억\s*원|원|개월|시간|분)(?![A-Za-z])/g;
@@ -51,16 +53,28 @@ function quantities(text: string): Array<{ num: number; unit: string; raw: strin
   }
   return out;
 }
-function checkNumeric(title: string, authority: string[]): TitleAuthorityClaim[] {
+/** 속성 창 — 표 칸 값 곁에 낱말이 없으면 그 칸의 행·열 머리("30분 충전 | 55% | 69%" 의 "30분 충전")가 속성이다(v3.8.772) */
+function propOf(u: ScopedUnit, index: number, length: number): string[] {
+  const w = propertyWindow(u.s, index, length);
+  if (w.length || !u.cells || !u.cellLabels) return w;
+  const cell = u.cells.findIndex((c) => index >= c.start && index < c.end);
+  return cell > 0 ? propertyWords(u.cellLabels[cell] || '') : w;
+}
+function checkNumeric(line: ScopedUnit, authority: ReadonlyArray<ScopedUnit>): TitleAuthorityClaim[] {
   const out: TitleAuthorityClaim[] = [];
   /**
    * v3.8.771 — 값은 대상·속성과 함께 비교한다(claim-property). 같은 값이어도 다른 항목(충전기 45W ≠ 기기 충전 45W)이면 지지도 모순도 아니다.
    * 속성 창이 겹치면 같은 주장(SAME). 한쪽 창이 비면(UNKNOWN) 단위만으로 속성이 정해지는 물리 단위(mAh·W·km …)일 때만 같은 주장으로 본다.
+   * v3.8.772 — 모델·트림·유형(claim-variant)도 맞아야 같은 주장이다. S26+ 의 69% 는 S26 의 69% 가 아니다 — 다른 변형(DIFFERENT)·모호(AMBIGUOUS)는 지지도 모순도 아니다.
    */
-  const withProp = (s: string) => quantities(s).map((q) => ({ ...q, prop: propertyWindow(s, q.index, q.raw.length) }));
-  const auth = authority.map((s) => ({ s, q: withProp(s) }));
-  for (const tv of withProp(title)) {
-    const bound = (q: { prop: string[] }) => { const r = propertyRelation(tv.prop, q.prop); return r === 'SAME' || (r === 'UNKNOWN' && UNIT_NAMES_PROPERTY.test(tv.unit)); };
+  const withProp = (u: ScopedUnit) => quantities(u.s).map((q) => ({ ...q, prop: propOf(u, q.index, q.raw.length), variant: valueScope(u, q.index) }));
+  const auth = authority.map((u) => ({ s: u.s, q: withProp(u) }));
+  for (const tv of withProp(line)) {
+    const propBound = (q: { prop: string[] }) => { const r = propertyRelation(tv.prop, q.prop); return r === 'SAME' || (r === 'UNKNOWN' && UNIT_NAMES_PROPERTY.test(tv.unit)); };
+    const variantOk = (q: { variant: VariantScope }) => { const r = variantRelation(tv.variant, q.variant); return r !== 'DIFFERENT' && r !== 'AMBIGUOUS'; };
+    const bound = (q: { prop: string[]; variant: VariantScope }) => variantOk(q) && propBound(q);
+    const excluded = auth.flatMap((a) => a.q.filter((q) => q.unit === tv.unit && q.num === tv.num && propBound(q) && !variantOk(q)).slice(0, 1).map((q) => `${a.s.slice(0, 120)} ⟨${q.variant.via === 'ambiguous' ? `모호: ${q.variant.label}` : q.variant.label}⟩`)).slice(0, 3);
+    const scoped = tv.variant.keys.length ? { variant: tv.variant.label, ...(excluded.length ? { variantExcluded: excluded } : {}) } : {};
     const same = auth.map((a) => ({ ...a, q: a.q.filter((q) => q.unit !== tv.unit || q.num !== tv.num || bound(q)) })).filter((a) => a.q.some((q) => q.unit === tv.unit && q.num === tv.num));
     /**
      * 거부 표지는 **그 표지 앞의 값**에만 걸린다: "4000mAh가 아니라 4300mAh" 에서 4000mAh 만 거부, 4300mAh 는 긍정.
@@ -77,10 +91,10 @@ function checkNumeric(title: string, authority: string[]): TitleAuthorityClaim[]
     const affirmed = same.filter((a) => !rejectedHere(a) && !contrasted(a) && !QUESTION.test(a.s));
     const others = auth.filter((a) => a.q.some((q) => q.unit === tv.unit && q.num !== tv.num && bound(q)));
     const claim = tv.raw.replace(/\s+/g, '');
-    if (affirmed.length) { out.push({ claim, kind: 'numeric', verdict: 'SUPPORTED', reason: '최종 권위가 같은 값을 말함', evidence: affirmed.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
-    if (same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: `최종 권위가 이 값을 거부하고 다른 값(${[...new Set(others.flatMap((a) => a.q.filter((q) => q.unit === tv.unit && q.num !== tv.num && bound(q)).map((q) => q.raw.replace(/\s+/g, ''))))].slice(0, 3).join('·')})을 말함`, evidence: same.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
-    if (!same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: '오래된 제목 — 최종 권위에 이 값이 없고 같은 대상의 다른 값만 있음', evidence: others.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
-    out.push({ claim, kind: 'numeric', verdict: 'UNCHECKED', reason: '최종 권위에 같은 대상의 값이 없음(대조 불가)', evidence: [] });
+    if (affirmed.length) { out.push({ claim, kind: 'numeric', verdict: 'SUPPORTED', reason: '최종 권위가 같은 값을 말함', evidence: affirmed.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
+    if (same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: `최종 권위가 이 값을 거부하고 다른 값(${[...new Set(others.flatMap((a) => a.q.filter((q) => q.unit === tv.unit && q.num !== tv.num && bound(q)).map((q) => q.raw.replace(/\s+/g, ''))))].slice(0, 3).join('·')})을 말함`, evidence: same.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
+    if (!same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: '오래된 제목 — 최종 권위에 이 값이 없고 같은 대상의 다른 값만 있음', evidence: others.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
+    out.push({ claim, kind: 'numeric', verdict: 'UNCHECKED', reason: excluded.length ? '최종 권위의 같은 값은 다른 모델·트림(또는 모호한 범위)의 값 — 대조 불가' : '최종 권위에 같은 대상의 값이 없음(대조 불가)', evidence: [], ...scoped });
   }
   return out;
 }
@@ -112,8 +126,24 @@ function checkCategorical(title: string, authority: string[]): TitleAuthorityCla
  */
 export function checkTitleAuthority(title: string, finalDocument: string, factcheck: ReadonlyArray<string> = []): TitleAuthorityResult {
   const t = String(title || '').trim();
-  const claims = authorityClaims(t, authoritySentences(finalDocument, factcheck, [t]));
+  // v3.8.772 — 제목이 곧 문서 이름표(PAGE ENTITY): 제목에 모델이 하나면 이름 없는 본문 문장은 그 모델의 문장이다
+  const ctx = authorityContext(finalDocument, factcheck, { pageTitle: t, claimLines: [t], exclude: [t] });
+  const claims = authorityClaims(t, ctx.units, { anchors: ctx.anchors });
   return { title: t, pass: !claims.some((c) => c.verdict === 'CONTRADICTED'), claims };
+}
+
+/**
+ * 🧬 v3.8.772 — 범위 붙은 최종 권위: 최종 HTML(소제목·표 열 머리·각주·목록 머리로 변형을 정함) + 채택 팩트체크 문단(문단 안 언급·각주로 정함, 주소는 보지 않음).
+ * pageTitle 이 없으면 HTML 의 h1. claimLines(제목·소제목)의 코드 모양은 모델 이름으로 본다.
+ */
+export function authorityContext(finalDocument: string, factcheck: ReadonlyArray<string> = [], opts: { pageTitle?: string | undefined; claimLines?: ReadonlyArray<string>; exclude?: ReadonlyArray<string> | undefined } = {}): { units: ScopedUnit[]; anchors: Anchors; docScope: VariantScope } {
+  const doc = String(finalDocument || '')
+    .replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<a\b[^>]*class="[^"]*toc[^"]*"[^>]*>[\s\S]*?<\/a>/gi, ' ');
+  const pageTitle = opts.pageTitle !== undefined ? opts.pageTitle : ((doc.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const anchors = anchorsFrom([...(opts.claimLines || []), pageTitle].filter(Boolean), labelsOf(doc));
+  const units = [...scopeHtml(doc, { pageTitle, anchors, exclude: opts.exclude }), ...factcheck.flatMap((f) => scopePlain(f, { anchors }))];
+  return { units, anchors, docScope: scopeFromMentions(variantMentions(pageTitle, anchors), pageTitle, 'document') };
 }
 
 /**
@@ -129,9 +159,15 @@ export function authoritySentences(finalDocument: string, factcheck: ReadonlyArr
   return [...sentencesOf(doc), ...factcheck.flatMap((f) => sentencesOf(f))];
 }
 
-/** 한 줄(제목·소제목)의 수치·가능/불가 주장을 최종 권위와 대조 */
-export function authorityClaims(line: string, authority: string[]): TitleAuthorityClaim[] {
-  return [...checkNumeric(line, authority), ...checkCategorical(line, authority)];
+/**
+ * 한 줄(제목·소제목)의 수치·가능/불가 주장을 최종 권위와 대조.
+ * v3.8.772 — authority 가 범위 붙은 문장(authorityContext)이면 모델 축까지 본다. 문자열이면 범위 없음(예전 동작).
+ * docScope — 줄 안에 모델 이름이 없을 때 줄이 따르는 범위(소제목은 제목의 모델).
+ */
+export function authorityClaims(line: string, authority: ReadonlyArray<string | ScopedUnit>, opts: { anchors?: Anchors; docScope?: VariantScope } = {}): TitleAuthorityClaim[] {
+  const units: ScopedUnit[] = authority.map((a) => (typeof a === 'string' ? { s: a, scope: NO_SCOPE, mentions: [] } : a));
+  const lineUnit: ScopedUnit = { s: line, scope: opts.docScope || NO_SCOPE, mentions: opts.anchors ? variantMentions(line, opts.anchors) : [] };
+  return [...checkNumeric(lineUnit, units), ...checkCategorical(line, units.map((u) => u.s))];
 }
 
 /**
