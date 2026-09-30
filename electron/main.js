@@ -4094,8 +4094,27 @@ electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
         if (mode === 'article') {
             send(`[PROGRESS] 5% - 🔄 "${title.slice(0, 30)}" 본문을 다시 만듭니다 (주소 유지)`);
             const { generateUltimateMaxModeArticleFinal } = require('../dist/core/ultimate-final-functions');
+            /**
+             * 📌 v3.8.776 — 재생성은 원래 작성자 요청을 되살린다(감사 775: 여기서 요청이 사라졌다). 새로 적은 요청이 있으면 그것이 이긴다.
+             * 장부에 칸이 없는 옛 글은 UNKNOWN — 빈 요청이었다고 단정하지 않는다.
+             */
+            let requestPatch = {};
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const ur = require('../dist/core/final/user-requirement');
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const ledger = require('../dist/core/final/publish-ledger');
+                const resolved = ur.resolveRegenerateRequest({
+                    explicit: args?.userRequest ?? args?.payload?.userRequest,
+                    stored: ur.findStoredRequest(ledger.readLedger(ledger.defaultLedgerPath()), { url: current.url, title }),
+                });
+                requestPatch = { ...(resolved.userRequest ? { userRequest: resolved.userRequest } : {}), userRequestOrigin: `regenerate:${resolved.origin}` };
+                send(`[PROGRESS] 6% - 📌 작성자 요청: ${resolved.origin === 'UNKNOWN' ? '원래 요청 기록 없음(이 기능 전의 글)' : resolved.origin === 'STORED_EMPTY' ? '원래 요청 없음' : resolved.origin === 'EXPLICIT' ? '새로 적은 요청 사용' : '원래 요청을 되살림'}`);
+            }
+            catch { /* 되살리기 실패가 재생성을 막지 않는다 */ }
             const payload = {
                 ...(args?.payload || {}),
+                ...requestPatch,
                 topic: title,
                 keyword: title,
                 platform: creds.platform,
@@ -5647,6 +5666,17 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
             postPayload.generatedLabels = article.labels;
         }
         const publishResult = await publishGeneratedContent(postPayload, articleTitle, articleHtml, articleThumbnail);
+        // v3.8.752 — 다중계정 경로도 생성 1건 → 발행 시도를 runId 로 잇는다
+        recordPublishAttemptSafely({
+            runId: String(article?.runId || ''),
+            platform: String(postPayload?.platform || postPayload?.targetPlatform || postPayload?.blogPlatform || ''),
+            target: publishTargetOf(postPayload),
+            ok: !!(publishResult.ok || publishResult.success),
+            url: String(publishResult.url || publishResult.postUrl || ''),
+            postId: String(publishResult.postId || publishResult.id || ''),
+            error: publishResult.ok || publishResult.success ? '' : String(publishResult.error || '발행 실패'),
+            source: 'multi-account',
+        });
         if (publishResult.ok || publishResult.success) {
             console.log('[MULTI-ACCOUNT] 🎉 발행 성공!', publishResult.url);
             // v3.8.89: 통합 success 신호
@@ -6390,6 +6420,46 @@ safeRegisterHandler('run-semi-auto-post', async (_evt, payload) => {
         };
     }
 });
+/**
+ * 🔗 v3.8.752 — 발행 시도를 **생성 실행 ID(runId)** 로 장부 줄과 캡처 폴더에 잇는다 (감사 F13).
+ *
+ * 예전 attachUrlToLedger 는 제목으로 가장 최근 빈 줄을 찾았다. A 글(2026-09-28)에서 블로거가 invalid_grant 로 실패하고
+ * 워드프레스 재발행이 publish-content 를 탔는데 거기엔 장부 배선이 없어 url 이 빈칸으로 남았다.
+ * 이제 성공·실패 모두 시도로 남고, runId 가 없으면 제목으로 추측하지 않고 미연결 파일에 남긴다.
+ * 기록 실패가 발행 결과를 바꾸지 않는다.
+ */
+function recordPublishAttemptSafely(input) {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { recordPublishAttempt, defaultLedgerPath, appendRunTracePublishAttempt } = require('../dist/core/final/publish-ledger');
+        try {
+            if (input.runId && typeof appendRunTracePublishAttempt === 'function')
+                appendRunTracePublishAttempt(String(input.runId), { platform: input.platform, target: input.target, ok: input.ok, url: input.url, postId: input.postId, error: input.error, source: input.source });
+        }
+        catch { /* 캡처 폴더가 없으면(캡처 OFF) 조용히 넘어간다 */ }
+        const rec = recordPublishAttempt(defaultLedgerPath(), {
+            runId: String(input.runId || ''),
+            platform: String(input.platform || ''),
+            target: String(input.target || ''),
+            ok: input.ok === true,
+            url: String(input.url || ''),
+            postId: String(input.postId || ''),
+            error: String(input.error || ''),
+            source: input.source,
+            // v3.8.779 — 에이전트 글 ID·강제 발행 결말(감사 기록과 같은 ID 로 이어진다). 없으면 빈 값 — 예전 기록과 같다
+            articleId: String(input.articleId || ''),
+            resolution: String(input.resolution || ''),
+        });
+        console.log(`[LEDGER] 🔗 발행 시도 기록 (${input.source} · ${input.ok ? '성공' : '실패'}): ${rec.linked ? `run ${input.runId} 에 연결${rec.duplicate ? ' (같은 주소 이미 있음 — 중복 안 붙임)' : ''}` : 'run 미연결(runId 없음 또는 장부에 없음) — 미연결 파일에 남김'}`);
+    }
+    catch (ledgerErr) {
+        console.warn('[LEDGER] 발행 시도 기록 건너뜀:', String(ledgerErr?.message || ledgerErr).slice(0, 120));
+    }
+}
+/** 발행 대상 식별 — 비밀 없이 블로그 ID·사이트 주소·블로그 이름만 */
+function publishTargetOf(p) {
+    return String(p?.blogId || p?.wordpressUrl || p?.wpSiteUrl || p?.tistoryBlogName || p?.tistoryBlogUrl || '');
+}
 // 포스트 실행 (콘텐츠 생성 + 자동 발행)
 electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
     let freeTrialPublish = false;
@@ -6839,21 +6909,18 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                     onLog('[PROGRESS] 100% - ✅ 발행 완료!');
                     console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
                     /**
-                     * 🔗 v3.8.651 — 장부의 그 줄에 주소를 채운다.
-                     *
-                     * 장부는 생성이 끝날 때 쓰이므로 그때는 주소를 모른다. 여기가 처음 아는 자리다.
-                     * 9/21 에 애드센스가 풀리면 페이지 주소로 RPM 을 붙일 수 있고,
-                     * 그때 **오늘 쌓은 줄들도 같이** 이어진다 — 지금 안 채우면 그 글들은 영영 못 맞춘다.
+                     * 🔗 v3.8.651 — 장부의 그 줄에 주소를 채운다. 장부는 생성이 끝날 때 쓰이므로 그때는 주소를 모른다. 여기가 처음 아는 자리다.
+                     * v3.8.752 — 제목이 아니라 **runId** 로 잇는다(recordPublishAttemptSafely). 실패 시도도 아래에서 남긴다.
                      */
-                    try {
-                        const { attachUrlToLedger, defaultLedgerPath } = require('../dist/core/final/publish-ledger');
-                        const ok = attachUrlToLedger(defaultLedgerPath(), String(result?.title || payload?.topic || ''), String(publishResult.url || ''));
-                        if (ok)
-                            console.log('[LEDGER] 🔗 발행 주소를 장부에 남겼습니다');
-                    }
-                    catch (ledgerErr) {
-                        console.warn('[LEDGER] 주소 기록 건너뜀:', String(ledgerErr?.message || ledgerErr).slice(0, 120));
-                    }
+                    recordPublishAttemptSafely({
+                        runId: String(result?.runId || ''),
+                        platform: String(payload?.platform || payload?.targetPlatform || payload?.blogPlatform || ''),
+                        target: publishTargetOf(payload),
+                        ok: true,
+                        url: String(publishResult.url || ''),
+                        postId: String(publishResult.postId || publishResult.id || ''),
+                        source: 'run-post',
+                    });
                     if (freeTrialPublish) {
                         try {
                             const { isConfirmedPublishedPost, recordFreeTrialPublishCompletion } = require('./auth-utils');
@@ -6920,6 +6987,15 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
         // 모든 시도 실패
         console.error('[RUN-POST] 발행 최종 실패:', lastPublishError);
         onLog(`[PROGRESS] 100% - ⚠️ 발행 실패: ${lastPublishError}`);
+        // v3.8.752 — 실패도 시도로 남긴다(성공 url 을 지우지 않는다). 재발행이 성공하면 같은 runId 줄에 이어진다
+        recordPublishAttemptSafely({
+            runId: String(result?.runId || ''),
+            platform: String(payload?.platform || payload?.targetPlatform || payload?.blogPlatform || ''),
+            target: publishTargetOf(payload),
+            ok: false,
+            error: String(lastPublishError || '발행 실패'),
+            source: 'run-post',
+        });
         return {
             ok: true,
             ...result,
@@ -7604,6 +7680,23 @@ electron_1.ipcMain.handle('publish-content', async (_evt, data) => {
             }
         };
         const result = await publishGeneratedContent(data.payload, data.title, data.content, data.thumbnailUrl, publishOnLog);
+        /**
+         * 🔗 v3.8.752 — 이 창구(편집기·재발행 대기열·수동 발행)에는 장부 배선이 없었다(감사 F13).
+         * 대기열 항목·generatedContent 가 실어 온 runId 로 원래 생성 줄에 시도(성공·실패)를 잇는다. runId 가 없으면 미연결로만 남긴다.
+         */
+        recordPublishAttemptSafely({
+            runId: String(data?.runId || data?.payload?.runId || ''),
+            platform: String(data?.platform || data?.payload?.platform || data?.payload?.targetPlatform || data?.payload?.blogPlatform || ''),
+            target: publishTargetOf(data?.payload),
+            ok: !!(result && result.ok),
+            url: String(result?.url || ''),
+            postId: String(result?.postId || result?.id || ''),
+            error: result && !result.ok ? String(result.error || '발행 실패') : '',
+            source: 'publish-content',
+            // v3.8.779 — 강제 발행이 실제로 성공했을 때만 그 결말을 남긴다(승인 감사 기록은 발행 창구가 이미 남겼다)
+            articleId: String(data?.articleId || ''),
+            resolution: result?.ok && data?.payload?.forcePublish === true ? 'PUBLISHED_BY_FORCE_OVERRIDE' : '',
+        });
         console.log('[PUBLISH] 발행 결과:', {
             ok: result?.ok,
             hasUrl: !!result?.url,
@@ -10224,11 +10317,15 @@ function buildAgentJobInstructions(request, profile) {
          *
          * **지시서 맨 끝**에 둔다. 규칙이 다 선 다음에 와야 "참고" 자격이 유지된다 —
          * 위쪽에 끼우면 요청 문장이 규칙을 덮어쓰는 것처럼 읽힌다.
+         * v3.8.777 — API 경로와 같은 계약(Writer 정본 블록) + "에이전트 계획보다 우선" + 위 기본 규칙과 부딪히는 곳. 새 파서 없음
          */
         (() => {
             try {
-                const { buildUserRequestBlock, describeUserRequest } = require('../dist/core/final/user-request');
-                const block = buildUserRequestBlock(payload?.userRequest);
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { describeUserRequest } = require('../dist/core/final/user-request');
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { agentInstructionsBlock, captureAgentRequirements } = require('../dist/core/final/agent-requirement');
+                const block = agentInstructionsBlock(captureAgentRequirements(payload?.userRequest));
                 if (block)
                     console.log(`[AGENT] 📝 ${describeUserRequest(payload?.userRequest)}`);
                 return block;
@@ -12355,6 +12452,28 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
         const jobDir = path.join(ensureAgentJobsRoot(), jobId);
         fs.mkdirSync(jobDir, { recursive: true });
         /**
+         * 📌 v3.8.777 — 에이전트도 입력 시점에 **같은 공통 함수**로 작성자 요구 계약을 만든다(감사 777: 지시서 끝 원문 말고는 없었다).
+         * 이 계약이 표 상한·발행 전 자가 수정·최종 판정·발행 창구 재검사까지 한 줄로 이어진다. 요청이 없으면 null — 예전 동작.
+         */
+        let agentReqMod = null;
+        let agentReq = null;
+        const agentReqKeyword = String(request?.payload?.topic || request?.payload?.keyword || request?.title || '');
+        const agentReqTrace = {};
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            agentReqMod = require('../dist/core/final/agent-requirement');
+            agentReq = agentReqMod.captureAgentRequirements(request?.payload?.userRequest);
+            if (agentReq) {
+                agentReqTrace.capture = { chars: agentReq.contract.rawText.length, normalized: agentReq.contract.normalized, fingerprint: agentReq.contract.fingerprint, truncated: agentReq.contract.truncated };
+                agentReqTrace.contract = { requirements: agentReq.contract.requirements, plan: agentReq.plan };
+                console.log(`[AGENT] 📌 user-requirement.capture — ${agentReq.contract.rawText.length}자 · 지문 ${agentReq.contract.fingerprint}`);
+                console.log(`[AGENT] 📌 user-requirement.contract — ${agentReq.contract.requirements.map((r) => `${r.id} ${r.priority} ${r.type}`).join(' · ') || '구조 요구 없음(원문만)'}`);
+            }
+        }
+        catch (reqErr) {
+            console.warn('[AGENT] 작성자 요구 계약 준비 스킵:', String(reqErr?.message || reqErr).slice(0, 120));
+        }
+        /**
          * v3.8.488 — 쇼핑 글이면 실제 상품 데이터를 먼저 확보해 지시서에 넣는다.
          *
          * 에이전트는 외부 API 를 못 쓴다. 상품 정보를 안 주면 있지도 않은 제품과 가격을
@@ -12452,10 +12571,21 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             console.warn('[AGENT-GROUNDING] 준비 스킵:', String(groundErr?.message || groundErr).slice(0, 120));
         }
         writeAgentJobFiles(jobDir, request || {}, profile);
+        // v3.8.777 — 지시서에 원문과 요구마다 계약 줄이 실렸나(에이전트 전달 = API 경로의 user-requirement.writer)
+        if (agentReq && agentReqMod) {
+            try {
+                const delivery = agentReqMod.agentDelivery(fs.readFileSync(path.join(jobDir, 'instructions.md'), 'utf-8'), agentReq);
+                agentReqTrace.writer = { delivery };
+                console.log(`[AGENT] 📌 user-requirement.writer — ${delivery.map((d) => `${d.id}=${d.status}`).join(' ')}`);
+            }
+            catch { /* 확인 실패가 실행을 막지 않는다 */ }
+        }
         const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
         // v3.8.714: 화면에서 고른 에이전트 모델을 그대로 쓴다 (payload 에 실려 온다)
         const run = await runAgentProcess(profile, jobDir, lastMessagePath, request?.payload?.agentModel);
         const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+        // v3.8.777 — 에이전트가 낸 원본(후처리 전). 최종 판정이 이것과 비교해 뒤 단계 손실(회귀)을 잰다
+        const agentDeliveredHtml = String(result.content || '');
         /**
          * v3.8.666 — 호출 0회짜리 후처리를 에이전트 글에도 건다. 사장님: "지금 수정하는 건 에이전트 모드도 적용되는 거지?"
          * API 경로의 본문 표 상한·되풀이 삭제·auto-repair(마침표 뒤 공백, 숫자 앞 공백, 상대 시점→연도)를 그대로 —
@@ -12465,7 +12595,8 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             const { autoRepairBeforePublish, removeEchoedSentences, describeRepairs } = require('../dist/core/final/auto-repair');
             const { capInlineTables } = require('../dist/core/final/table-cap');
             let polished = String(result.content || '');
-            const capped = capInlineTables([polished], 3);
+            // v3.8.777 — 표 상한도 계약을 따른다(API 경로의 MAX_TABLES = userPlan.maxTables 와 같다). 계약이 없으면 예전 3
+            const capped = capInlineTables([polished], agentReqMod ? agentReqMod.agentTableCap(agentReq) : 3);
             if (capped.demoted > 0) {
                 polished = capped.contents[0] || polished;
                 console.log(`[AGENT-POLISH] 📊 본문 표 ${capped.total}개 중 숫자가 적은 ${capped.demoted}개를 목록으로 바꿨습니다`);
@@ -12500,8 +12631,14 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
          */
         try {
             const { fixBeforePublish } = require('../dist/core/final/pre-publish-fix');
-            const outcome = await fixBeforePublish({ title: result.title, html: result.content }, (prompt) => runAgentTextTask(profile.provider, prompt, (l) => console.log(`[AGENT-PREFLIGHT] ${l}`)), (line) => console.log(`[AGENT-PREFLIGHT] ${line}`));
+            const outcome = await fixBeforePublish({ title: result.title, html: result.content }, 
+            // v3.8.777 — 다시 쓰는 하위 작업도 MUST·EXCLUDE 를 안다(원문 대신 압축 계약을 앞에 붙인다)
+            (prompt) => runAgentTextTask(profile.provider, agentReqMod ? agentReqMod.withRequirements(prompt, agentReq) : prompt, (l) => console.log(`[AGENT-PREFLIGHT] ${l}`)), (line) => console.log(`[AGENT-PREFLIGHT] ${line}`));
             if (outcome.revised > 0) {
+                // v3.8.778 — API 경로와 같은 단계 유지 검사(공통 stageRegressions). 되돌리지 않는다 — 발행 창구가 실제 본문으로 보류한다
+                const rewriteLoss = agentReqMod ? agentReqMod.agentStageRegressions(agentReq, String(result.content || ''), outcome.html, 'pre-publish-rewrite') : [];
+                if (rewriteLoss.length)
+                    console.log(`[AGENT] 📌 user-requirement.rewrite — 자가 수정이 작성자 요구를 깼습니다: ${rewriteLoss.map((g) => `${g.id} ${g.before}→${g.after}`).join(', ')}`);
                 result.content = outcome.html;
                 console.log(`[AGENT-PREFLIGHT] 🩺 구간 ${outcome.revised}개를 다시 썼습니다 (호출 ${outcome.calls}회 · 구독이라 비용 0)`);
             }
@@ -12623,6 +12760,33 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             // 스킨을 못 입혀도 글은 나가야 한다
             console.warn('[AGENT-SKIN] 스킵:', String(skinErr?.message || skinErr).slice(0, 120));
         }
+        /**
+         * 📌 v3.8.777 — 후처리가 다 끝난 글을 API 경로와 **같은 판정**(checkUserRequirements·requirementGate)으로 잰다.
+         * 발행 보류는 여기서 하지 않는다 — 화면에서 이미지가 들어간 뒤 발행 창구(publishGeneratedContent)가 실제 본문으로
+         * 다시 잰다. 여기서는 근거(값 단정·공식 출처 판정용)를 기억해 두고, 결과를 로그·작업 폴더·응답에 남긴다.
+         */
+        let agentUserRequirement = null;
+        if (agentReq && agentReqMod) {
+            try {
+                const evidenceText = String(request?.payload?.agentEvidenceBlock || '');
+                const ev = agentReqMod.evaluateAgentRequirements({ capture: agentReq, html: String(result.content || ''), baselineHtml: agentDeliveredHtml, evidenceText });
+                agentReqMod.rememberAgentEvidence(agentReq.contract.fingerprint, agentReqKeyword, evidenceText);
+                const results = ev.results.map((r) => ({ id: r.id, type: r.type, priority: r.priority, status: r.status, reason: r.reason }));
+                agentReqTrace.final = { results, regressions: ev.regressions, officialSources: ev.officialSources };
+                agentReqTrace.publish = { pass: ev.gate.pass, reason: ev.gate.reason, blockers: ev.gate.blockers.map((b) => b.id) };
+                agentUserRequirement = { fingerprint: agentReq.contract.fingerprint, ...agentReqTrace.final, gate: agentReqTrace.publish };
+                const met = results.filter((r) => r.status === 'COVERED' || r.status === 'DELIVERED').length;
+                console.log(`[AGENT] 📌 user-requirement.final — ${results.map((r) => `${r.id}=${r.status}`).join(' ')}${ev.regressions.length ? ` · 후처리 손실 ${ev.regressions.map((g) => g.id).join(',')}` : ''}`);
+                console.log(`[AGENT] 📌 user-requirement.publish — 작성자 요구 ${met}/${results.length} 충족 · ${ev.gate.pass ? '통과' : `보류(발행 창구가 다시 잰다): ${ev.gate.reason}`}`);
+            }
+            catch (evalErr) {
+                console.warn('[AGENT] 작성자 요구 최종 판정 스킵:', String(evalErr?.message || evalErr).slice(0, 120));
+            }
+            try {
+                fs.writeFileSync(path.join(jobDir, 'user-requirement.json'), JSON.stringify(agentReqTrace, null, 2), 'utf-8');
+            }
+            catch { /* 기록 실패가 발행을 막지 않는다 */ }
+        }
         const usage = parseAgentRunUsage(profile.provider, run.stdout);
         /**
          * 🛟 v3.8.599 — **빈 글이 나가는 일을 여기서 막는다.**
@@ -12696,6 +12860,8 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             metadata: result.metadata,
             finalMessage: result.finalMessage,
             usage,
+            // v3.8.777 — 작성자 요구 판정(참고용). 발행 여부는 발행 창구가 실제 본문으로 다시 정한다
+            ...(agentUserRequirement ? { userRequirement: agentUserRequirement } : {}),
             warning: run.exitCode && run.exitCode !== 0
                 ? `Agent가 종료 코드 ${run.exitCode}로 종료됐지만 article.html 산출물을 회수했습니다.`
                 : '',
@@ -14084,6 +14250,19 @@ electron_1.app.whenReady().then(async () => {
     catch (e) {
         // 설정을 못 읽어도 앱은 떠야 한다 — 각 모듈이 알아서 파일을 다시 읽는다
         console.warn('[APP] 설정 → 환경변수 반영 실패:', String(e?.message || e).slice(0, 100));
+    }
+    /**
+     * v3.8.752 — 실행 캡처 설정을 부팅 로그에 남긴다(ON/OFF·폴더·코드 식별만, 키 없음).
+     * "캡처 ON 인 줄 알았는데 옛 실행본이었다" 를 막는다 — 모듈이 없으면 그 사실이 여기 찍힌다.
+     */
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const rt = require('../dist/core/final/publish-ledger'); // run-trace 는 이 모듈이 재수출한다(dist 경로 하나만 부른다)
+        const id = rt.runTraceCodeIdentity();
+        console.log(`[RUN-TRACE] 캡처 ${rt.isRunTraceEnabled() ? 'ON' : 'OFF'} · 폴더 ${rt.runTraceRootDir()} · 앱 ${electron_1.app.getVersion()} · packaged ${electron_1.app.isPackaged} · run-trace ${String(id.runTraceSha1 || '').slice(0, 10)} · orchestration ${String(id.orchestrationSha1 || '').slice(0, 10)}${id.buildInfo ? ` · build ${JSON.stringify(id.buildInfo)}` : ''}`);
+    }
+    catch (e) {
+        console.warn('[RUN-TRACE] 캡처 모듈 없음(옛 실행본 — 캡처 불가):', String(e?.message || e).slice(0, 100));
     }
     // v3.8.381(R6): 부팅 시 스케줄 감시 자동 재개 — 기존에는 사용자가 대기열에서 "예약"을
     //   눌러야만 감시가 시작되어, 앱 재시작 후 기존 예약이 조용히 실행되지 않았다.
