@@ -171,6 +171,7 @@ function ledgerPath(): string {
 
 // 🧠 v3.8.734 — 고른 모델 / 실제로 쓴 모델 / 하향 여부 (model-use.ts)
 import { describeModelUse } from './model-use';
+import type { VariantLedger } from './variant-ledger';
 
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
@@ -1755,6 +1756,22 @@ export async function generateUltimateMaxModeArticleFinal(
       { id: 'PACKET', text: researchPacketText },
       ...factcheckLedger,
     ]);
+    /**
+     * 🧾 v3.8.773 — 모델·트림 범위 장부(VARIANT LEDGER PARITY). 사실 필터·요약표 정리·본문 관문이 **같은 장부·같은 판정**을 쓴다.
+     * 원문(E번호)만 모델 근거 — 패킷·팩트체크 문단은 LLM 서술이라 모델이 붙은 주장에는 지지도 모순도 아니다(live f91a10 "S26 … 69%").
+     * 부를 때마다 지금의 제목·팩트체크 장부로 만든다. 실패하면 null(예전 값 대조만).
+     */
+    const variantLedger = (): VariantLedger | null => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require('./variant-ledger').buildVariantLedger({
+          title: String(h1 || ''),
+          sources: evidenceItems.map((i) => ({ id: String(i.id), title: String(i.title || ''), text: String(i.cleanedText || '') })),
+          prose: [{ id: 'PACKET', text: researchPacketText }, ...factcheckLedger.map((l) => ({ id: l.id, text: l.text }))],
+        });
+      } catch { return null; }
+    };
+    const withVariant = <T extends object>(evidence: T, ledger: VariantLedger | null): T => (ledger ? { ...evidence, variant: { ledger } } : evidence);
     /** v3.8.767 — 사실 필터가 근거 값으로 한 단계 검산한 값(DERIVED_FROM_EVIDENCE)과 명시적 가정 값. 본문 관문·계보 추적이 같은 기록을 쓴다 */
     const derivedLedger: Array<{ claim: string; operation: string; sourceIds: string[] }> = [];
     const hypotheticalLedger: string[] = [];
@@ -4128,16 +4145,19 @@ ${quoted}
     const factBefore = trace.snapshot('draft.before-fact-filter', allSectionsObj);
     trace.event('fact-filter.input', describeValidationInput(bodyValidation, { fn: 'inspectArticleFactIntegrity/sanitizeArticleFactClaims', artifact: factBefore, evidenceSnapshot: 'evidence.stage2' }));
     if (!bodyValidation.complete || bodyValidation.basis !== 'ledger') onLog?.(`[PROGRESS] 74% - ⚠️ [FACT] 검사 근거 불완전(${bodyValidation.basis}${bodyValidation.droppedIds.length ? ` · 빠진 문서 ${bodyValidation.droppedIds.length}` : ''}) — 근거 없음 판정은 "발췌에서 못 찾음" 일 수 있음`);
-    let factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyValidation.evidence);
+    const filterLedger = variantLedger();
+    if (filterLedger) trace.event('variant-ledger', { stage: 'fact-filter', docScope: filterLedger.docScope.label || filterLedger.docScope.via, sources: filterLedger.sources.map((s) => ({ id: s.id, kind: s.kind, scope: s.scope.via === 'ambiguous' ? `AMBIGUOUS(${s.scope.label})` : s.scope.label || s.scope.via })) });
+    const bodyEvidence = withVariant(bodyValidation.evidence, filterLedger);
+    let factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyEvidence);
     if (factIntegrityReport.status === 'blocked') {
       onLog?.(`[PROGRESS] 74% - [FACT] 근거와 일치하지 않는 주장 ${factIntegrityReport.violations.length}건을 제거 후 재검사합니다.`);
       // 🧾 v3.8.752 — 로그는 "2건 제거" 라고만 했다. 무엇을 지웠는지(전후·위반 목록)를 남긴다
       const factBeforeText = draftPlain(allSectionsObj);
       const violationsBefore = factIntegrityReport.violations.map((v: any) => ({ location: v.location, kind: v.kind, detail: v.detail }));
-      allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, bodyValidation.evidence);
+      allSectionsObj = sanitizeArticleFactClaims(allSectionsObj, bodyEvidence);
       const factAfter = trace.snapshot('draft.after-fact-filter', allSectionsObj);
-      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true, contextSha1: bodyValidation.contextSha1, basis: bodyValidation.basis, complete: bodyValidation.complete, derived: factIntegrityReport.derived || [] });
-      factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyValidation.evidence);
+      trace.change('fact-filter', { fn: 'sanitizeArticleFactClaims', before: factBefore, after: factAfter, beforeText: factBeforeText, afterText: draftPlain(allSectionsObj), reason: `근거와 일치하지 않는 주장 ${violationsBefore.length}건`, violations: violationsBefore, judgeable: true, contextSha1: bodyValidation.contextSha1, basis: bodyValidation.basis, complete: bodyValidation.complete, derived: factIntegrityReport.derived || [], variant: factIntegrityReport.variant || [] });
+      factIntegrityReport = inspectArticleFactIntegrity(allSectionsObj, bodyEvidence);
 
       if (factIntegrityReport.status === 'blocked') {
         const firstIssue = factIntegrityReport.violations[0];
@@ -4675,7 +4695,9 @@ ${quoted}
     // 🧾 v3.8.752 — 요약표(질문·답·근거 줄 포함)의 LLM 원본. 답 상자의 재료가 여기서 나온다
     const summaryRawSnap = trace.snapshot('summary-table.raw', summaryTable, { note: 'generateSummaryTableFinal 반환' });
     // v3.8.755 — 요약표 정리도 본문 필터와 같은 채택 장부 보기를 쓴다(본문에서 살린 값을 여기서 다시 지우지 않게). 입력을 캡처에 남긴다
-    const tableValidation = validationView();
+    // v3.8.773 — 요약표 칸도 본문 필터와 같은 모델·트림 장부로 판정한다(같은 값이 표에서는 살고 본문에서는 지워지지 않게)
+    const tableValidationBase = validationView();
+    const tableValidation = { ...tableValidationBase, evidence: withVariant(tableValidationBase.evidence, variantLedger()) };
     trace.event('summary-table.fact-filter.input', describeValidationInput(tableValidation, { fn: 'inspectFactIntegrity/sanitizeFactUnsafeHtml', artifact: summaryRawSnap, evidenceSnapshot: 'evidence.stage2' }));
     if (inspectFactIntegrity(summaryFactText, tableValidation.evidence).status === 'blocked') {
       const summaryBeforeText = summaryFactText;
@@ -7615,7 +7637,18 @@ ${conclusionHTML}
     const judgeBodyText = visibleArticle && visibleArticle.sections.length > 0 ? require('./visible-article').visiblePlainText(visibleArticle) : articleTextForAux;
     // v3.8.767 — 사실 필터가 근거 값으로 한 단계 검산한 값(DERIVED_FROM_EVIDENCE)은 글자로 근거에 없어도 뒷받침된 값이다
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    bodyClaimCheck = (() => { try { return require('./fact-claims').checkClaims(judgeBodyText, claimLedger(), new Date(), derivedLedger); } catch { return { supported: [], unsupported: [] }; } })();
+    // v3.8.773 — 사실 필터와 같은 모델·트림 장부(지금의 제목·팩트체크 장부로)와 최종 HTML 의 범위 붙은 본문 단위로 같은 판정을 한다
+    bodyClaimCheck = (() => {
+      try {
+        const ledger = variantLedger();
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const variant = ledger ? { ledger, units: require('./variant-ledger').bodyUnits(ledger, html, String(h1 || '')) } : undefined;
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const check = require('./fact-claims').checkClaims(judgeBodyText, claimLedger(), new Date(), derivedLedger, variant);
+        if (check.variant?.length) trace.event('body-fact.variant', { judgements: check.variant });
+        return check;
+      } catch { return { supported: [], unsupported: [] }; }
+    })();
     /**
      * 🧬 v3.8.767 — 최종 본문의 값마다 계보. 실측(run 19fb30): 447km·545km 가 근거 ID 없이 팩트체크 요약에서 들어왔고 아무 검사도 km 를 읽지 않았다.
      * 계보 없는 값(NONE)은 지우지 않고 검수 대상으로 남긴다(로그·캡처). 호출 0회.

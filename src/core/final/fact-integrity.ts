@@ -3,6 +3,8 @@ import { resolveDerivedDifferences, resolveHypotheticalValues, type DerivedCheck
 import { resolveEvidenceArithmetic } from './derived-arithmetic';
 import { isLexicalValue, lexicalMatches } from './value-boundary';
 import { extractRanges, rangesOf, sameRange, isRangeBound, boundTokens } from './range-value';
+import { judgeVariantValue, sentenceUnit, sectionScope, variantFails, type VariantJudgement, type VariantLedger } from './variant-ledger';
+import type { VariantScope } from './claim-variant';
 
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
 
@@ -23,6 +25,11 @@ export interface FactEvidence {
    * 두 피연산자를 찾아 검산한다. 없으면 검사 대상 HTML 자체를 블록으로 본다.
    */
   blockHtml?: string;
+  /**
+   * v3.8.773 — 모델·트림 범위 장부(variant-ledger). 있으면 값이 근거에 있어도 **같은 모델·트림의 원문 값**이어야 지원된다 —
+   * 본문 관문(checkClaims)과 같은 장부·같은 판정. scope 는 이 블록이 속한 절(소제목)의 범위.
+   */
+  variant?: { ledger: VariantLedger; scope?: VariantScope };
 }
 
 export type FactIntegrityViolationKind =
@@ -43,6 +50,8 @@ export interface FactIntegrityReport {
   violations: FactIntegrityViolation[];
   /** v3.8.757 — 파생 차액 검산 기록(검증·불일치·확인 불가). 캡처용 */
   derived?: DerivedCheck[];
+  /** v3.8.773 — 모델·트림 범위 판정(모델이 붙은 값만). 캡처용 */
+  variant?: VariantJudgement[];
 }
 
 export interface FactIntegrityArticle {
@@ -340,7 +349,7 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 
-function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: DerivedCheck[]): FactIntegrityViolation[] {
+function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: DerivedCheck[], variantOut?: VariantJudgement[]): FactIntegrityViolation[] {
   const violations: FactIntegrityViolation[] = [];
   const exactValues = extractExactValues(sentence);
   const institutions = extractInstitutions(sentence);
@@ -381,6 +390,19 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
       derivedOut?.push(...checks);
       unsupported = unsupported.filter((value) => !resolved.has(value));
     }
+    /**
+     * v3.8.773 — 값이 근거에 있어도 모델·트림이 붙은 주장이면 같은 변형의 원문 값이어야 한다(variant-ledger).
+     * S26+ 원문의 69% 는 "S26 … 69%" 의 근거가 아니다. 팩트체크 요약이 스스로 붙인 모델 이름은 권위가 없다. 본문 관문과 같은 판정·같은 뜻.
+     */
+    if (evidence.variant) {
+      const unit = sentenceUnit(evidence.variant.ledger, sentence, evidence.variant.scope);
+      for (const value of valuesToVerify.filter((v) => !unsupported.includes(v))) {
+        const j = judgeVariantValue(evidence.variant.ledger, unit, value);
+        if (j.verdict === 'NOT_APPLICABLE') continue;
+        variantOut?.push(j);
+        if (variantFails(j)) unsupported = [...unsupported, value];
+      }
+    }
     if (unsupported.length > 0) {
       violations.push({
         kind: 'unsupported_exact_value',
@@ -409,14 +431,30 @@ export function inspectFactIntegrity(html: string, evidence: FactEvidence): Fact
   // v3.8.757 — 블록 문맥(표)을 문장 검사에 넘긴다. 호출부가 안 주면 검사 대상 HTML 자체가 블록이다
   const blockEvidence: FactEvidence = evidence.blockHtml ? evidence : { ...evidence, blockHtml: String(html || '') };
   const derived: DerivedCheck[] = [];
-  const violations = sentences.flatMap((sentence) => inspectSentence(sentence, blockEvidence, derived));
+  const variant: VariantJudgement[] = [];
+  const violations = sentences.flatMap((sentence) => inspectSentence(sentence, blockEvidence, derived, variant));
 
   return {
     status: violations.length > 0 ? 'blocked' : 'passed',
     checkedClaims: sentences.length,
     violations,
     ...(derived.length ? { derived } : {}),
+    ...(variant.length ? { variant } : {}),
   };
+}
+
+/**
+ * v3.8.773 — 소제목(h2·h3)은 모델 범위 판정을 소제목 최종 권위(factual-surface, 같은 claimKey)가 맡는다.
+ * 소제목 정리(sanitizeHeadingText)는 값 존재만 보고 도려내므로, 여기서 모델 판정까지 걸면 정리해도 검사가 안 끝난다.
+ */
+function headingEvidence(evidence: FactEvidence): FactEvidence {
+  if (!evidence.variant) return evidence;
+  return Object.fromEntries(Object.entries(evidence).filter(([k]) => k !== 'variant')) as unknown as FactEvidence;
+}
+
+/** v3.8.773 — 절(소제목)의 모델 범위를 근거에 싣는다. 장부가 없으면 그대로 */
+function inSection(evidence: FactEvidence, ...headings: Array<string | undefined>): FactEvidence {
+  return evidence.variant ? { ...evidence, variant: { ...evidence.variant, scope: sectionScope(evidence.variant.ledger, ...headings) } } : evidence;
 }
 
 // 제목(H2/H3)은 문장이 아니라 라벨이다. 문장 단위 필터로 지우면 제목이 통째로 비므로
@@ -577,11 +615,13 @@ function mergeReports(reports: Array<{ report: FactIntegrityReport; location: st
     report.violations.map((violation) => ({ ...violation, location })),
   );
   const derived = reports.flatMap(({ report }) => report.derived || []);
+  const variant = reports.flatMap(({ report }) => report.variant || []);
   return {
     status: violations.length > 0 ? 'blocked' : 'passed',
     checkedClaims: reports.reduce((sum, item) => sum + item.report.checkedClaims, 0),
     violations,
     ...(derived.length ? { derived } : {}),
+    ...(variant.length ? { variant } : {}),
   };
 }
 
@@ -592,14 +632,16 @@ export function inspectArticleFactIntegrity(article: FactIntegrityArticle, evide
   ];
 
   for (const [sectionIndex, section] of (article.sections || []).entries()) {
-    checks.push({ location: `section.${sectionIndex + 1}.h2`, report: inspectFactIntegrity(section.h2, evidence) });
+    checks.push({ location: `section.${sectionIndex + 1}.h2`, report: inspectFactIntegrity(section.h2, headingEvidence(evidence)) });
     for (const [subsectionIndex, subsection] of (section.h3Sections || []).entries()) {
       const prefix = `section.${sectionIndex + 1}.h3.${subsectionIndex + 1}`;
-      checks.push({ location: `${prefix}.title`, report: inspectFactIntegrity(subsection.h3, evidence) });
-      checks.push({ location: `${prefix}.content`, report: inspectFactIntegrity(subsection.content, evidence) });
+      // v3.8.773 — 이 h3 블록의 값은 가까운 소제목(h3 → h2 → 글 제목)의 모델 범위로 판정한다
+      const blockEvidence = inSection(evidence, subsection.h3, section.h2);
+      checks.push({ location: `${prefix}.title`, report: inspectFactIntegrity(subsection.h3, headingEvidence(evidence)) });
+      checks.push({ location: `${prefix}.content`, report: inspectFactIntegrity(subsection.content, blockEvidence) });
       for (const [tableIndex, table] of (subsection.tables || []).entries()) {
-        checks.push({ location: `${prefix}.table.${tableIndex + 1}.headers`, report: inspectFactIntegrity((table.headers || []).join(' '), evidence) });
-        checks.push({ location: `${prefix}.table.${tableIndex + 1}.rows`, report: inspectFactIntegrity((table.rows || []).flat().join(' '), evidence) });
+        checks.push({ location: `${prefix}.table.${tableIndex + 1}.headers`, report: inspectFactIntegrity((table.headers || []).join(' '), blockEvidence) });
+        checks.push({ location: `${prefix}.table.${tableIndex + 1}.rows`, report: inspectFactIntegrity((table.rows || []).flat().join(' '), blockEvidence) });
       }
       if (subsection.cta) {
         checks.push({ location: `${prefix}.cta`, report: inspectFactIntegrity([
@@ -607,7 +649,7 @@ export function inspectArticleFactIntegrity(article: FactIntegrityArticle, evide
           subsection.cta.buttonText,
           subsection.cta.hook,
           subsection.cta.text,
-        ].filter(Boolean).join(' '), evidence) });
+        ].filter(Boolean).join(' '), blockEvidence) });
       }
     }
   }
@@ -640,9 +682,11 @@ export function sanitizeFactUnsafeCell(value: string, evidence: FactEvidence): s
 }
 
 export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(article: T, evidence: FactEvidence): T {
-  const sanitizeTable = (table: any) => {
+  // v3.8.773 — ev: 표·CTA 가 속한 절의 모델 범위가 실린 근거(inSection)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sanitizeTable = (table: any, ev: FactEvidence = evidence) => {
     const headers = Array.isArray(table?.headers)
-      ? table.headers.map((value: string) => sanitizeFactUnsafeCell(value, evidence) || String(value ?? ''))
+      ? table.headers.map((value: string) => sanitizeFactUnsafeCell(value, ev) || String(value ?? ''))
       : table?.headers;
     if (!Array.isArray(table?.rows)) return { ...table, headers };
     // ② 구멍이 생기는 줄은 버린다
@@ -651,17 +695,18 @@ export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(articl
       return row.every((value) => {
         const original = String(value ?? '').trim();
         if (!original) return true;                       // 원래 빈 칸은 그대로 둔다
-        return !!sanitizeFactUnsafeCell(value, evidence);  // 지워지는 칸이 있으면 줄째로 탈락
+        return !!sanitizeFactUnsafeCell(value, ev);  // 지워지는 칸이 있으면 줄째로 탈락
       });
     });
     return { ...table, headers, rows };
   };
-  const sanitizeCta = (cta: any) => !cta ? cta : {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sanitizeCta = (cta: any, ev: FactEvidence = evidence) => !cta ? cta : {
     ...cta,
-    hookingMessage: cta.hookingMessage ? sanitizeFactUnsafeHtml(cta.hookingMessage, evidence) : cta.hookingMessage,
-    buttonText: cta.buttonText ? sanitizeFactUnsafeHtml(cta.buttonText, evidence) : cta.buttonText,
-    hook: cta.hook ? sanitizeFactUnsafeHtml(cta.hook, evidence) : cta.hook,
-    text: cta.text ? sanitizeFactUnsafeHtml(cta.text, evidence) : cta.text,
+    hookingMessage: cta.hookingMessage ? sanitizeFactUnsafeHtml(cta.hookingMessage, ev) : cta.hookingMessage,
+    buttonText: cta.buttonText ? sanitizeFactUnsafeHtml(cta.buttonText, ev) : cta.buttonText,
+    hook: cta.hook ? sanitizeFactUnsafeHtml(cta.hook, ev) : cta.hook,
+    text: cta.text ? sanitizeFactUnsafeHtml(cta.text, ev) : cta.text,
   };
 
   return {
@@ -671,16 +716,19 @@ export function sanitizeArticleFactClaims<T extends FactIntegrityArticle>(articl
     sections: (article.sections || []).map((section, sectionIdx) => ({
       ...section,
       h2: sanitizeFactUnsafeHeading(section.h2, evidence, `섹션 ${sectionIdx + 1}`),
-      h3Sections: (section.h3Sections || []).map((subsection, h3Idx) => ({
-        ...subsection,
-        h3: sanitizeFactUnsafeHeading(subsection.h3, evidence, `핵심 정리 ${h3Idx + 1}`),
-        content: sanitizeFactUnsafeHtml(subsection.content, evidence),
-        // ③ 줄이 하나도 안 남은 표는 껍데기라 버린다
-        tables: Array.isArray(subsection.tables)
-          ? subsection.tables.map(sanitizeTable).filter((t: any) => !Array.isArray(t?.rows) || t.rows.length > 0)
-          : subsection.tables,
-        cta: sanitizeCta(subsection.cta),
-      })),
+      h3Sections: (section.h3Sections || []).map((subsection, h3Idx) => {
+        const blockEvidence = inSection(evidence, subsection.h3, section.h2);
+        return {
+          ...subsection,
+          h3: sanitizeFactUnsafeHeading(subsection.h3, evidence, `핵심 정리 ${h3Idx + 1}`),
+          content: sanitizeFactUnsafeHtml(subsection.content, blockEvidence),
+          // ③ 줄이 하나도 안 남은 표는 껍데기라 버린다
+          tables: Array.isArray(subsection.tables)
+            ? subsection.tables.map((t) => sanitizeTable(t, blockEvidence)).filter((t) => !Array.isArray(t?.rows) || t.rows.length > 0)
+            : subsection.tables,
+          cta: sanitizeCta(subsection.cta, blockEvidence),
+        };
+      }),
     })),
   } as T;
 }

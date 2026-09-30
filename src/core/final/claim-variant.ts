@@ -17,7 +17,8 @@
  */
 
 export interface VariantKey { name: string; trim: string }
-export type ScopeVia = 'sentence' | 'common' | 'footnote' | 'column' | 'row' | 'list' | 'caption' | 'heading' | 'document' | 'none' | 'ambiguous';
+/** prose(v3.8.773) — LLM 이 쓴 서술(팩트체크 요약·연구 패킷). 그 안의 모델 이름은 원문이 아니라 권위가 없다 */
+export type ScopeVia = 'sentence' | 'common' | 'footnote' | 'column' | 'row' | 'list' | 'caption' | 'heading' | 'document' | 'none' | 'ambiguous' | 'prose';
 export interface VariantScope { keys: VariantKey[]; via: ScopeVia; label: string }
 export interface VariantMention { key: VariantKey; index: number; end: number; family: boolean; contrast: boolean }
 export interface Anchors { shapes: Set<string>; names: Set<string>; trims: Set<string> }
@@ -259,7 +260,7 @@ export function valueScope(u: ScopedUnit, index: number): VariantScope {
 /** 주장 변형 ↔ 근거 변형 */
 export function variantRelation(claim: VariantScope, evidence: VariantScope): VariantRelation {
   if (!claim.keys.length) return 'UNKNOWN';
-  if (evidence.via === 'ambiguous') return 'AMBIGUOUS';
+  if (evidence.via === 'ambiguous' || evidence.via === 'prose') return 'AMBIGUOUS';
   if (!evidence.keys.length) return 'UNKNOWN';
   return claim.keys.some((a) => evidence.keys.some((b) => compatible(a, b))) ? 'SAME' : 'DIFFERENT';
 }
@@ -296,8 +297,13 @@ function bindFootnotes(units: ScopedUnit[], from: number): void {
 }
 
 /** 평문(팩트체크 문단·근거 본문) → 범위 붙은 문장. 문서 범위 = 페이지 제목(있으면) 아니면 문단 전체의 언급 */
-export function scopePlain(text: string, opts: { pageTitle?: string | undefined; anchors: Anchors }): ScopedUnit[] {
+export function scopePlain(text: string, opts: { pageTitle?: string | undefined; anchors: Anchors; prose?: boolean }): ScopedUnit[] {
   const sentences = sentencesOf(String(text || '').replace(URL_RE, ' '));
+  /**
+   * v3.8.773 — LLM 서술(팩트체크 요약·패킷)은 문장 속 모델 이름을 믿지 않는다. "Galaxy S26은 30분 69%" 를 공식 주소와 함께 말해도
+   * 그 모델 범위는 원문(각주·표·머리)이 정한 것이 아니다. 모델이 붙은 주장에는 지지도 모순도 아니다(AMBIGUOUS). 모델 없는 주장에는 예전처럼 값 근거다.
+   */
+  if (opts.prose) return sentences.map((s) => ({ s, scope: { keys: [], via: 'prose' as ScopeVia, label: 'LLM 서술(원문 범위 없음)' }, mentions: [] }));
   const ms = sentences.map((s) => variantMentions(s, opts.anchors));
   const doc = opts.pageTitle !== undefined
     ? scopeFromMentions(variantMentions(opts.pageTitle, opts.anchors), opts.pageTitle, 'document')

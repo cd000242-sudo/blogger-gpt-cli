@@ -13,6 +13,8 @@
 import { kstYear } from './kst-date';
 import { extractRanges, isRangeBound, type ValueRange } from './range-value';
 import { isLexicalValue } from './value-boundary';
+import { findValue, judgeVariantValue, variantFails, type VariantJudgement, type VariantLedger } from './variant-ledger';
+import type { ScopedUnit } from './claim-variant';
 
 export type ClaimKind = 'date' | 'range' | 'amount' | 'percent' | 'count' | 'rank' | 'duration';
 
@@ -22,7 +24,8 @@ export interface Claim { text: string; kind: ClaimKind; keys: string[]; at?: num
 export interface SupportedClaim { claim: string; sourceIds: string[]; via?: 'range-endpoint' | 'derived'; range?: { raw: string; lower: number; upper: number; unit: string; context: string }; operation?: string }
 /** v3.8.767 — 앞 단계(사실 필터)가 근거 값으로 한 단계 검산해 둔 값(DERIVED_FROM_EVIDENCE). 글자로는 근거에 없지만 계산으로 뒷받침된다 */
 export interface DerivedSupport { claim: string; operation: string; sourceIds: string[] }
-export interface ClaimCheck { supported: SupportedClaim[]; unsupported: string[] }
+/** variant(v3.8.773) — 모델·트림 범위 판정(모델이 붙은 값만). 사실 필터와 같은 장부·같은 판정 */
+export interface ClaimCheck { supported: SupportedClaim[]; unsupported: string[]; variant?: VariantJudgement[] }
 export interface LedgerItem { id: string; text: string }
 
 /** 정규화 — 쉼표·공백 제거, 물결·퍼센트 표기 통일. live 736-1: 근거 "200%" 와 답변 상자 "200퍼센트" 를 다른 값으로 봐 발행을 막았다 */
@@ -89,7 +92,31 @@ export function ledgerFromItems(items: LedgerItem[]): LedgerItem[] {
  * 값 주장을 근거와 대조한다. 뒷받침된 것은 어느 근거(id)에 있었는지 함께 돌려준다.
  * 연도만 있는 주장은 대조하지 않는다.
  */
-export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new Date(), derived: ReadonlyArray<DerivedSupport> = []): ClaimCheck {
+export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new Date(), derived: ReadonlyArray<DerivedSupport> = [], variant?: { ledger: VariantLedger; units: ReadonlyArray<ScopedUnit> }): ClaimCheck {
+  const base = checkClaimsByValue(text, ledger, now, derived);
+  if (!variant) return base;
+  /**
+   * v3.8.773 — 글자로 근거에 있는 값도 모델·트림이 붙은 문장이면 같은 변형의 원문 값이어야 한다(variant-ledger).
+   * 사실 필터(fact-integrity)와 같은 장부·같은 판정·같은 뜻: SUPPORTED 가 아니면 근거 없음. 값이 나온 문장마다 본다.
+   */
+  const judged: VariantJudgement[] = [];
+  const failed = new Set<string>();
+  for (const s of base.supported.filter((x) => !x.via)) {
+    for (const u of variant.units.filter((unit) => findValue(unit.s, s.claim).length)) {
+      const j = judgeVariantValue(variant.ledger, u, s.claim);
+      if (j.verdict === 'NOT_APPLICABLE') continue;
+      judged.push(j);
+      if (variantFails(j)) failed.add(s.claim);
+    }
+  }
+  return {
+    supported: base.supported.filter((s) => !failed.has(s.claim)),
+    unsupported: [...base.unsupported, ...failed],
+    ...(judged.length ? { variant: judged } : {}),
+  };
+}
+
+function checkClaimsByValue(text: string, ledger: LedgerItem[], now: Date, derived: ReadonlyArray<DerivedSupport>): ClaimCheck {
   const derivedByValue = new Map(derived.map((d) => [norm(d.claim), d]));
   const normalized = ledger.map((l) => ({ id: l.id, text: l.text.includes(' ') || l.text.includes(',') ? norm(l.text) : l.text }));
   const all = normalized.map((l) => l.text).join('\n');

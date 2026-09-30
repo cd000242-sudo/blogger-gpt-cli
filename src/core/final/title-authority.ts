@@ -13,8 +13,9 @@
  * 처리(resolveTitleAuthority): 이미 만든 제목 후보(제목 사실 관문 기록) 중 통과하는 것이 있으면 그것으로, 없으면 보류(MANUAL_REVIEW) — 새 제목을 짓지 않는다.
  */
 import { isLexicalValue } from './value-boundary';
-import { propertyWindow, propertyRelation, propertyWords } from './claim-property';
-import { anchorsFrom, labelsOf, scopeHtml, scopePlain, scopeFromMentions, valueScope, variantRelation, variantMentions, NO_SCOPE, type Anchors, type ScopedUnit, type VariantScope } from './claim-variant';
+import { propertyRelation } from './claim-property';
+import { anchorsFrom, labelsOf, scopeHtml, scopePlain, scopeFromMentions, variantRelation, variantMentions, NO_SCOPE, type Anchors, type ScopedUnit, type VariantScope } from './claim-variant';
+import { claimKey } from './variant-ledger';
 
 export type TitleClaimVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'UNCHECKED';
 /** variant — 주장 값이 묶인 모델·트림(v3.8.772). variantExcluded — 같은 값이지만 다른·모호한 변형이라 지지로 세지 않은 권위 문장 */
@@ -53,13 +54,6 @@ function quantities(text: string): Array<{ num: number; unit: string; raw: strin
   }
   return out;
 }
-/** 속성 창 — 표 칸 값 곁에 낱말이 없으면 그 칸의 행·열 머리("30분 충전 | 55% | 69%" 의 "30분 충전")가 속성이다(v3.8.772) */
-function propOf(u: ScopedUnit, index: number, length: number): string[] {
-  const w = propertyWindow(u.s, index, length);
-  if (w.length || !u.cells || !u.cellLabels) return w;
-  const cell = u.cells.findIndex((c) => index >= c.start && index < c.end);
-  return cell > 0 ? propertyWords(u.cellLabels[cell] || '') : w;
-}
 function checkNumeric(line: ScopedUnit, authority: ReadonlyArray<ScopedUnit>): TitleAuthorityClaim[] {
   const out: TitleAuthorityClaim[] = [];
   /**
@@ -67,8 +61,9 @@ function checkNumeric(line: ScopedUnit, authority: ReadonlyArray<ScopedUnit>): T
    * 속성 창이 겹치면 같은 주장(SAME). 한쪽 창이 비면(UNKNOWN) 단위만으로 속성이 정해지는 물리 단위(mAh·W·km …)일 때만 같은 주장으로 본다.
    * v3.8.772 — 모델·트림·유형(claim-variant)도 맞아야 같은 주장이다. S26+ 의 69% 는 S26 의 69% 가 아니다 — 다른 변형(DIFFERENT)·모호(AMBIGUOUS)는 지지도 모순도 아니다.
    */
-  const withProp = (u: ScopedUnit) => quantities(u.s).map((q) => ({ ...q, prop: propOf(u, q.index, q.raw.length), variant: valueScope(u, q.index) }));
-  const auth = authority.map((u) => ({ s: u.s, q: withProp(u) }));
+  // v3.8.773 — 주장 신원은 본문 검증 장부와 같은 함수(variant-ledger claimKey): 변형 + 속성 창(표 칸은 행·열 머리)
+  const withProp = (u: ScopedUnit) => quantities(u.s).map((q) => { const k = claimKey(u, q.index, q.raw.length); return { ...q, prop: k.property, variant: k.variant }; });
+  const auth = authority.map((u) => ({ s: u.s, q: withProp(u), prose: u.scope.via === 'prose' }));
   for (const tv of withProp(line)) {
     const propBound = (q: { prop: string[] }) => { const r = propertyRelation(tv.prop, q.prop); return r === 'SAME' || (r === 'UNKNOWN' && UNIT_NAMES_PROPERTY.test(tv.unit)); };
     const variantOk = (q: { variant: VariantScope }) => { const r = variantRelation(tv.variant, q.variant); return r !== 'DIFFERENT' && r !== 'AMBIGUOUS'; };
@@ -94,6 +89,12 @@ function checkNumeric(line: ScopedUnit, authority: ReadonlyArray<ScopedUnit>): T
     if (affirmed.length) { out.push({ claim, kind: 'numeric', verdict: 'SUPPORTED', reason: '최종 권위가 같은 값을 말함', evidence: affirmed.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
     if (same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: `최종 권위가 이 값을 거부하고 다른 값(${[...new Set(others.flatMap((a) => a.q.filter((q) => q.unit === tv.unit && q.num !== tv.num && bound(q)).map((q) => q.raw.replace(/\s+/g, ''))))].slice(0, 3).join('·')})을 말함`, evidence: same.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
     if (!same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: '오래된 제목 — 최종 권위에 이 값이 없고 같은 대상의 다른 값만 있음', evidence: others.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
+    /**
+     * v3.8.773 — LLM 서술(팩트체크 문단)은 모델이 붙은 주장을 **지지하지** 못한다. 그러나 본문이 판정하지 못한 값을 서술이 거부 문맥
+     * ("…로 표기하는 자료는 혼동")으로 말하면 보류 쪽 신호로 남긴다 — 거짓 통과를 만들지 않는 방향이라 모델 범위 확인 없이도 쓴다(770 T16).
+     */
+    const proseRejects = tv.variant.keys.length ? auth.filter((a) => a.prose && a.q.some((q) => q.unit === tv.unit && q.num === tv.num && propBound(q)) && rejectedHere(a)) : [];
+    if (proseRejects.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: '팩트체크 서술이 이 값을 거부함(원문 모델 범위는 미확인)', evidence: proseRejects.slice(0, 2).map((a) => a.s.slice(0, 160)), ...scoped }); continue; }
     out.push({ claim, kind: 'numeric', verdict: 'UNCHECKED', reason: excluded.length ? '최종 권위의 같은 값은 다른 모델·트림(또는 모호한 범위)의 값 — 대조 불가' : '최종 권위에 같은 대상의 값이 없음(대조 불가)', evidence: [], ...scoped });
   }
   return out;
@@ -142,7 +143,8 @@ export function authorityContext(finalDocument: string, factcheck: ReadonlyArray
     .replace(/<a\b[^>]*class="[^"]*toc[^"]*"[^>]*>[\s\S]*?<\/a>/gi, ' ');
   const pageTitle = opts.pageTitle !== undefined ? opts.pageTitle : ((doc.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   const anchors = anchorsFrom([...(opts.claimLines || []), pageTitle].filter(Boolean), labelsOf(doc));
-  const units = [...scopeHtml(doc, { pageTitle, anchors, exclude: opts.exclude }), ...factcheck.flatMap((f) => scopePlain(f, { anchors }))];
+  // v3.8.773 — 채택 팩트체크 문단은 LLM 서술: 모델이 붙은 주장에는 지지도 모순도 아니다(본문 검증 장부와 같은 규칙)
+  const units = [...scopeHtml(doc, { pageTitle, anchors, exclude: opts.exclude }), ...factcheck.flatMap((f) => scopePlain(f, { anchors, prose: true }))];
   return { units, anchors, docScope: scopeFromMentions(variantMentions(pageTitle, anchors), pageTitle, 'document') };
 }
 
