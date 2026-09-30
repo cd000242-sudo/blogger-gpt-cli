@@ -149,6 +149,8 @@ const describe = (r: Requirement): string => {
     default: return '';
   }
 };
+/** 요구 한 줄 설명 — 계약 요약·압축 계약과 같은 문구(에이전트 전달 확인이 이 줄을 찾는다) */
+export const describeRequirement = (r: Requirement): string => describe(r);
 /** 뒤 단계(보강·빈 절 수리·비평·최종 심사·FAQ·요약표)에 싣는 압축 계약 — 원문을 되풀이하지 않는다 */
 export function compactRequirementBlock(contract: UserRequirementContract | null | undefined): string {
   const reqs = (contract?.requirements || []).filter((r) => r.type !== 'STYLE');

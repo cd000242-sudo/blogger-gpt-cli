@@ -1809,6 +1809,30 @@ export async function publishGeneratedContent(
       }
     }
   } catch { /* 관문 조회 실패가 발행을 막지 않는다 */ }
+  /**
+   * 🤖 v3.8.777 — 에이전트 글도 같은 작성자 요구 관문을 지난다(감사 777: 회수한 글이 검사 없이 곧장 발행됐다).
+   * 에이전트 글은 회수 뒤 화면에서 이미지가 들어가 지문이 바뀌므로, 위 지문 장부 대신 **지금 발행할 본문**을
+   * 같은 판정(checkUserRequirements·requirementGate)으로 다시 잰다. 일반(API) 글은 applies=false 라 그대로다.
+   * forcePublish 는 위와 같이 명시적 true 만 — 에이전트 결과는 payload 에 닿지 않는다(화면 값만 실린다).
+   */
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { agentPublishCheck } = require('./final/agent-requirement');
+    const agentCheck = agentPublishCheck(payload, html);
+    if (agentCheck.applies && !agentCheck.pass) {
+      const agentForced = payload?.forcePublish === true;
+      if (!agentForced) {
+        const reason = `MANUAL_REVIEW — 에이전트 글이 작성자 요구를 지키지 않아 자동 발행하지 않았습니다. 사유: ${agentCheck.reason}. 미리보기에서 고친 뒤 발행하거나, 그대로 발행하려면 forcePublish 를 켜 주세요.`;
+        emit(`[PUBLISH] 🛑 ${reason}`);
+        return { ok: false, error: reason, blockedReason: 'MANUAL_REVIEW', recoverable: true };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const o = require('./final/publish-gate').recordPublishOverride('forcePublish', title, agentCheck.reason);
+      emit(`[PUBLISH] ⚠️ forcePublished=true — 에이전트 글의 작성자 요구 보류를 우회해 발행합니다 (사유: ${agentCheck.reason} · ${o.at})`);
+    } else if (agentCheck.applies) {
+      emit(`[PUBLISH] 📌 에이전트 글 작성자 요구 ${agentCheck.results.length}개 확인 — 통과`);
+    }
+  } catch { /* 관문 조회 실패가 발행을 막지 않는다 — 위 관문과 같은 원칙 */ }
   try {
     // 플랫폼 값 정규화: 'blogger'와 'blogspot' 통일
     // v3.8.141: payload.platform이 누락되어도 무조건 'blogspot' default였던 버그 fix

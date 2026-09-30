@@ -60,7 +60,7 @@ export function ctaButtons(html: string): Array<{ href: string; text: string }> 
   return [...String(html || '').matchAll(/<a\b[^>]*class="[^"]*cta-btn[^"]*"[^>]*>[\s\S]*?<\/a>/gi)].map((m) => ({ href: (m[0].match(/href="([^"]+)"/i) || [])[1] || '', text: plain(m[0]) }))
     .filter((c) => /^https?:\/\//i.test(c.href));
 }
-const OFFICIAL_HOST = /\.go\.kr$|(^|\.)korea\.kr$|\.gov$|(^|\.)gov\.kr$/i;
+export const OFFICIAL_HOST = /\.go\.kr$|(^|\.)korea\.kr$|\.gov$|(^|\.)gov\.kr$/i;
 const hostOf = (u: string) => { try { return new URL(u).hostname.toLowerCase(); } catch { return ''; } };
 
 function contentCoverage(topic: string, html: string): { status: RequirementStatus; evidence: string[]; via: string } {

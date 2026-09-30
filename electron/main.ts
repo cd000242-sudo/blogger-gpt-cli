@@ -10797,12 +10797,16 @@ function buildAgentJobInstructions(request: AgentJobRequest, profile: AgentProfi
      *
      * **지시서 맨 끝**에 둔다. 규칙이 다 선 다음에 와야 "참고" 자격이 유지된다 —
      * 위쪽에 끼우면 요청 문장이 규칙을 덮어쓰는 것처럼 읽힌다.
+     * v3.8.777 — API 경로와 같은 계약(Writer 정본 블록) + "에이전트 계획보다 우선" + 위 기본 규칙과 부딪히는 곳. 새 파서 없음
      */
     (() => {
       try {
-        const { buildUserRequestBlock, describeUserRequest } = require('../dist/core/final/user-request');
-        const block = buildUserRequestBlock((payload as any)?.userRequest);
-        if (block) console.log(`[AGENT] 📝 ${describeUserRequest((payload as any)?.userRequest)}`);
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { describeUserRequest } = require('../dist/core/final/user-request');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { agentInstructionsBlock, captureAgentRequirements } = require('../dist/core/final/agent-requirement');
+        const block = agentInstructionsBlock(captureAgentRequirements(payload?.userRequest));
+        if (block) console.log(`[AGENT] 📝 ${describeUserRequest(payload?.userRequest)}`);
         return block;
       } catch (reqErr) {
         console.warn('[AGENT] 작성자 요청 주입 스킵:', (reqErr as Error)?.message || reqErr);
@@ -13060,6 +13064,28 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     fs.mkdirSync(jobDir, { recursive: true });
 
     /**
+     * 📌 v3.8.777 — 에이전트도 입력 시점에 **같은 공통 함수**로 작성자 요구 계약을 만든다(감사 777: 지시서 끝 원문 말고는 없었다).
+     * 이 계약이 표 상한·발행 전 자가 수정·최종 판정·발행 창구 재검사까지 한 줄로 이어진다. 요청이 없으면 null — 예전 동작.
+     */
+    let agentReqMod: any = null;
+    let agentReq: any = null;
+    const agentReqKeyword = String(request?.payload?.topic || request?.payload?.keyword || request?.title || '');
+    const agentReqTrace: Record<string, unknown> = {};
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      agentReqMod = require('../dist/core/final/agent-requirement');
+      agentReq = agentReqMod.captureAgentRequirements(request?.payload?.userRequest);
+      if (agentReq) {
+        agentReqTrace.capture = { chars: agentReq.contract.rawText.length, normalized: agentReq.contract.normalized, fingerprint: agentReq.contract.fingerprint, truncated: agentReq.contract.truncated };
+        agentReqTrace.contract = { requirements: agentReq.contract.requirements, plan: agentReq.plan };
+        console.log(`[AGENT] 📌 user-requirement.capture — ${agentReq.contract.rawText.length}자 · 지문 ${agentReq.contract.fingerprint}`);
+        console.log(`[AGENT] 📌 user-requirement.contract — ${agentReq.contract.requirements.map((r: { id: string; priority: string; type: string }) => `${r.id} ${r.priority} ${r.type}`).join(' · ') || '구조 요구 없음(원문만)'}`);
+      }
+    } catch (reqErr) {
+      console.warn('[AGENT] 작성자 요구 계약 준비 스킵:', String((reqErr as Error)?.message || reqErr).slice(0, 120));
+    }
+
+    /**
      * v3.8.488 — 쇼핑 글이면 실제 상품 데이터를 먼저 확보해 지시서에 넣는다.
      *
      * 에이전트는 외부 API 를 못 쓴다. 상품 정보를 안 주면 있지도 않은 제품과 가격을
@@ -13162,11 +13188,21 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     }
 
     writeAgentJobFiles(jobDir, request || {}, profile);
+    // v3.8.777 — 지시서에 원문과 요구마다 계약 줄이 실렸나(에이전트 전달 = API 경로의 user-requirement.writer)
+    if (agentReq && agentReqMod) {
+      try {
+        const delivery = agentReqMod.agentDelivery(fs.readFileSync(path.join(jobDir, 'instructions.md'), 'utf-8'), agentReq);
+        agentReqTrace.writer = { delivery };
+        console.log(`[AGENT] 📌 user-requirement.writer — ${delivery.map((d: { id: string; status: string }) => `${d.id}=${d.status}`).join(' ')}`);
+      } catch { /* 확인 실패가 실행을 막지 않는다 */ }
+    }
 
     const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
     // v3.8.714: 화면에서 고른 에이전트 모델을 그대로 쓴다 (payload 에 실려 온다)
     const run = await runAgentProcess(profile, jobDir, lastMessagePath, (request?.payload as any)?.agentModel);
     const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+    // v3.8.777 — 에이전트가 낸 원본(후처리 전). 최종 판정이 이것과 비교해 뒤 단계 손실(회귀)을 잰다
+    const agentDeliveredHtml = String(result.content || '');
 
     /**
      * v3.8.666 — 호출 0회짜리 후처리를 에이전트 글에도 건다. 사장님: "지금 수정하는 건 에이전트 모드도 적용되는 거지?"
@@ -13177,7 +13213,8 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       const { autoRepairBeforePublish, removeEchoedSentences, describeRepairs } = require('../dist/core/final/auto-repair');
       const { capInlineTables } = require('../dist/core/final/table-cap');
       let polished = String(result.content || '');
-      const capped = capInlineTables([polished], 3);
+      // v3.8.777 — 표 상한도 계약을 따른다(API 경로의 MAX_TABLES = userPlan.maxTables 와 같다). 계약이 없으면 예전 3
+      const capped = capInlineTables([polished], agentReqMod ? agentReqMod.agentTableCap(agentReq) : 3);
       if (capped.demoted > 0) {
         polished = capped.contents[0] || polished;
         console.log(`[AGENT-POLISH] 📊 본문 표 ${capped.total}개 중 숫자가 적은 ${capped.demoted}개를 목록으로 바꿨습니다`);
@@ -13213,7 +13250,8 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       const { fixBeforePublish } = require('../dist/core/final/pre-publish-fix');
       const outcome = await fixBeforePublish(
         { title: result.title, html: result.content },
-        (prompt: string) => runAgentTextTask(profile.provider, prompt, (l: string) => console.log(`[AGENT-PREFLIGHT] ${l}`)),
+        // v3.8.777 — 다시 쓰는 하위 작업도 MUST·EXCLUDE 를 안다(원문 대신 압축 계약을 앞에 붙인다)
+        (prompt: string) => runAgentTextTask(profile.provider, agentReqMod ? agentReqMod.withRequirements(prompt, agentReq) : prompt, (l: string) => console.log(`[AGENT-PREFLIGHT] ${l}`)),
         (line: string) => console.log(`[AGENT-PREFLIGHT] ${line}`),
       );
       if (outcome.revised > 0) {
@@ -13335,6 +13373,31 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       // 스킨을 못 입혀도 글은 나가야 한다
       console.warn('[AGENT-SKIN] 스킵:', String(skinErr?.message || skinErr).slice(0, 120));
     }
+
+    /**
+     * 📌 v3.8.777 — 후처리가 다 끝난 글을 API 경로와 **같은 판정**(checkUserRequirements·requirementGate)으로 잰다.
+     * 발행 보류는 여기서 하지 않는다 — 화면에서 이미지가 들어간 뒤 발행 창구(publishGeneratedContent)가 실제 본문으로
+     * 다시 잰다. 여기서는 근거(값 단정·공식 출처 판정용)를 기억해 두고, 결과를 로그·작업 폴더·응답에 남긴다.
+     */
+    let agentUserRequirement: Record<string, unknown> | null = null;
+    if (agentReq && agentReqMod) {
+      try {
+        type ReqResult = { id: string; type: string; priority: string; status: string; reason: string };
+        const evidenceText = String(request?.payload?.agentEvidenceBlock || '');
+        const ev = agentReqMod.evaluateAgentRequirements({ capture: agentReq, html: String(result.content || ''), baselineHtml: agentDeliveredHtml, evidenceText });
+        agentReqMod.rememberAgentEvidence(agentReq.contract.fingerprint, agentReqKeyword, evidenceText);
+        const results: ReqResult[] = ev.results.map((r: ReqResult) => ({ id: r.id, type: r.type, priority: r.priority, status: r.status, reason: r.reason }));
+        agentReqTrace.final = { results, regressions: ev.regressions, officialSources: ev.officialSources };
+        agentReqTrace.publish = { pass: ev.gate.pass, reason: ev.gate.reason, blockers: ev.gate.blockers.map((b: ReqResult) => b.id) };
+        agentUserRequirement = { fingerprint: agentReq.contract.fingerprint, ...(agentReqTrace.final as object), gate: agentReqTrace.publish };
+        const met = results.filter((r) => r.status === 'COVERED' || r.status === 'DELIVERED').length;
+        console.log(`[AGENT] 📌 user-requirement.final — ${results.map((r) => `${r.id}=${r.status}`).join(' ')}${ev.regressions.length ? ` · 후처리 손실 ${ev.regressions.map((g: { id: string }) => g.id).join(',')}` : ''}`);
+        console.log(`[AGENT] 📌 user-requirement.publish — 작성자 요구 ${met}/${results.length} 충족 · ${ev.gate.pass ? '통과' : `보류(발행 창구가 다시 잰다): ${ev.gate.reason}`}`);
+      } catch (evalErr) {
+        console.warn('[AGENT] 작성자 요구 최종 판정 스킵:', String((evalErr as Error)?.message || evalErr).slice(0, 120));
+      }
+      try { fs.writeFileSync(path.join(jobDir, 'user-requirement.json'), JSON.stringify(agentReqTrace, null, 2), 'utf-8'); } catch { /* 기록 실패가 발행을 막지 않는다 */ }
+    }
     const usage = parseAgentRunUsage(profile.provider, run.stdout);
 
     /**
@@ -13412,6 +13475,8 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       metadata: result.metadata,
       finalMessage: result.finalMessage,
       usage,
+      // v3.8.777 — 작성자 요구 판정(참고용). 발행 여부는 발행 창구가 실제 본문으로 다시 정한다
+      ...(agentUserRequirement ? { userRequirement: agentUserRequirement } : {}),
       warning: run.exitCode && run.exitCode !== 0
         ? `Agent가 종료 코드 ${run.exitCode}로 종료됐지만 article.html 산출물을 회수했습니다.`
         : '',

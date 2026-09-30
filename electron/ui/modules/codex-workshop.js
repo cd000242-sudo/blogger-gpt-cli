@@ -1,6 +1,6 @@
 // Shared UI for API-key and subscription-agent execution modes.
 import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, getProgressManager } from './core.js';
-import { createPreviewPayload } from './posting.js';
+import { createPreviewPayload, sameUserRequest } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
 
 const MODAL_ID = 'codexWorkshopModal';
@@ -3930,6 +3930,15 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   }
 }
 
+/** 작업실에 남아 있는 payload 가 지금 화면(키워드·작성자 요청)과 같은가 — 다르면 새로 만든다 */
+function isSavedPayloadCurrent(saved) {
+  if (!saved) return false;
+  const keyword = (document.getElementById('keywordInput')?.value || '').trim();
+  const savedKeyword = String(saved.topic || saved.keyword || '').trim();
+  if (keyword && savedKeyword && keyword !== savedKeyword) return false;
+  return sameUserRequest(saved.userRequest, document.getElementById('userRequestNote')?.value);
+}
+
 async function runAgentJob({ payload: inputPayload = null, button = null, source = 'modal' } = {}) {
   loadExecutionPrefs();
   if (state.executionMode !== 'agent') {
@@ -3971,7 +3980,8 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     updateAgentProgress(30, `${agentProviderLabel(profile.provider)} 로그인 상태를 확인했습니다.`);
   }
 
-  const payload = inputPayload || state.payload || await createPreviewPayload();
+  // v3.8.777 — 작업실을 연 뒤 키워드·작성자 요청을 바꿨으면 열 때 만든 payload 를 쓰지 않는다(같은 키워드 + 다른 요청 = 다른 작업)
+  const payload = inputPayload || (isSavedPayloadCurrent(state.payload) ? state.payload : null) || await createPreviewPayload();
   const topic = getTopic(payload);
   if (!topic) {
     throw new Error('먼저 키워드나 제목을 입력해주세요.');
