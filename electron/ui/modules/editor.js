@@ -300,6 +300,19 @@ function ensureEditorModal() {
         -->
         <button id="veThumbInsertBtn" style="${BTN_BASE}background:#334155;color:#fcd34d;border:1px solid #475569;" title="내 PC 이미지를 골라 글 맨 위 썸네일(대표 이미지)로 넣습니다. 이미 있으면 바꿔 끼웁니다">🖼️ 썸네일 넣기</button>
         <!--
+          🖼️ v3.8.753 — **소제목 이미지 생성 버튼을 되살린다.**
+
+          사장님: "편집기에 소제목 이미지 생성버튼 여전히 누락되어있고"
+
+          v3.8.729 에서 이 버튼을 뺐다 — "이미 이미지 넣는 버튼이 있으니까 그걸 활용하면 될 것 같아"
+          라는 말을 [🖼️ 이미지] 로 대신하라는 뜻으로 읽었다. 그런데 그 버튼은 **내 PC 파일만** 고른다
+          (select-image-files). AI 로 만드는 길이 아니어서, 그때부터 편집기에서 소제목 이미지를
+          AI 로 만들 방법이 **아예 없어졌다.** 기능(generateEditorImage('section') · IPC
+          generate-editor-image kind:'section')은 그대로 살아 있었고 부르는 버튼만 없었다.
+          — 이 저장소의 단골 사고인 "조용한 미배선" 이다.
+        -->
+        <button id="veSectionImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="커서를 둔 소제목 영역의 이미지를 AI 로 만들어 커서 위치에 넣습니다 (본문에서 넣을 자리를 먼저 클릭하세요)">🖼️ 소제목 이미지</button>
+        <!--
           🔗 v3.8.688 — 사장님: "글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
           발행글 전용인 veRegenWrap 이 아니라 여기 둔다 — 붙여넣기·대기열 글에도 버튼은 필요하다.
         -->
@@ -403,7 +416,8 @@ function ensureEditorModal() {
     critiqueBtn: overlay.querySelector('#veCritiqueBtn'),
     thumbBtn: overlay.querySelector('#veThumbBtn'),
     thumbInsertBtn: overlay.querySelector('#veThumbInsertBtn'),   // v3.8.696
-    // v3.8.729: [이 영역 이미지] 버튼은 뺐다 — 사장님: "이미 이미지 넣는 버튼이 있으니까 그걸 활용하면 될 것 같아"
+    // v3.8.753: 소제목 이미지 AI 생성 — v3.8.729 에서 뺐다가 되살렸다(위 버튼 주석 참고)
+    sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
     regenCtaBtn: overlay.querySelector('#veRegenCtaBtn'),       // v3.8.688
     textEngine: overlay.querySelector('#veTextEngine'),          // v3.8.691
     imageEngine: overlay.querySelector('#veImageEngine'),        // v3.8.691
@@ -512,7 +526,7 @@ ${err?.message || err}
    * 사장님: "비평 개선 버튼 구현해서 누르면 비평할 부분 알려주고 수정하기 버튼 누르면 알아서 그 위치가 수정 개선되게."
    * postId 가 없어도 된다 — 붙여넣기·파일 글도 같은 버튼이다. 발행된 글은 postId 로 비평 이력을 남기는 기존 경로가 따로 있다.
    */
-  draftButtons = () => [modalRefs.askFixBtn, modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.regenCtaBtn].filter(Boolean);
+  draftButtons = () => [modalRefs.askFixBtn, modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn, modalRefs.regenCtaBtn].filter(Boolean);
   lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
   editorPayload = async () => {
     const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
@@ -523,10 +537,23 @@ ${err?.message || err}
      */
     const textEngine = modalRefs.textEngine?.value || '';
     const imageEngine = modalRefs.imageEngine?.value || '';
+    /**
+     * v3.8.753 — 칸이 이제 **모델 값**(claude-sonnet · openai-gpt41 …)을 담는다.
+     * 예전에는 회사 이름을 담아 `provider` 에 그대로 넣었다. 모델 값을 provider 에 넣으면
+     * engine-selection 의 PROVIDER_DEFAULT_MODEL 에 없는 키라 설정값 갈래로 떨어진다 —
+     * 그래서 회사는 파생시키고, 고른 모델은 primaryGeminiTextModel 로 보낸다
+     * (chooseTextModel 은 provider 와 모델이 같은 계열이면 그 구체 모델을 쓴다).
+     */
+    const engineProvider = textEngine.startsWith('gemini-') ? 'gemini'
+      : (textEngine.startsWith('openai-') || textEngine.startsWith('gpt-') || /^o\d/i.test(textEngine)) ? 'openai'
+        : textEngine.startsWith('claude-') ? 'claude'
+          : textEngine === 'perplexity-sonar' ? 'perplexity' : '';
     return {
       ...base,
       platform: target, targetPlatform: target, blogPlatform: target,
-      ...(textEngine ? { generationEngine: textEngine, provider: textEngine } : {}),
+      ...(engineProvider
+        ? { generationEngine: engineProvider, provider: engineProvider, primaryGeminiTextModel: textEngine }
+        : {}),
       ...(imageEngine ? { h2ImageSource: imageEngine, imageSource: imageEngine } : {}),
     };
   };
@@ -788,6 +815,8 @@ ${err?.message || err}
   });
 
   modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
+  // v3.8.753: 소제목 이미지 — 커서가 있는 소제목으로 프롬프트를 짓고, 넣는 자리는 커서다(generateEditorImage 안 주석)
+  modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));
 
   modalRefs.undoBtn?.addEventListener('click', () => {
     if (!undoOnce()) setStatus('되돌릴 작업이 없습니다.');
@@ -907,7 +936,8 @@ ${err?.message || err}
   if (toolbar) {
     toolbar.addEventListener('mousedown', (e) => {
       // 커서 자리에 넣는 버튼들은 mousedown 에서 선택이 풀리지 않게 막는다
-      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn')) e.preventDefault();
+      // v3.8.753: 소제목 이미지도 커서를 읽는다(어느 소제목인지 + 어디에 넣을지) — 가드에 같이 넣는다
+      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn, #veSectionImgBtn')) e.preventDefault();
     });
   }
 
@@ -1629,8 +1659,40 @@ function cloneEngineOptions(target, sourceId) {
   return true;
 }
 
+/**
+ * 🧠 v3.8.753 — 편집기 글 엔진 칸을 **티어 라디오(정본)** 에서 만든다.
+ *
+ * 사장님: "소넷5로 선택했는데 오픈api로 발행이되네요"
+ *
+ * 예전에는 화면에 숨어 있는 옛 select(#generationEngine)를 복제했다. 문제 둘:
+ *   ① 그 칸은 회사 단위(OpenAI/Gemini/Claude/Perplexity)뿐이라 **소넷5·Terra 를 고를 수 없었다** —
+ *      "Claude" 를 고르면 비평은 provider 기본 모델(claude-sonnet)로 갔고, 사장님이 Fable 을
+ *      골라 뒀어도 그 선택이 편집기에서는 사라졌다.
+ *   ② 그 칸의 첫 옵션이 `openai` 라, 동기화가 한 번이라도 어긋나면 조용히 OpenAI 로 갔다.
+ *
+ * 그래서 목록도 기본값도 라디오에서 뽑는다. 라디오는 환경설정 카드·상단 배지·시작 게이트가
+ * 모두 같이 쓰는 한 곳이라, 여기가 어긋날 자리가 없어진다.
+ */
+function fillTextEngineFromTiers(target) {
+  if (!target) return false;
+  const radios = Array.from(document.querySelectorAll('input[name="primaryGeminiTextModel"]'));
+  if (!radios.length) return false;
+  target.innerHTML = '';
+  for (const radio of radios) {
+    // 카드의 이름 span 이 사람이 읽는 이름이다 — 라벨표를 손으로 베끼면 한쪽만 늙는다(v3.8.489)
+    const label = radio.closest('label')?.querySelector('span')?.textContent?.trim() || radio.value;
+    const option = document.createElement('option');
+    option.value = radio.value;
+    option.textContent = label;
+    target.appendChild(option);
+  }
+  const checked = radios.find((r) => r.checked);
+  target.value = checked ? checked.value : radios[0].value;
+  return true;
+}
+
 function refreshEditorEngineOptions(refs) {
-  const okText = cloneEngineOptions(refs?.textEngine, 'generationEngine');
+  const okText = fillTextEngineFromTiers(refs?.textEngine);
   const okImage = cloneEngineOptions(refs?.imageEngine, 'h2ImageSource');
   const wrap = refs?.overlay?.querySelector?.('#veEngineWrap');
   // 둘 다 못 베꼈으면 빈 칸을 보여주느니 숨긴다 — 유령 기본값을 payload 에 싣지 않는다

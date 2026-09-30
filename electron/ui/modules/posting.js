@@ -2215,6 +2215,47 @@ export async function createPayload(options = {}) {
     ? radioValue
     : (PROVIDER_DEFAULT_MODEL[provider] || 'gemini-2.5-flash');
 
+  /**
+   * 🤖 v3.8.753 — **실행 모드(API/에이전트)를 payload 에 싣는다.**
+   *
+   * 사장님: "소넷5로 선택했는데 오픈api로 발행이되네요 / 비평 개선도 제대로된 기능을 못하는것같아"
+   *
+   * v3.8.628 이 비평·개선을 에이전트로 보내는 길을 냈다. 그 길의 입구는
+   * `payload.executionMode === 'agent' && payload.agentProvider` 다
+   * (main.ts callEditorModel · critique-editor-html). 그런데 **이 두 필드를 채우는 코드가
+   * 어디에도 없었다.** 그래서 에이전트를 골라도 비평·개선·CTA 는 늘 API 로 갔고,
+   * 어느 API 인지는 화면에 숨어 있는 옛 select(#generationEngine, 첫 옵션이 openai)가 정했다.
+   * 사장님 눈에는 "소넷을 골랐는데 오픈api" 로 보인 것이다.
+   *
+   * 실행 모드의 정본은 codex-workshop 이 쥐고 있다(라이선스 게이트가 거기 있다).
+   * 그 함수를 먼저 부르고, 아직 안 붙었을 때만 localStorage 를 읽는다 — 값이 JSON 문자열
+   * ("agent")로 저장돼 있어 따옴표를 벗겨야 한다(v3.8.733 과 같은 함정).
+   */
+  const agentExecution = (() => {
+    const normalizeProviderId = (value) => {
+      const raw = String(value == null ? '' : value).replace(/^"|"$/g, '').toLowerCase();
+      return ['codex', 'claude', 'gemini'].includes(raw) ? raw : '';
+    };
+    try {
+      if (typeof window.getAgentExecutionState === 'function') {
+        const state = window.getAgentExecutionState();
+        return {
+          mode: state?.mode === 'agent' ? 'agent' : 'api',
+          provider: normalizeProviderId(state?.provider) || 'codex',
+        };
+      }
+    } catch { /* 폴백으로 내려간다 */ }
+    try {
+      const rawMode = String(localStorage.getItem('leadernamExecutionMode') || '').replace(/^"|"$/g, '');
+      return {
+        mode: rawMode === 'agent' ? 'agent' : 'api',
+        provider: normalizeProviderId(localStorage.getItem('leadernamActiveAgentProvider')) || 'codex',
+      };
+    } catch {
+      return { mode: 'api', provider: 'codex' };
+    }
+  })();
+
   // ── 미리보기 전용 필드 ──
   const authorNickname = document.getElementById('authorNickname')?.value?.trim() || '';
   const useGoogleSearch = document.getElementById('useGoogleSearch')?.checked || false;
@@ -2246,6 +2287,12 @@ export async function createPayload(options = {}) {
     primaryGeminiTextModel: primaryGeminiTextModelValue,
     titleAI: provider,
     summaryAI: provider,
+    /**
+     * v3.8.753 — 실행 모드. 'agent' 면 비평·개선·CTA 가 구독 CLI 로 간다(API 비용 0).
+     * 글 생성 본 경로는 예전처럼 렌더러가 갈래를 정하므로 이 값으로 동작이 바뀌지 않는다 — 읽는 쪽만 늘었다.
+     */
+    executionMode: agentExecution.mode,
+    agentProvider: agentExecution.mode === 'agent' ? agentExecution.provider : '',
     topic: keywordValue,
     title: titleValue,
     keywords: [{ keyword: keywordValue, title: titleValue }],

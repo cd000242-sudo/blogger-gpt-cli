@@ -134,6 +134,15 @@
         ],
         "createdAt": "2026-09-15T05:22:26.555Z",
         "reason": "model decided: L394 is the imageBlockHtml() template string that interpolates a real hosted URL into <img src>; no literal empty/placeholder src ships. Pre-existing v3.8.683 code, verified by reading the function."
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/core/final/critique-targeted-edit.ts"
+        ],
+        "createdAt": "2026-09-30T23:45:18.229Z",
+        "reason": "false positive: <img> appears only inside an LLM prompt string and a validation regex in this TS logic module; no rendered markup here"
       }
     ]
   }

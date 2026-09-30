@@ -77,6 +77,30 @@ function probesOf(issue: CritiqueIssue): string[] {
   return probe.length >= 6 ? [probe] : [];
 }
 
+/**
+ * 🔎 v3.8.753 — **찾는 말을 짧게 줄여 가며 한 번 더 찾는다.**
+ *
+ * 사장님: "수정을 눌러도 본문이 안 바뀐다 / 같은 지적이 계속 반복된다"
+ *
+ * 원인: 위 probesOf 는 근거의 앞 30자를 **한 덩어리로만** 찾는다. 그 30자 안에 AI 가
+ * 옮겨 적으며 바꾼 글자(줄임표·괄호·조사 한 자)가 하나라도 있으면 통째로 안 맞고,
+ * locate 가 빈 배열을 돌려 그 지적은 "고칠 문단을 특정하지 못했다"로 건너뛴다.
+ * 모델은 아예 안 불리고, 본문은 그대로고, 해결로 기록되지 않아 **다음 비평에 또 나온다.**
+ * 세 증상이 한 뿌리다.
+ *
+ * 그래서 앞에서부터 잘라 20자·12자로 한 번 더 찾는다. 다만 짧은 말은 엉뚱한 문단에도
+ * 걸릴 수 있으므로 **느슨하게 찾은 것은 조건을 붙인다** — 딱 한 문단에만 있거나(모호하지 않음),
+ * 지적이 가리킨 구간 안일 때만 받는다. 아무것도 못 찾으면 예전처럼 건너뛴다(엉뚱한 문단을
+ * 고쳐 잘 쓴 문장을 지우는 쪽이 훨씬 나쁘다 — 이 저장소의 옛 사고).
+ */
+const LOOSE_PROBE_LENGTHS = [20, 12];
+
+export function loosenedProbes(probe: string): string[] {
+  return [...new Set(LOOSE_PROBE_LENGTHS
+    .filter((n) => probe.length > n)
+    .map((n) => probe.slice(0, n)))];
+}
+
 interface Spot { sectionIndex: number; block: LeafBlock }
 
 function locate(issue: CritiqueIssue, mapped: Array<{ section: PostSection; blocks: LeafBlock[] }>): Spot[] {
@@ -91,13 +115,30 @@ function locate(issue: CritiqueIssue, mapped: Array<{ section: PostSection; bloc
     return pick ? [pick] : [];
   }
   const isEcho = /(^|\n)\s*뒤\s*[:：]/.test(String(issue.evidence || ''));
-  return probesOf(issue).flatMap((probe) => {
-    const hits = mapped.flatMap((m) => m.blocks.filter((b) => squash(b.text).includes(probe)).map((block) => ({ sectionIndex: m.section.index, block })));
+  const hitsOf = (probe: string): Spot[] => mapped.flatMap((m) => m.blocks
+    .filter((b) => squash(b.text).includes(probe))
+    .map((block) => ({ sectionIndex: m.section.index, block })));
+  const choose = (hits: Spot[]): Spot[] => {
     const inSection = hits.filter((h) => h.sectionIndex === issue.sectionIndex);
     const pool = inSection.length ? inSection : hits;
     // 구간 반복은 뒤 절을 고친다 — 같은 문장이 앞 절에도 있다
     const pick = isEcho ? pool[pool.length - 1] : pool[0];
     return pick ? [pick] : [];
+  };
+  return probesOf(issue).flatMap((probe) => {
+    const exact = choose(hitsOf(probe));
+    if (exact.length) return exact;
+    /**
+     * v3.8.753 — 앞 30자로 못 찾았으면 짧게 줄여 한 번 더(위 loosenedProbes 주석).
+     * 느슨한 것은 **모호하지 않을 때만** 받는다: 딱 한 문단에만 있거나, 지적이 가리킨 구간 안일 때.
+     */
+    for (const loose of loosenedProbes(probe)) {
+      const hits = hitsOf(loose);
+      if (hits.length === 1) return hits;
+      const inSection = hits.filter((h) => h.sectionIndex === issue.sectionIndex);
+      if (inSection.length) return choose(inSection);
+    }
+    return [];
   });
 }
 

@@ -16,6 +16,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { blockBetween } from './helpers/source-block';
 
 const root = path.join(__dirname, '..');
 const read = (p: string) => fs.readFileSync(path.join(root, p), 'utf-8');
@@ -45,10 +46,15 @@ describe('① [이 영역 이미지] 는 커서 자리에 넣는다', () => {
 
   test('⭐ 커서를 잃지 않게 mousedown 가드가 커서 삽입 버튼들을 막는다', () => {
     // 이 가드가 없으면 버튼을 누르는 순간 본문 선택이 풀려 늘 글 끝으로 간다
-    // v3.8.729: [이 영역 이미지] 버튼은 뺐다(사장님: "이미지 넣는 버튼이 있으니까 그걸 활용") — 가드는 남은 버튼들을 지킨다
-    expect(editor).not.toContain('id="veSectionImgBtn"');
+    /**
+     * v3.8.729 는 [이 영역 이미지] 버튼을 뺐고 이 자리에 "없어야 한다"를 못박았다.
+     * v3.8.753 에서 되살렸다 — 대신 쓰라던 [🖼️ 이미지]는 내 PC 파일만 넣어서,
+     * 그때부터 편집기에서 소제목 이미지를 AI 로 만들 길이 아예 없었다(사장님 재신고).
+     * 이 버튼도 커서를 읽으므로 가드에 함께 들어가야 한다.
+     */
+    expect(editor).toContain('id="veSectionImgBtn"');
     const guard = bodyOf(editor, "toolbar.addEventListener('mousedown'", '});');
-    for (const id of ['#veInsertImageBtn', '#veInsertAdBtn', '#veInsertCtaBtn']) expect(guard).toContain(id);
+    for (const id of ['#veInsertImageBtn', '#veInsertAdBtn', '#veInsertCtaBtn', '#veSectionImgBtn']) expect(guard).toContain(id);
   });
 
   test('어디에 들어갔는지 사장님께 말해 준다 — 조용히 넘기지 않는다', () => {
@@ -151,22 +157,32 @@ describe('②③④ 이미지 다시 생성 · 이미지별 다시 생성 · 엔
     expect(editor).toContain('id="veImageEngine"');
   });
 
-  test('⭐④ 선택지는 본 화면에서 복제한다 — 목록을 두 벌로 적지 않는다', () => {
-    expect(editor).toContain("cloneEngineOptions(refs?.textEngine, 'generationEngine')");
+  /**
+   * v3.8.753 — 글 엔진 칸의 **원본이 바뀌었다.**
+   * 예전에는 화면에 숨은 옛 select(#generationEngine)를 복제했는데, 그 칸은 회사 단위뿐이라
+   * 소넷5·Terra 를 고를 수 없었고 첫 옵션이 `openai` 라 동기화가 어긋나면 조용히 OpenAI 로 갔다
+   * (사장님: "소넷5로 선택했는데 오픈api로 발행이되네요"). 이제 티어 라디오에서 만든다.
+   * 이미지 엔진은 예전 그대로다 — 그 셀렉트는 진짜 정본이다.
+   */
+  test('⭐④ 목록을 두 벌로 적지 않는다 — 글은 티어 라디오, 이미지는 본 화면 셀렉트에서', () => {
+    expect(editor).toContain('fillTextEngineFromTiers(refs?.textEngine)');
+    expect(editor).toContain('input[name="primaryGeminiTextModel"]');
     expect(editor).toContain("cloneEngineOptions(refs?.imageEngine, 'h2ImageSource')");
     expect(editor).toContain('refreshEditorEngineOptions(refs)');
   });
 
   test('⭐④ 고른 엔진이 payload 에 실린다 (안 실으면 조용히 무효다)', () => {
-    const payload = editor.slice(editor.indexOf('editorPayload = async () => {'));
-    expect(payload.slice(0, 900)).toContain('h2ImageSource: imageEngine');
-    expect(payload.slice(0, 900)).toContain('generationEngine: textEngine');
+    const payload = blockBetween(editor, 'editorPayload = async () => {', 'modalRefs.critiqueBtn?.addEventListener');
+    expect(payload).toContain('h2ImageSource: imageEngine');
+    // 글 엔진은 회사(provider)와 고른 모델을 함께 보낸다 — 모델 값을 provider 에 넣으면 설정값으로 떨어진다
+    expect(payload).toContain('generationEngine: engineProvider');
+    expect(payload).toContain('primaryGeminiTextModel: textEngine');
   });
 
   test('⭐④ 비어 있으면 아무것도 덮지 않는다 — 유령 기본값을 싣지 않는다', () => {
-    const payload = editor.slice(editor.indexOf('editorPayload = async () => {'));
-    expect(payload.slice(0, 900)).toContain('...(imageEngine ? {');
-    expect(payload.slice(0, 900)).toContain('...(textEngine ? {');
+    const payload = blockBetween(editor, 'editorPayload = async () => {', 'modalRefs.critiqueBtn?.addEventListener');
+    expect(payload).toContain('...(imageEngine ? {');
+    expect(payload).toContain('...(engineProvider');
   });
 
   test('④ 원본 셀렉트를 못 찾으면 칸을 숨긴다 — 빈 칸을 보여주지 않는다', () => {

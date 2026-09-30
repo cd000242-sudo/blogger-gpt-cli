@@ -293,10 +293,19 @@ describe('③ 편집기 버튼 정리 — 되돌리기는 하나, 이 영역 이
     expect(editor).not.toContain('undoImageOp(');
   });
 
-  test('⭐ 이 영역 이미지 버튼과 그 배선이 없다 — 이미지는 [🖼️ 이미지]·[🖼️ 썸네일 넣기] 로', () => {
-    expect(editor).not.toContain('id="veSectionImgBtn"');
-    expect(editor).not.toContain('#veSectionImgBtn');
-    expect(editor).not.toContain("generateEditorImage('section')");
+  /**
+   * ⚠️ v3.8.753 — **이 단언이 거꾸로였다. 되살렸다.**
+   *
+   * v3.8.729 는 사장님의 "이미 이미지 넣는 버튼이 있으니까 그걸 활용하면 될 것 같아" 를
+   * [🖼️ 이미지] 로 대신하라는 뜻으로 읽고 소제목 이미지 버튼을 지웠다. 그런데 그 버튼은
+   * **내 PC 파일만** 고른다(select-image-files) — AI 로 만드는 길이 아니다.
+   * 그래서 v3.8.729 부터 편집기에서 소제목 이미지를 AI 로 만들 방법이 아예 없었고,
+   * 사장님이 다시 신고했다("편집기에 소제목 이미지 생성버튼 여전히 누락되어있고").
+   * 기능(generateEditorImage('section') · IPC kind:'section')은 그동안 멀쩡히 살아 있었다.
+   */
+  test('⭐ 소제목 이미지(AI) 버튼이 있고, 내 PC 파일 버튼들도 그대로 있다', () => {
+    expect(editor).toContain('id="veSectionImgBtn"');
+    expect(editor).toContain("generateEditorImage('section')");
     expect(editor).toContain('id="veInsertImageBtn"');
     expect(editor).toContain('id="veThumbInsertBtn"');
   });

@@ -520,6 +520,12 @@ function buildModelPop(pop) {
       // change 를 bubbles 로 — script.js 의 문서 리스너가 배지를 갱신한다
       radio.dispatchEvent(new Event('change', { bubbles: true }));
       /**
+       * v3.8.753 — 카드 표시와 **generationEngine 동기화**까지 같이 따라오게 한다.
+       * 여기서는 라디오만 켜고 refreshTierCards 를 안 불러서, 환경설정 카드는 이전 모델이 켜진 채였고
+       * 그 select 는 옛 값(첫 옵션 openai)으로 남아 편집기·대량 포스팅이 엉뚱한 엔진으로 갔다.
+       */
+      try { window.refreshTierCards?.(); } catch { /* 카드 갱신 실패가 선택을 되돌리진 않는다 */ }
+      /**
        * v3.8.604: API 모델을 골랐으면 에이전트 모드는 끈다 — 둘은 배타적이다.
        * 예전엔 "에이전트를 끈 뒤 적용됩니다" 라는 안내만 띄웠는데, 그러면 사용자는
        * 골라 놓고도 왜 안 바뀌는지 모른 채 에이전트로 계속 발행한다.

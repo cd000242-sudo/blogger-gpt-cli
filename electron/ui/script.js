@@ -11928,8 +11928,26 @@ async function runBulkPosting() {
   const bulkPostingMode = getSelectedPostingModeIntent();
   const bulkScheduleDate = document.getElementById('scheduleDateTime')?.value || undefined;
 
+  /**
+   * 🧠 v3.8.753 — 대량 포스팅도 **고른 모델**로 나간다.
+   *
+   * 사장님: "소넷5로 선택했는데 오픈api로 발행이되네요"
+   *
+   * 여기는 티어 라디오를 아예 안 보고, 화면에 숨은 옛 select 값만 읽었다 —
+   * 그 칸의 첫 옵션이 `openai` 라 동기화가 어긋나면 그대로 OpenAI 로 갔고,
+   * `primaryGeminiTextModel` 을 싣지 않아 회사 기본 모델로 떨어졌다.
+   * 단일 발행(createPayload)과 같은 규칙으로 맞춘다.
+   */
+  const bulkTierModel = document.querySelector('input[name="primaryGeminiTextModel"]:checked')?.value || '';
+  const bulkProvider = bulkTierModel.startsWith('gemini-') ? 'gemini'
+    : (bulkTierModel.startsWith('openai-') || bulkTierModel.startsWith('gpt-') || /^o\d/i.test(bulkTierModel)) ? 'openai'
+      : bulkTierModel.startsWith('claude-') ? 'claude'
+        : bulkTierModel === 'perplexity-sonar' ? 'perplexity'
+          : (document.getElementById('generationEngine')?.value || 'gemini');
+
   const currentSettings = {
-    provider: document.getElementById('generationEngine')?.value || 'gemini',
+    provider: bulkProvider,
+    primaryGeminiTextModel: bulkTierModel || undefined,
     platform: getSelectedPublishPlatformIntent(),
     publishType: bulkPostingMode,
     postingMode: bulkPostingMode,
@@ -12032,6 +12050,8 @@ async function createSinglePost(setting, currentSettings) {
       imagePrompt: setting.imagePrompt
     }],
     provider: currentSettings.provider,
+    // v3.8.753: 고른 모델까지 같이 — 없으면 백엔드가 회사 기본 모델로 떨어진다
+    primaryGeminiTextModel: currentSettings.primaryGeminiTextModel,
     platform: currentSettings.platform,
     thumbnailMode: currentSettings.thumbnailMode,
     imageProvider: imageProvider,

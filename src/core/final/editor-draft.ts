@@ -127,6 +127,18 @@ export interface DraftCritique {
   sections: Array<{ index: number; heading: string; chars: number }>;
   competitorCount: number;
   aiSkipped: boolean;
+  /**
+   * ⚠️ v3.8.753 — **AI 비평을 부르다 실패했을 때의 이유.**
+   *
+   * 사장님: "비평 개선도 제대로된 기능을 못하는것같아 … 지적 내용이 엉뚱하다"
+   *
+   * 예전에는 실패를 catch 해서 로그 한 줄만 남기고, `aiSkipped` 는 **false 로 그대로** 뒀다
+   * (부르기로 결정은 했으니까). 그래서 화면은 코드 진단만 담긴 리포트를 "게이트 진단과 AI 비평
+   * 모두 통과" 라고 말했다. 사장님 눈에는 편집장 관점 지적은 사라지고 기계적인 지적만 남은,
+   * 즉 "엉뚱한 지적" 리포트가 된다. 게다가 코드 진단은 다음 회차에도 똑같이 터지니 "반복" 이다.
+   * 조용히 반쪽이 된 리포트를 전체 리포트처럼 보여주지 않는다.
+   */
+  aiFailed?: string;
   roundCount: number;
   resolvedCount: number;
   /** v3.8.750 — 수렴: 끝났는가 · 반드시 고칠 것이 몇 건 남았는가 (critique-convergence) */
@@ -179,6 +191,7 @@ export async function critiqueDraft(input: {
   // v3.8.750 — 누출 문장은 문장마다 한 건씩 센다 (buttonDiagnose). 나머지는 diagnosePost 그대로다.
   const codeIssues = buttonDiagnose({ title, html, competitors });
   let aiIssues: CritiqueIssue[] = [];
+  let aiFailed = '';   // v3.8.753: 부르다 실패했으면 화면까지 전한다 (위 aiFailed 주석)
   const decision = shouldCallAiCritique(codeIssues);
   if (decision.call && input.callModel) {
     try {
@@ -196,7 +209,8 @@ export async function critiqueDraft(input: {
         aiIssues = sieve.kept;
       }
     } catch (error: any) {
-      input.log?.(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${String(error?.message || error).slice(0, 80)}`);
+      aiFailed = String(error?.message || error).replace(/\s+/g, ' ').slice(0, 220);
+      input.log?.(`   ⚠️ AI 비평 실패 — 코드 진단만으로 리포트를 냅니다: ${aiFailed.slice(0, 80)}`);
     }
   } else if (!decision.call) {
     input.log?.(`   ✅ ${decision.reason}`);
@@ -214,6 +228,7 @@ export async function critiqueDraft(input: {
     sections: sectionRows(),
     competitorCount: competitors.length,
     aiSkipped: !decision.call || !input.callModel,
+    ...(aiFailed ? { aiFailed } : {}),
     roundCount: opened.chain.critiqueRound,
     resolvedCount: 0,
     convergence: opened.convergence,

@@ -133,6 +133,30 @@ function convergenceBanner(conv) {
     </div>`;
 }
 
+/**
+ * ⚠️ v3.8.753 — **AI 비평이 실패했으면 그렇다고 말한다.**
+ *
+ * 사장님: "비평 개선도 제대로된 기능을 못하는것같아 … 지적 내용이 엉뚱하다"
+ *
+ * 예전에는 AI 호출이 실패해도 로그 한 줄만 남기고 화면은 코드 진단만 담긴 리포트를
+ * 정상 리포트처럼 보여줬다. 편집장 관점 지적(검색 의도·구간 순서·사실)은 사라지고
+ * 기계적인 지적만 남으니 "엉뚱한 지적" 이고, 코드 진단은 다음 회차에도 똑같이 터지니 "반복" 이다.
+ * 반쪽 리포트를 전체 리포트처럼 보여주지 않는다 — 원인(키·잔액·시간초과)까지 그대로 적는다.
+ */
+function aiFailedBanner(critique) {
+  const reason = String(critique?.aiFailed || '').trim();
+  if (!reason) return '';
+  return `
+    <div style="padding:13px 16px;border-radius:12px;margin-bottom:14px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.38);">
+      <div style="color:#fcd34d;font-weight:900;font-size:13px;">⚠️ AI 비평이 실패해 <u>코드 진단만</u> 담긴 반쪽 리포트입니다</div>
+      <div style="color:#cbd5e1;font-size:11.5px;line-height:1.65;margin-top:6px;">${esc(reason)}</div>
+      <div style="color:#94a3b8;font-size:11px;line-height:1.55;margin-top:6px;">
+        검색 의도·구간 순서·사실 확인 같은 <b style="color:#cbd5f5;">편집장 관점 지적은 이번에 빠졌습니다.</b>
+        엔진 칸에서 다른 모델을 고르거나 키·잔액을 확인한 뒤 다시 비평하세요 — 지금 목록만 보고 판단하면 안 됩니다.
+      </div>
+    </div>`;
+}
+
 function resolvedList(resolved) {
   if (!Array.isArray(resolved) || resolved.length === 0) return '';
   return `
@@ -321,12 +345,16 @@ export function showCritiqueModal(critique, onApply, onRecritique, opts = {}) {
       </div>
 
       <div id="pcBody" style="flex:1;overflow-y:auto;padding:18px 24px;">
+        ${/* v3.8.753: 반쪽 리포트는 맨 위에서 먼저 알린다 — 지적이 0건이어도("찾지 못했습니다") 마찬가지다 */ ''}
+        ${aiFailedBanner(critique)}
         ${clean
           ? (critique?.convergence
             ? `${convergenceBanner(critique.convergence)}${resolvedList(critique?.resolvedIssues)}`
-            : `<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">${critique?.aiSkipped
-              ? '게이트 진단을 전부 통과해 AI 비평은 부르지 않았습니다 — API 호출 0회.'
-              : '게이트 진단과 AI 비평 모두 통과했습니다.'}</div></div>`)
+            : `<div style="padding:26px;text-align:center;color:#bbf7d0;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:12px;">✅ 고칠 점을 찾지 못했습니다.<div style="color:#94a3b8;font-size:12px;margin-top:8px;">${critique?.aiFailed
+              ? '다만 <b style="color:#fcd34d;">AI 비평은 실패했습니다</b> — 게이트 진단만 통과한 것입니다(위 안내 참고).'
+              : critique?.aiSkipped
+                ? '게이트 진단을 전부 통과해 AI 비평은 부르지 않았습니다 — API 호출 0회.'
+                : '게이트 진단과 AI 비평 모두 통과했습니다.'}</div></div>`)
           : critique?.convergence
             ? groupedIssues(critique, issues, sections)
             : `<div style="color:#94a3b8;font-size:12px;margin-bottom:12px;">고칠 항목만 체크하세요. <b style="color:#e2e8f0;">체크한 지적이 붙은 구간만</b> 다시 씁니다 — 나머지 구간·이미지·링크는 그대로 둡니다.</div>
