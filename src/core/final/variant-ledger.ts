@@ -15,6 +15,7 @@
  */
 import { propertyWindow, propertyWords, propertyRelation } from './claim-property';
 import { anchorsFrom, scopeHtml, scopePlain, scopeFromMentions, valueScope, variantMentions, variantRelation, type Anchors, type ScopedUnit, type VariantScope } from './claim-variant';
+import { buildEntityContext, carriedTopics, entityRelation, valueEntity, AMBIGUOUS_ENTITY, type EntityContext } from './claim-entity';
 import { unitClass, type UnitClass } from './spec-units';
 
 export interface ClaimKey { variant: VariantScope; property: string[] }
@@ -27,7 +28,8 @@ export type VariantVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'VARIANT_MISMATCH' |
 export interface VariantJudgement { claim: string; sentence: string; variant: string; verdict: VariantVerdict; sourceIds: string[]; reason: string; authority?: 'PRIMARY' | 'SECONDARY' }
 export type SourceKind = 'SOURCE' | 'PROSE';
 export interface LedgerSource { id: string; kind: SourceKind; scope: VariantScope; units: ScopedUnit[]; authority?: string | undefined; hasBody?: boolean | undefined }
-export interface VariantLedger { anchors: Anchors; docScope: VariantScope; sources: LedgerSource[] }
+/** entity — v3.8.781 문서·제도·상품 축(claim-entity). 근거에 주제와 다른 대상이 있을 때만 active */
+export interface VariantLedger { anchors: Anchors; docScope: VariantScope; sources: LedgerSource[]; entity?: EntityContext | null }
 const PRIMARY = new Set(['SUBJECT_OWNER_PRIMARY', 'PUBLIC_AUTHORITY_OFFICIAL']);
 
 /**
@@ -72,11 +74,18 @@ export function buildVariantLedger(input: { title: string; headings?: ReadonlyAr
   const docScope = scopeFromMentions(variantMentions(input.title, anchors), input.title, 'document');
   // html — 표·각주 관계를 이미 가진 원문만(있는 관계만 쓴다). 수집 원문은 평문(cleanedText)이라 문장·각주 표지·페이지 제목까지만 본다
   const unitsOf = (s: { title?: string; text: string; html?: string }) => (s.html ? scopeHtml(s.html, { pageTitle: s.title || '', anchors }) : scopePlain(s.text, { pageTitle: s.title || '', anchors }));
+  // v3.8.781 — 문서·제도·상품 축: 글 제목의 주제와, 근거에서 주제 조사를 달고 나온 같은 종류의 다른 대상
+  const entity = buildEntityContext(input.title, input.sources.flatMap((s) => [s.title || '', s.text || '']));
+  const withTopics = (units: ScopedUnit[], pageTitle: string): ScopedUnit[] => {
+    if (!entity?.active) return units;
+    const topics = carriedTopics(entity, units.map((u) => u.s), pageTitle);
+    return units.map((u, i) => ({ ...u, topic: topics[i] }));
+  };
   return {
-    anchors, docScope,
+    anchors, docScope, entity,
     sources: [
       // authority·hasBody — 기존 근거 판정(source-authority · 본문 확인 여부)을 그대로 싣는다
-      ...input.sources.map((s) => { const units = unitsOf(s); return { id: s.id, kind: 'SOURCE' as const, scope: units[0]?.scope || docScope, units, authority: s.authority, hasBody: s.hasBody }; }),
+      ...input.sources.map((s) => { const units = withTopics(unitsOf(s), s.title || ''); return { id: s.id, kind: 'SOURCE' as const, scope: units[0]?.scope || docScope, units, authority: s.authority, hasBody: s.hasBody }; }),
       ...(input.prose || []).map((p) => ({ id: p.id, kind: 'PROSE' as const, scope: { keys: [], via: 'prose' as const, label: 'LLM 서술' }, units: scopePlain(p.text, { anchors, prose: true }) })),
     ],
   };
@@ -131,8 +140,14 @@ export function propertyContradicts(cls: UnitClass, a: ReadonlyArray<string>, b:
 }
 
 interface Hit { id: string; rel: string; primary: boolean }
-/** 장부의 같은 값 발생(변형 관계로 분류)과 같은 변형·같은 속성의 다른 값(모순 후보) */
-function collect(ledger: VariantLedger, claim: ClaimKey, value: string, cls: UnitClass): { hits: Hit[]; contra: Array<{ id: string; raw: string; primary: boolean }> } {
+/** 값 발생 하나의 관계 — 모델·트림 축(variantRelation) 또는 문서·제도·상품 축(entityRelation) */
+type RelationOf = (u: ScopedUnit, index: number, length: number) => string;
+/**
+ * 장부의 같은 값 발생(관계로 분류)과 같은 대상·같은 속성의 다른 값(모순 후보).
+ * proseRel — LLM 서술의 관계: 모델 축은 모호(모델 권위 없음), 대상 축은 모름(대상 권위 없음 — 지지로 승격하지 않는다)
+ */
+function collect(ledger: VariantLedger, claim: ClaimKey, value: string, cls: UnitClass, relationOf?: RelationOf, proseRel = 'AMBIGUOUS'): { hits: Hit[]; contra: Array<{ id: string; raw: string; primary: boolean }> } {
+  const relOf: RelationOf = relationOf || ((u, index, length) => variantRelation(claim.variant, claimKey(u, index, length).variant));
   const hits: Hit[] = [];
   const contra: Array<{ id: string; raw: string; primary: boolean }> = [];
   for (const src of ledger.sources) {
@@ -140,20 +155,53 @@ function collect(ledger: VariantLedger, claim: ClaimKey, value: string, cls: Uni
     for (const u of src.units) {
       for (const f of findValue(u.s, value)) {
         // LLM 서술은 모델이 붙은 주장을 지지하지 못한다 — 속성과 관계없이 모호(어미 차이로 "장부에 없음" 으로 새지 않게)
-        if (src.kind === 'PROSE') { hits.push({ id: src.id, rel: 'AMBIGUOUS', primary: false }); continue; }
+        if (src.kind === 'PROSE') { hits.push({ id: src.id, rel: proseRel, primary: false }); continue; }
         const k = claimKey(u, f.index, f.length);
-        const rel = variantRelation(claim.variant, k.variant);
+        const rel = relOf(u, f.index, f.length);
         const fit = rel === 'SAME' || rel === 'UNKNOWN' ? propertyFit(cls, claim.property, k.property) : 'FIT';
         hits.push({ id: src.id, rel: fit === 'OTHER' ? `${rel}_OTHER_PROP` : fit === 'UNCERTAIN' ? 'QUALIFIER' : rel, primary });
       }
       if (src.kind !== 'SOURCE') continue;
       for (const o of otherValues(u.s, value)) {
         const k = claimKey(u, o.index, o.length);
-        if (variantRelation(claim.variant, k.variant) === 'SAME' && propertyContradicts(cls, claim.property, k.property)) contra.push({ id: src.id, raw: o.raw.replace(/\s+/g, ''), primary });
+        if (relOf(u, o.index, o.length) === 'SAME' && propertyContradicts(cls, claim.property, k.property)) contra.push({ id: src.id, raw: o.raw.replace(/\s+/g, ''), primary });
       }
     }
   }
   return { hits, contra };
+}
+
+/**
+ * 🧩 v3.8.781 — 모델·트림이 없는 주장의 **대상(문서·제도·상품)** 판정. 변형 판정과 같은 순서·같은 뜻(행동은 variantDeletes·variantHolds 그대로).
+ * 다른 점 하나: 대상이 불분명한 근거(UNKNOWN·모호·LLM 서술)는 이 대상의 값으로 **승격하지 않는다**(지지도 모순도 아님 → UNKNOWN, 보류).
+ */
+function judgeEntityValue(ledger: VariantLedger, entity: EntityContext, unit: ScopedUnit, value: string, claimEntity: string, claim: ClaimKey): VariantJudgement {
+  const base = { claim: value, sentence: unit.s.slice(0, 160) };
+  const cls = unitClass((flat(value).match(/^\d+(?:\.\d+)?(.*)$/) || [])[1] || '');
+  const seen = new Set<string>();
+  const relOf: RelationOf = (u, index) => {
+    const ev = valueEntity(entity, u.s, index, u.topic || '');
+    if (ev && ev !== AMBIGUOUS_ENTITY && ev !== claimEntity) seen.add(ev);
+    return entityRelation(claimEntity, ev);
+  };
+  const { hits, contra } = collect(ledger, claim, value, cls, relOf, 'UNKNOWN');
+  const r = (verdict: VariantVerdict, sourceIds: string[], reason: string, authority?: 'PRIMARY' | 'SECONDARY'): VariantJudgement => ({ ...base, variant: claimEntity, verdict, sourceIds, reason, ...(authority ? { authority } : {}) });
+  const ids = (xs: ReadonlyArray<{ id: string }>) => [...new Set(xs.map((x) => x.id))];
+  const rel = (name: string) => hits.filter((h) => h.rel === name);
+  const auth = (xs: ReadonlyArray<Hit>) => (xs.some((h) => h.primary) ? 'PRIMARY' as const : 'SECONDARY' as const);
+  const same = rel('SAME');
+  if (same.some((h) => h.primary)) return r('SUPPORTED', ids(same.filter((h) => h.primary)), `당사자·공식 원문이 ${claimEntity}의 값으로 말함`, 'PRIMARY');
+  const primaryContra = contra.filter((c) => c.primary);
+  if (primaryContra.length) return r('CONTRADICTED', ids(primaryContra), `당사자·공식 원문의 ${claimEntity} 같은 속성 값은 ${[...new Set(primaryContra.map((c) => c.raw))].slice(0, 3).join('·')}`, 'PRIMARY');
+  if (same.length) return r('SUPPORTED', ids(same), `원문이 ${claimEntity}의 값으로 말함`, 'SECONDARY');
+  if (rel('QUALIFIER').length) return r('UNRESOLVED', ids(rel('QUALIFIER')), '같은 값이 한정어가 다른 문맥에만 있음 — 같은 주장인지 확인 불가, 지우지 않되 자동 발행 근거로 쓰지 않음');
+  const otherProp = [...rel('SAME_OTHER_PROP'), ...rel('UNKNOWN_OTHER_PROP')];
+  if (otherProp.length && cls === 'LEGACY' && !rel('DIFFERENT').length) return r('NOT_APPLICABLE', ids(otherProp), '같은 값이 다른 속성 창에 있음 — 동의어일 수 있어 값 대조(예전 동작)가 판정');
+  if (rel('DIFFERENT').length) return r('VARIANT_MISMATCH', ids(rel('DIFFERENT')), `원문에서 이 값은 다른 대상(${[...seen].slice(0, 3).join('·')})의 값 — ${claimEntity}의 근거가 아니다`, auth(rel('DIFFERENT')));
+  if (otherProp.length) return r('PROPERTY_MISMATCH', ids(otherProp), '같은 숫자가 다른 항목(속성)의 값으로만 있음', auth(otherProp));
+  const unknown = [...rel('UNKNOWN'), ...rel('AMBIGUOUS')];
+  if (unknown.length) return r('UNKNOWN', ids(unknown), `근거가 어느 대상의 값인지 말하지 않음 — ${claimEntity}의 값으로 승격하지 않는다(지우지도 않는다)`);
+  return r('NOT_FOUND', [], '장부 원문에 이 값이 없음 — 호출부가 값 존재로 판정');
 }
 
 /**
@@ -169,7 +217,15 @@ export function judgeVariantValue(ledger: VariantLedger, unit: ScopedUnit, value
   const at = findValue(unit.s, value)[0];
   if (!at) return { ...base, variant: '', verdict: 'NOT_APPLICABLE', sourceIds: [], reason: '문장에서 값 자리를 못 찾음' };
   const claim = claimKey(unit, at.index, at.length);
-  if (!claim.variant.keys.length) return { ...base, variant: '', verdict: 'NOT_APPLICABLE', sourceIds: [], reason: '주장에 모델·트림 범위 없음 — 값 존재로 판정(예전 동작)' };
+  if (!claim.variant.keys.length) {
+    // v3.8.781 — 모델이 없으면 대상(문서·제도·상품) 축. 근거에 다른 대상이 없으면(비활성) 예전 동작.
+    // 사양값(mAh·W·kWh·km)은 774 그대로 — 모델 축 없는 글에서 사양값을 새로 읽지 않는다(전기요금 등 삭제·보류가 늘지 않게)
+    const entity = ledger.entity;
+    const legacyValue = unitClass((flat(value).match(/^\d+(?:\.\d+)?(.*)$/) || [])[1] || '') === 'LEGACY';
+    const claimEntity = entity?.active && legacyValue ? valueEntity(entity, unit.s, at.index, entity.subject) : '';
+    if (entity?.active && claimEntity && claimEntity !== AMBIGUOUS_ENTITY) return judgeEntityValue(ledger, entity, unit, value, claimEntity, claim);
+    return { ...base, variant: '', verdict: 'NOT_APPLICABLE', sourceIds: [], reason: '주장에 모델·트림 범위 없음 — 값 존재로 판정(예전 동작)' };
+  }
   const cls = unitClass((flat(value).match(/^\d+(?:\.\d+)?(.*)$/) || [])[1] || '');
   const { hits, contra } = collect(ledger, claim, value, cls);
   const r = (verdict: VariantVerdict, sourceIds: string[], reason: string, authority?: 'PRIMARY' | 'SECONDARY'): VariantJudgement => ({ ...base, variant: claim.variant.label, verdict, sourceIds, reason, ...(authority ? { authority } : {}) });

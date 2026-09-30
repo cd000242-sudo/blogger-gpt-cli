@@ -173,7 +173,7 @@ function ledgerPath(): string {
 import { describeModelUse } from './model-use';
 import type { VariantLedger } from './variant-ledger';
 import { parseUserRequirements, structurePlan, compactRequirementBlock, hypotheticalInputs, withRequirementContract, type StructurePlan, type UserRequirementContract } from './user-requirement';
-import { checkUserRequirements, requirementGate, requirementRegressions, stageRegressions, draftHtml, type RequirementResult } from './user-requirement-coverage';
+import { checkUserRequirements, requirementGate, requirementRegressions, stageRegressions, draftHtml, OFFICIAL_HOST, type RequirementResult } from './user-requirement-coverage';
 
 const FINAL_CTA_HOOK_STYLE = 'display:inline-block !important;margin:0 !important;padding:8px 14px !important;background:var(--rv-cta-hook-bg,rgba(255,255,255,0.94)) !important;color:var(--rv-cta-hook,#0f172a) !important;-webkit-text-fill-color:var(--rv-cta-hook,#0f172a) !important;border-radius:8px !important;font-size:16px !important;font-weight:700 !important;line-height:1.55 !important;word-break:keep-all !important;max-width:92% !important;box-decoration-break:clone !important;-webkit-box-decoration-break:clone !important;';
 const FINAL_CTA_BUTTON_STYLE = 'display:inline-flex !important;align-items:center !important;justify-content:center !important;min-width:220px !important;max-width:100% !important;min-height:48px !important;margin:2px auto 0 !important;padding:14px 28px !important;background:linear-gradient(135deg,var(--rv-cta-button-start,#0891b2) 0%,var(--rv-cta-button-end,#0284c7) 100%) !important;color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;border:0 !important;border-radius:8px !important;text-decoration:none !important;font-size:16px !important;font-weight:800 !important;line-height:1.35 !important;box-shadow:0 8px 18px var(--rv-cta-shadow,rgba(2,132,199,0.24)) !important;box-sizing:border-box !important;white-space:normal !important;word-break:keep-all !important;';
@@ -4710,6 +4710,46 @@ ${quoted}
           },
           onLog: (m: string) => onLog?.(`[PROGRESS] 70% - ${m}`),
         });
+      /**
+       * 🎯 v3.8.781 — CTA 목적지 권위(ENTITY · ACTION · DESTINATION). 새 검색 0 · AI 호출 0.
+       * live 508d55: 근거 E04(공식 "인감증명서 발급 바로가기")와 본문 링크가 정확한 발급 화면을 가졌는데, CTA 는 혜택 조회 포털로 갔다.
+       * 근거·본문이 이미 가진 공식 행동 화면(대상+행동이 맞는 것)을 먼저 쓰고, 확인 안 된 목적지는 그것으로 바꾼다.
+       * 후보가 없는데 작성자가 CTA 를 필수로 요구했으면 뺀다 — 잘못된 CTA 대신 요구 관문(MISSING → 보류). 내 블로그 관련 글 CTA 는 건드리지 않는다.
+       */
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const authority = require('../../cta/cta-authority');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { detectActionIntent: intentOf } = require('../../cta/action-intent');
+        const requiredAction = userPlan.cta.explicit && userPlan.cta.enabled ? String(userPlan.cta.action || '') : '';
+        const ctaAction = requiredAction || String(intentOf(keyword) || '');
+        if (ctaAction) {
+          const PRIMARY_AUTHORITY = ['PUBLIC_AUTHORITY_OFFICIAL', 'SUBJECT_OWNER_PRIMARY'];
+          const bodyLinks = sections.flatMap((s) => (s?.h3Sections || []).flatMap((h) => [...String(h?.content || '').matchAll(/<a\b[^>]*href="(https?:[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)]))
+            .map((m) => ({ url: m[1]!.replace(/&amp;/g, '&'), title: String(m[2] || '').replace(/<[^>]+>/g, ' ').trim(), official: OFFICIAL_HOST.test((() => { try { return new URL(m[1]!).hostname; } catch { return ''; } })()), via: 'body' as const }));
+          const candidates = authority.evidenceActionCandidates({
+            keyword, title: String(h1 || ''), action: ctaAction,
+            sources: [
+              ...evidenceItems.map((i) => ({ url: String(i?.url || ''), title: String(i?.title || ''), text: String(i?.cleanedText || '').slice(0, 600), official: !!i?.isOfficial || PRIMARY_AUTHORITY.includes(String(i?.authority || '')), via: 'evidence' as const })),
+              ...bodyLinks,
+            ],
+          });
+          const ownBlog = (u: string) => !!ctaBlogUrl && u.startsWith(ctaBlogUrl);
+          const exactLookup = (u: string) => { const hit = evidenceItems.find((i) => String(i?.url || '') === u); return hit ? { title: String(hit.title || ''), text: String(hit.cleanedText || '').slice(0, 600) } : undefined; };
+          const result = authority.enforceCtaDestination({
+            ctas: ctas.filter((c) => !ownBlog(String(c.url || ''))), keyword, title: String(h1 || ''), action: ctaAction, required: !!requiredAction, candidates, lookup: exactLookup,
+            relabel: (cta: FinalCTAData, cand: { url: string; title: string }) => {
+              const copy = buildCtaCopy({ url: cand.url, siteName: siteNameFromUrl(cand.url), action: ctaAction, actionStatus: 'UNKNOWN' });
+              return { ...cta, url: cand.url, buttonText: `🔗 ${copy.buttonText}`, text: `🔗 ${copy.buttonText}`, hookingMessage: copy.hookingMessage, hook: copy.hookingMessage };
+            },
+          });
+          ctas = [...ctas.filter((c) => ownBlog(String(c.url || ''))), ...result.ctas];
+          trace.event('cta.authority', { action: ctaAction, required: !!requiredAction, candidates: candidates.slice(0, 5).map((c: { url: string; title: string; rank: number; via: string }) => ({ url: c.url, title: c.title.slice(0, 60), rank: c.rank, via: c.via })), changes: result.changes });
+          for (const c of result.changes as Array<{ kind: string; from: string; to: string; reason: string }>) onLog?.(`[PROGRESS] 70% - 🎯 CTA 목적지 ${c.kind === 'REPLACED' ? '교체' : '제외'}: ${c.from}${c.to ? ` → ${c.to}` : ''} — ${c.reason}`);
+        }
+      } catch (authorityErr) {
+        console.warn('[CTA] 목적지 권위 확인 건너뜀:', String((authorityErr as Error)?.message || authorityErr).slice(0, 120));
+      }
     }
 
     // CTA 배치

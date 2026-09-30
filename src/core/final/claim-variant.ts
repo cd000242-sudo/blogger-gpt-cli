@@ -34,6 +34,8 @@ export interface ScopedUnit {
   row?: VariantScope | null;
   /** 칸마다 이름표 글(행 머리 + 열 머리, 변형 이름은 걷음) — 칸 값 곁에 낱말이 없을 때 속성을 여기서 찾는다 */
   cellLabels?: string[] | undefined;
+  /** v3.8.781 — 이 문장에 들어올 때 이어받은 대상(문서·제도·상품 — claim-entity). 근거 원문 단위에만 붙는다 */
+  topic?: string | undefined;
 }
 
 export const NO_SCOPE: VariantScope = { keys: [], via: 'none', label: '' };

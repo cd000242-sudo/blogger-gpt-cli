@@ -226,6 +226,7 @@ async function hybridValidateCta(url: string, keyword: string, timeoutMs = 5000,
   }
 }
 import { validateCtaUrl } from '../../cta/validate-cta-url';
+import { classifyCtaLiveness, isHardDead, candidateFits } from '../../cta/cta-authority';
 import { callGeminiWithGrounding, callGeminiWithRetry, resolveSectionTimeoutMs } from './gemini-engine';
 import { detectActionIntent, detectActionIntentFromArticle, buildActionQuery } from '../../cta/action-intent';
 import type { ActionIntent } from '../../cta/action-intent';
@@ -3030,8 +3031,17 @@ async function searchOfficialSite(keyword: string, contentMode?: string, skipAct
     const alive: { url: string; title: string }[] = [];
     for (const c of candidates) {
       const check = await validateCtaUrl(c.url, { timeout: 4000 });
-      if (check.isValid) alive.push({ url: c.url, title: c.title });
-      else console.warn(`[CTA] ⚠️ 살아있지 않아 건너뜀 (${check.reason}): ${c.url}`);
+      if (check.isValid) { alive.push({ url: c.url, title: c.title }); continue; }
+      /**
+       * v3.8.781 — 확인 실패의 종류를 나눈다(live 508d55: 정확한 인감증명서 발급 화면을 session-bound 로 버리고 혜택 조회 포털로 갔다).
+       * 죽음(HTTP_FAIL: 404·형식 오류·에러 주소)만 버린다. 세션·로그인·앱 화면·HEAD 거부·시간 초과는 검색 제목이 이 글의 대상·행동과 맞으면
+       * 확인 못 함(UNVERIFIED)으로 남긴다 — 무관한 공식 페이지로 넘어가지 않게.
+       */
+      const liveness = classifyCtaLiveness(check);
+      if (!isHardDead(liveness) && actionIntent && candidateFits(keyword, String(actionIntent), { url: c.url, title: c.title })) {
+        alive.push({ url: c.url, title: c.title });
+        console.log(`[CTA] ⚠️ 확인 못 함(${liveness}) — 대상·행동이 맞는 공식 화면이라 남깁니다(UNVERIFIED): ${c.url}`);
+      } else console.warn(`[CTA] ⚠️ 살아있지 않아 건너뜀 (${check.reason} · ${liveness}): ${c.url}`);
     }
 
     /**
