@@ -13,10 +13,16 @@ import { weakenHtml, type SemanticChange } from './decision-semantics';
 import { alignSummaryToBody, checkFaqConsistency, type FidelityChange, type FaqConsistencyNote } from './answer-fidelity';
 import { coverCoreQuestions, type CoreQuestion, type CoverageResult } from './core-questions';
 import { criticalStateCoverage, type CriticalState, type CriticalStateCheck } from './critical-state';
+import { checkTitleAuthority, type TitleAuthorityResult } from './title-authority';
 import { parseVisibleArticle } from './visible-article';
 import { annotateHtml, restoreFractionNotation } from './claim-status';
 
-export interface FinalAuthorityInput { html: string; evidence: FactEvidence; keyword: string; coreQuestions?: CoreQuestion[]; dimensions?: string[]; criticalStates?: CriticalState[] }
+export interface FinalAuthorityInput {
+  html: string; evidence: FactEvidence; keyword: string; coreQuestions?: CoreQuestion[]; dimensions?: string[]; criticalStates?: CriticalState[];
+  /** v3.8.770 — 독자가 보는 문서는 제목 + 답 상자 + 본문 + 표 + FAQ 다. 제목도 같은 최종 권위(본문 + 채택 팩트체크)로 검사한다 */
+  title?: string;
+  factcheck?: string[];
+}
 export interface FinalAuthorityReport {
   fact: { blocks: number; status: 'passed' | 'blocked'; violations: Array<FactIntegrityViolation & { location: string }> };
   decision: SemanticChange[];
@@ -25,6 +31,8 @@ export interface FinalAuthorityReport {
   coreQuestions: CoverageResult[];
   /** v3.8.768 — 독자의 현재 행동을 바꾸는 상태가 최종 글에 남았는가(COVERED/PARTIAL/MISSING/CONTRADICTED). 보고만 한다 — 문장을 끼워 넣지 않는다 */
   criticalStates: CriticalStateCheck[];
+  /** v3.8.770 — 제목의 수치·가능/불가 주장이 최종 권위와 맞는가(보고). 교체·보류는 발행 판단 시점에 한다 */
+  title: TitleAuthorityResult | null;
   /** v3.8.763/764 — 근거보다 확정적으로 쓴 문장(rewritten = 술어를 근거 상태로 고침 · flagged = 못 고쳐 그대로) · 분수 표기 복원 */
   status: Array<{ location: string; sentence: string; action: 'rewritten' | 'flagged'; after: string; reason: string; values: Array<{ value: string; status: string; qualifier: string | null; marker: string }> }>;
   fractions: Array<{ from: string; to: string }>;
@@ -136,6 +144,7 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     faq: { before: faqsBefore.length, after: faqsAfter.length, notes: consistent.notes, ldSynced: ld.synced, ldCount: ld.count },
     coreQuestions: coverage,
     criticalStates,
+    title: input.title ? checkTitleAuthority(input.title, html, input.factcheck || []) : null,
     status, fractions: fr.restored,
     changed: html !== String(input.html || ''),
   };

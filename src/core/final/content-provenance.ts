@@ -11,6 +11,7 @@
  * 새 호출 없음.
  */
 import { extractClaims, norm, type DerivedSupport, type LedgerItem } from './fact-claims';
+import { lexicalMatches } from './value-boundary';
 
 export type ProvenanceKind = 'EVIDENCE_SOURCE' | 'DERIVED_FROM_EVIDENCE' | 'HYPOTHETICAL' | 'FACTCHECK_SOURCE' | 'NONE';
 
@@ -40,17 +41,31 @@ export function splitFactcheck(context: string, sourceUrls: ReadonlyArray<string
   });
 }
 
-/** 검사 근거로 넣을 팩트체크 요약 — 계보 없는 문단은 뺀다(그 문단에만 있는 값은 원고에 들어갈 근거가 없다) */
-export function factcheckWithLineage(context: string, sourceUrls: ReadonlyArray<string> = []): { context: string; dropped: number } {
+/**
+ * 검사 근거로 넣을 팩트체크 요약 — 계보 없는 문단은 뺀다(그 문단에만 있는 값은 원고에 들어갈 근거가 없다).
+ * v3.8.770 — 채택 조건 하나로 사실 필터 문맥과 본문 관문 장부(claimLedger)가 **같은 문단**을 본다(장부 일치).
+ *   ① 실제 주소(문단 안 또는 요약의 출처 목록) ② 뒷받침 원문(문단) ③ 문단 ↔ 주소 연결 ④ 주제 범위: 문단이 이 글의 대상 낱말을 말해야 한다(distinctive 를 주면)
+ *   LLM 요약 자체는 출처가 아니다 — 주소 없는 문단·다른 대상 문단은 장부에 넣지 않는다.
+ * 실측(live a4fc1b): "삼성은 약 30분 충전으로 최대 55%" 문단은 사실 필터에선 근거였는데 본문 관문 장부엔 없어 "55%" 로 MANUAL_REVIEW.
+ */
+export function factcheckWithLineage(context: string, sourceUrls: ReadonlyArray<string> = [], distinctive: ReadonlyArray<string> = []): { context: string; dropped: number; ledger: LedgerItem[]; offTopic: number } {
   const paragraphs = splitFactcheck(context, sourceUrls);
-  const kept = paragraphs.filter((p) => p.lineage !== 'none');
-  return { context: kept.map((p) => p.text).join('\n\n'), dropped: paragraphs.length - kept.length };
+  const subjects = distinctive.map((w) => w.toLowerCase().replace(/\s+/g, '')).filter((w) => w.length >= 2);
+  const onTopic = (p: FactcheckParagraph) => !subjects.length || subjects.some((w) => p.text.toLowerCase().replace(/\s+/g, '').includes(w));
+  const withLineage = paragraphs.filter((p) => p.lineage !== 'none');
+  const kept = withLineage.filter(onTopic);
+  return {
+    context: kept.map((p) => p.text).join('\n\n'),
+    dropped: paragraphs.length - kept.length,
+    offTopic: withLineage.length - kept.length,
+    ledger: kept.map((p, i) => ({ id: `FACTCHECK${i + 1}`, text: `${p.text}\n[출처] ${p.urls.slice(0, 5).join(' ')}` })),
+  };
 }
 
 function valuesOf(text: string): string[] {
   const src = String(text || '').replace(/<[^>]+>/g, ' ');
   const out = extractClaims(src).map((c) => c.text);
-  for (const m of src.matchAll(MEASURE)) out.push(m[0].trim());
+  for (const m of lexicalMatches(src, MEASURE)) out.push(m.value.trim());
   const seen = new Set<string>();
   return out.filter((v) => { const k = norm(v); if (/^20\d{2}년$/.test(k) || seen.has(k)) return false; seen.add(k); return true; });
 }

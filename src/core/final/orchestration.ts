@@ -74,6 +74,7 @@ import type { FidelityChange, FaqConsistencyNote } from './answer-fidelity';
 import type { EmptyFinding } from './empty-section-gate';
 import type { ProvenanceEntry } from './content-provenance';
 import { criticalStateCoverage, criticalStateGate } from './critical-state';
+import { resolveTitleAuthority, checkTitleAuthority } from './title-authority';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
@@ -1746,9 +1747,12 @@ export async function generateUltimateMaxModeArticleFinal(
     pipelineStatus.mark('RESEARCH', researchPacket.status === 'OK' ? 'RESEARCH_OK' : researchPacket.status === 'EMPTY' ? 'RESEARCH_EMPTY' : 'RESEARCH_WEAK',
       `사실 ${researchPacket.facts.length} · 자격 ${researchPacket.eligibility.length} · 조건 ${researchPacket.conditions.length} · 기관발표 ${researchPacket.officialStatements.length} · 수치 ${researchPacket.numbers.length} · 날짜 ${researchPacket.dates.length}${researchPacket.notes.length ? ` · ${researchPacket.notes.join(' / ')}` : ''}`);
     /** 제목·본문의 값을 대조할 장부(근거 항목 + 패킷). 제목 사실 관문·비평·최종 심사가 같은 장부를 본다 */
+    /** v3.8.770 — 채택된 팩트체크 문단(주소·원문·주제 범위 통과). 사실 필터 문맥과 같은 문단 — 팩트체크가 돌기 전에는 비어 있다 */
+    let factcheckLedger: Array<{ id: string; text: string }> = [];
     const claimLedger = (): Array<{ id: string; text: string }> => require('./fact-claims').ledgerFromItems([
       ...evidenceItems.map((i: any) => ({ id: i.id, text: `${i.title} ${i.cleanedText}` })),
       { id: 'PACKET', text: researchPacketText },
+      ...factcheckLedger,
     ]);
     /** v3.8.767 — 사실 필터가 근거 값으로 한 단계 검산한 값(DERIVED_FROM_EVIDENCE)과 명시적 가정 값. 본문 관문·계보 추적이 같은 기록을 쓴다 */
     const derivedLedger: Array<{ claim: string; operation: string; sourceIds: string[] }> = [];
@@ -1894,7 +1898,8 @@ export async function generateUltimateMaxModeArticleFinal(
        */
       try {
         const epi = checkTitleEpistemics(String(h1 || ''), coreAnswers);
-        trace.event('title.output', { generated: titleGateResult.title, final: epi.title, changed: epi.changed, claims: epi.claims, factGate: titleGateResult.audit?.status || null });
+        // v3.8.770 — 제목 사실 관문이 시도한 후보들(재생성 기록)도 남긴다. 최종 제목 권위가 모순일 때 이 후보 중에서만 고른다
+        trace.event('title.output', { generated: titleGateResult.title, final: epi.title, changed: epi.changed, claims: epi.claims, factGate: titleGateResult.audit?.status || null, candidates: (titleGateResult.history || []).map((h: { title: string; status: string }) => ({ title: h.title, status: h.status })) });
         if (epi.changed) {
           onLog?.(`[PROGRESS] 30% - 🧭 제목 결론을 근거 수준으로: "${h1}" → "${epi.title}" (${epi.claims.map((c) => `${c.cqId}:${c.support}`).join(', ')})`);
           h1 = epi.title;
@@ -3221,7 +3226,10 @@ ${quoted}
     // v3.8.767 — 팩트체크 요약은 인용 주소(문단 안 또는 요약의 검증 주소 목록)가 있는 문단만 검사 근거로 쓴다. 주소 없는 요약 값은 원고에 들어갈 계보가 없다
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { factcheckWithLineage } = require('./content-provenance');
-    const paidWithLineage: { context: string; dropped: number } = factcheckWithLineage(paidFactContext, paidFactSourceUrls);
+    // v3.8.770 — 주제 범위까지 본 채택 문단을 사실 필터 문맥과 본문 관문 장부(claimLedger)에 똑같이 싣는다(장부 일치)
+    const paidWithLineage: { context: string; dropped: number; ledger: Array<{ id: string; text: string }>; offTopic: number } = factcheckWithLineage(paidFactContext, paidFactSourceUrls, evidenceMod.distinctiveTokens(keyword));
+    factcheckLedger = paidWithLineage.ledger;
+    if (paidWithLineage.ledger.length) trace.event('factcheck.accepted', { provider: paidFactProvider, paragraphs: paidWithLineage.ledger.map((l) => ({ id: l.id, chars: l.text.length, urls: (l.text.match(/https?:\/\/\S+/g) || []).slice(0, 5) })), dropped: paidWithLineage.dropped, offTopic: paidWithLineage.offTopic });
     if (paidWithLineage.dropped) onLog?.(`[PROGRESS] 44% - 🧬 팩트체크 요약 중 출처 주소가 없는 문단 ${paidWithLineage.dropped}개는 검사 근거에서 뺍니다`);
     const validationView = () => buildValidationEvidence(evidenceItems, factEvidence, {
       paidContext: paidWithLineage.context,
@@ -4389,6 +4397,24 @@ ${quoted}
       }
     }
     void titleRevisedByCritic;
+
+    /**
+     * 🏷️ v3.8.770 — 제목 권위(교체 자리). 제목이 더 바뀌지 않는 이 자리에서, 최종 초안 본문 + 채택 팩트체크로 제목을 다시 잰다.
+     * live a4fc1b: 제목은 블로그 값(4000mAh 45W)으로 먼저 정해졌고, 뒤에 온 팩트체크로 본문은 공식값(4300mAh 25W)이 됐다.
+     * 모순이면 제목 사실 관문이 이미 만든 후보 중 통과하는 것으로 바꾼다(새 제목을 짓지 않는다). 없으면 그대로 두고 발행 판단에서 보류한다.
+     * 사람이 정한 제목(custom)은 바꾸지 않는다(검사·보류만).
+     */
+    try {
+      const draftDoc = [String(allSectionsObj?.introduction || ''), ...(allSectionsObj?.sections || []).flatMap((s: { h3Sections?: Array<{ content?: string }> }) => (s.h3Sections || []).map((h) => String(h.content || ''))), String(allSectionsObj?.conclusion || '')].join('\n');
+      const early = resolveTitleAuthority(String(h1 || ''), payload.titleMode === 'custom' && fixedTitle ? [] : (titleGateResult?.history || []).map((h: { title: string }) => h.title), draftDoc, factcheckLedger.map((l) => l.text));
+      trace.event('title.authority.draft', { before: String(h1 || ''), after: early.title, replaced: early.replaced, pass: early.result.pass, claims: early.result.claims, candidatesTried: early.tried.map((t) => ({ title: t.title, pass: t.pass })) });
+      if (early.replaced) {
+        onLog?.(`[PROGRESS] 76% - 🏷️ 제목이 본문·공식값과 어긋나 기존 후보로 바꿉니다: "${h1}" → "${early.title}"`);
+        h1 = early.title;
+      } else if (!early.result.pass) {
+        onLog?.(`[PROGRESS] 76% - ⚠️ 제목이 본문·공식값과 어긋납니다(${early.result.claims.filter((c) => c.verdict === 'CONTRADICTED').map((c) => c.claim).join(', ')}) — 통과하는 기존 후보가 없어 자동 발행하지 않습니다`);
+      }
+    } catch (taErr) { console.warn('[TITLE-AUTHORITY] 스킵:', String((taErr as Error)?.message || taErr).slice(0, 80)); }
 
     /**
      * 📅 v3.8.750 — 제목의 마지막 손질: 바로 옆에 붙은 같은 연도를 한 번으로 (POST-PUBLISH AUDIT 5865).
@@ -7544,7 +7570,8 @@ ${conclusionHTML}
     try {
       const faInput = trace.snapshot('html.before-final-authority', html, { ext: 'html', note: '최종 권위 재검사 입력' });
       trace.event('final-authority.input', { artifact: faInput?.id ?? null, keyword, coreQuestions: coreQuestionsPlan.map((q) => `${q.id}:${q.applicable ? 'on' : 'off'}`), dimensions: decisionDimensions });
-      const fa = runFinalAuthority({ html, evidence: validationView().evidence, keyword, coreQuestions: coreQuestionsPlan, dimensions: decisionDimensions, criticalStates: researchPacket.criticalStates || [] });
+      const fa = runFinalAuthority({ html, evidence: validationView().evidence, keyword, coreQuestions: coreQuestionsPlan, dimensions: decisionDimensions, criticalStates: researchPacket.criticalStates || [], title: String(h1 || ''), factcheck: factcheckLedger.map((l) => l.text) });
+      if (fa.report.title) trace.event('final-authority.title', { title: fa.report.title.title, pass: fa.report.title.pass, claims: fa.report.title.claims });
       trace.event('final-authority.fact', fa.report.fact);
       trace.event('final-authority.decision', { changes: fa.report.decision });
       trace.event('final-authority.answer', fa.report.answer);
@@ -7669,6 +7696,14 @@ ${conclusionHTML}
       ? criticalStateCoverage(String(html || '').replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' '), researchPacket.criticalStates || [])
       : [];
     const criticalGate = criticalStateGate(criticalFinal);
+    /**
+     * 🏷️ v3.8.770 — 최종 제목 권위(판정 자리). 의미를 바꾸는 단계가 다 끝난 최종 HTML(답 상자·본문·표·FAQ) + 채택 팩트체크 문단으로 제목을 다시 잰다.
+     * live a4fc1b: 제목 "…4000mAh 45W 충전" · 본문·답 상자 "공식 사양은 4000mAh와 45W가 아니라 4300mAh … 25W".
+     * 교체는 제목이 굳는 자리(비평 루프 뒤, title.authority.draft)에서만 한다 — 여기서는 제목·HTML 을 바꾸지 않고(Judge 뒤 불변 계약) 모순이면 보류한다.
+     */
+    const titleAuth = checkTitleAuthority(String(h1 || ''), html, factcheckLedger.map((l) => l.text));
+    const titleGate = { pass: titleAuth.pass, reason: titleAuth.claims.filter((c) => c.verdict === 'CONTRADICTED').map((c) => `${c.claim}: ${c.reason}`).join(' · ') };
+    trace.event('title.final-authority', { title: String(h1 || ''), pass: titleGate.pass, claims: titleAuth.claims });
     if (criticalFinal.length) trace.event('critical-state.gate', { coverage: criticalFinal, pass: criticalGate.pass, reason: criticalGate.reason });
     /**
      * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
@@ -7688,19 +7723,22 @@ ${conclusionHTML}
       FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
       // v3.8.769 — 최종 글(답 상자·본문·표·FAQ)이 현재 상태와 정면으로 반대면 자동 발행하지 않는다. 상태가 없는 글은 늘 true
       CRITICAL_STATE_PASS: criticalGate.pass,
+      // v3.8.770 — 제목이 최종 본문·채택 팩트체크와 정면으로 어긋나면(통과하는 기존 후보도 없으면) 자동 발행하지 않는다
+      TITLE_AUTHORITY_PASS: titleGate.pass,
     };
     hardGatesAllPass = Object.values(hardGates).every(Boolean);
     qualityConverged = runFinalQa
       ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
       : hardGatesAllPass;
     manualReviewReason = qualityConverged ? '' : [
-      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k)),
+      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k === 'TITLE_AUTHORITY_PASS' ? `${k}(${titleGate.reason})` : k)),
       ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
       ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
     ].filter(Boolean).join(' · ');
     publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
     // v3.8.769 — 현재 상태와 반대로 안내하는 글은 품질 루프와 상관없이 막는다(enforced). 사람이 편집하거나 forcePublish 로 명시하면 예전처럼 지나간다
-    const publishEnforced = qualityLoopOn || !criticalGate.pass;
+    // v3.8.770 — 제목 모순도 같은 계약: 품질 루프와 상관없이 보류(PUBLISH_HELD)
+    const publishEnforced = qualityLoopOn || !criticalGate.pass || !titleGate.pass;
     /**
      * v3.8.752 (감사 F12) — 상태 이름표를 여섯 개념으로 가른다(quality-status.ts).
      * 4편 실측: 루프 OFF 인데 `FINAL: QUALITY_CONVERGED` 가 찍혔다 — 미실행 관문이 true 라 '수렴' 별칭이 붙은 것.
@@ -7713,7 +7751,7 @@ ${conclusionHTML}
     pipelineStatus.mark('FINAL', qualityStatus.finalStage, qualityConverged ? qualityStatus.label : manualReviewReason);
     onLog?.(qualityConverged
       ? (qualityStatus.qualityLoopOutcome === 'CONVERGED' ? `[PROGRESS] 97% - ✅ QUALITY_CONVERGED — 더 고칠 것이 없습니다. 자동 발행 가능.` : `[PROGRESS] 97% - ✅ ${qualityStatus.label}`)
-      : (qualityLoopOn || !criticalGate.pass ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason} · ${qualityStatus.label}`));
+      : (publishEnforced ? `[PROGRESS] 97% - 🛑 MANUAL_REVIEW — 자동 발행하지 않습니다: ${manualReviewReason}` : `[PROGRESS] 97% - ℹ️ 품질 관문 참고(품질 루프 OFF · 발행은 막지 않음): ${manualReviewReason} · ${qualityStatus.label}`));
     trace.check('hardGates', { status: 'RUN', result: { hardGates, hardGatesAllPass, qualityConverged, publishDecision, manualReviewReason } });
     trace.check('qualityLoop', { status: qualityStatus.qualityLoopExecuted ? (qualityStatus.qualityLoopOutcome === 'ERROR' ? 'FAILED' : 'RUN') : 'NOT_RUN', result: { outcome: qualityStatus.qualityLoopOutcome, label: qualityStatus.label, calls: qualityLoopCalls } });
     trace.check('finalJudge', { status: runFinalQa ? (finalJudge ? 'RUN' : 'FAILED') : 'NOT_RUN', result: finalJudge ? { decision: finalJudge.decision, blocking: (finalJudge.blockingIssues || []).length } : null });
