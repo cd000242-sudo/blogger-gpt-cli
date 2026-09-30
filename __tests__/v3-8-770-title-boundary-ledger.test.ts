@@ -61,8 +61,9 @@ describe('TITLE AUTHORITY (T1~T5)', () => {
     expect(r).toMatchObject({ replaced: false, title: IT_TITLE });
     expect(r.result.pass).toBe(false);
     const orch = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'final', 'orchestration.ts'), 'utf8');
-    expect(orch).toMatch(/TITLE_AUTHORITY_PASS: titleGate\.pass,/);
-    expect(orch).toContain('const publishEnforced = qualityLoopOn || !criticalGate.pass || !titleGate.pass;');
+    // v3.8.771 — 제목·사실 소제목 모순을 보류 하나(FINAL_FACTUAL_SURFACE_PASS)로 묶었다
+    expect(orch).toMatch(/FINAL_FACTUAL_SURFACE_PASS: surfaceGate\.pass,/);
+    expect(orch).toContain('const publishEnforced = qualityLoopOn || !criticalGate.pass || !surfaceGate.pass;');
     // 판정 자리는 최종 HTML 로 검사만 한다(Judge 뒤 불변) — 모순이면 보류
     expect(orch).toMatch(/const titleAuth = checkTitleAuthority\(String\(h1 \|\| ''\), html, factcheckLedger\.map/);
   });
