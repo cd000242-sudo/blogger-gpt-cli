@@ -186,7 +186,7 @@ describe('PROVENANCE (T16~T18) — 최종 값마다 계보, 재작성 경로도 
   });
   test('T17 팩트체크가 준 새 정확한 값 + 주소 없음 → 검사 근거에서 빠져 원고에서 지워지고, 계보는 NONE', () => {
     const noUrl = '보조금은 612만원으로 확정됐다.';
-    expect(factcheckWithLineage(noUrl)).toEqual({ context: '', dropped: 1 });
+    expect(factcheckWithLineage(noUrl)).toMatchObject({ context: '', dropped: 1, ledger: [] });   // v3.8.770 — 장부 항목도 함께 돌려준다(주소 없으면 빈 장부)
     const items = [{ id: 'E01', title: '보조금 기사', url: 'https://news.example/1', domain: 'news.example', sourceType: 'news', isOfficial: false, hasBody: true, pubDate: null, cleanedText: '올해 전기차 보조금 제도가 개편됐다. 세부 금액은 차종별로 다르다.', mainKeyword: 'x', sourceName: 'x', retrievedAt: '', query: '', relevanceScore: 1, promiseRelevanceScore: null }];
     const base = { provider: 'Perplexity Sonar', trustLevel: 'strong', topic: 'x', context: '' } as FactEvidence;
     const without = buildValidationEvidence(items as any, base, { paidContext: factcheckWithLineage(noUrl).context }).evidence;

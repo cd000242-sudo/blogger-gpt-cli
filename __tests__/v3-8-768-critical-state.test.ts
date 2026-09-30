@@ -133,7 +133,8 @@ describe('LIVE 69f928 재생 — SOURCE → PACKET → WRITER VIEW → WRITER �
     expect(orch).toMatch(/researchPacket = \{ \.\.\.researchPacket, criticalStates \};\s*\n\s*trace\.event\('critical-state\.plan'/);
     expect(orch.indexOf("trace.event('critical-state.plan'")).toBeLessThan(orch.indexOf('writerPacketView = wpv.buildWriterPacketView(researchPacket'));
     expect(orch).toMatch(/trace\.event\('critical-state\.coverage', \{ stage: 'draft'/);
-    expect(orch).toMatch(/runFinalAuthority\(\{[^\n]*criticalStates: researchPacket\.criticalStates \|\| \[\] \}\)/);
+    // v3.8.770 — final-authority 는 제목·팩트체크 문단도 받는다(상태 배열 전달은 그대로)
+    expect(orch).toMatch(/runFinalAuthority\(\{[^\n]*criticalStates: researchPacket\.criticalStates \|\| \[\](?:, [^\n]*)? \}\)/);
     const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'final', 'critical-state.ts'), 'utf8').replace(/\/\*\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
     expect(src).not.toMatch(/경복궁|야간관람|NOL|10월\s*2일/);
   });
