@@ -42,7 +42,8 @@ describe('748 (C) Judge 순서 — HTML 조립·자가 수정 뒤, 장부·발�
     expect(call).toContain('ctaText: judgeCtaText');
     // 하드 게이트의 본문 값 대조도 보이는 글로 한다
     // v3.8.767 — 본문 관문은 사실 필터가 검산한 파생값 기록(derivedLedger)도 받는다. 입력이 보이는 글(judgeBodyText)이라는 점은 그대로
-    expect(orch).toMatch(/bodyClaimCheck = \(\(\) => \{ try \{ return require\('\.\/fact-claims'\)\.checkClaims\(judgeBodyText, claimLedger\(\)(?:, new Date\(\), derivedLedger)?\);/);
+    // v3.8.773 — 모델·트림 장부(variant)도 받는다. 입력이 보이는 글(judgeBodyText)이라는 점은 그대로
+    expect(orch).toMatch(/bodyClaimCheck = \(\(\) => \{[\s\S]{0,400}?require\('\.\/fact-claims'\)\.checkClaims\(judgeBodyText, claimLedger\(\)(?:, new Date\(\), derivedLedger(?:, variant)?)?\);/);
   });
 
   test('H-4 발행 결정·하드 게이트는 Judge 뒤에서 채워진다 (앞에서는 자리만)', () => {

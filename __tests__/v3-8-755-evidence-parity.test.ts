@@ -195,11 +195,16 @@ describe('v3.8.755 배선 — 실제 orchestration 경로가 새 경계를 지�
   test('본문 필터·제목·요약표·날조 검사가 같은 검사 보기(buildValidationEvidence)를 쓴다', () => {
     expect(orch).toContain("require('./validation-evidence')");
     expect(orch).toContain('const validationView = ()');
-    expect(blockBetween(orch, '// A prompt is not enough', 'if (!payload.useKeywordAsTitle)')).toContain('sanitizeArticleFactClaims(allSectionsObj, bodyValidation.evidence)');
+    // v3.8.773 — 같은 검사 보기에 모델·트림 장부만 얹는다(bodyEvidence = withVariant(bodyValidation.evidence, …))
+    const bodyBlock = blockBetween(orch, '// A prompt is not enough', 'if (!payload.useKeywordAsTitle)');
+    expect(bodyBlock).toContain('const bodyEvidence = withVariant(bodyValidation.evidence, filterLedger)');
+    expect(bodyBlock).toContain('sanitizeArticleFactClaims(allSectionsObj, bodyEvidence)');
     expect(orch).toContain('sanitizeFactUnsafeHeading(h1, validationView().evidence, keyword)');
     expect(orch).toContain('checkFabrication(validationView().evidence.context');
     const table = blockBetween(orch, '// 6. 요약표', '// 7. 해시태그');
-    expect(table).toContain('const tableValidation = validationView()');
+    // v3.8.773 — 요약표도 같은 검사 보기 + 같은 모델·트림 장부
+    expect(table).toContain('const tableValidationBase = validationView()');
+    expect(table).toContain('evidence: withVariant(tableValidationBase.evidence, variantLedger())');
     expect(table).toContain("{ ...tableValidation.evidence, subjectHint: String(row[0] || '') }");
     expect(table).not.toContain('sanitizeFactUnsafeHtml(value, factEvidence)');
     // 프롬프트용 문맥은 그대로 — 검증 보기로 바꾸지 않는다

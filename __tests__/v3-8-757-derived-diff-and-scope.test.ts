@@ -200,7 +200,9 @@ describe('v3.8.757 [공식자료 배선] 비교 글의 출처 범위와 본문 �
   test('T19 source ID·fullText·validationView 연결 회귀 없음 · T20 오프라인 재생 가능 (배선)', () => {
     const orch = read('src/core/final/orchestration.ts');
     expect(orch).toContain('crawledPosts.push(toFinalCrawledPost(item as any) as any)');
-    expect(orch).toContain('sanitizeArticleFactClaims(allSectionsObj, bodyValidation.evidence)');
+    // v3.8.773 — 같은 검사 보기(bodyValidation.evidence)에 모델·트림 장부만 얹는다
+    expect(orch).toContain('const bodyEvidence = withVariant(bodyValidation.evidence, filterLedger)');
+    expect(orch).toContain('sanitizeArticleFactClaims(allSectionsObj, bodyEvidence)');
     expect(orch).toContain("trace.event('grounding.fetch'");
     expect(orch).toContain('derived: factIntegrityReport.derived || []');
     expect(orch).toMatch(/renderEvidence\(evidenceItems, 11000[,)]/);   // 765: 예약·묶음 옵션이 붙어도 예산은 11000
