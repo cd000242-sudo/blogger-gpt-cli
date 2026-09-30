@@ -13,14 +13,18 @@
  * 처리(resolveTitleAuthority): 이미 만든 제목 후보(제목 사실 관문 기록) 중 통과하는 것이 있으면 그것으로, 없으면 보류(MANUAL_REVIEW) — 새 제목을 짓지 않는다.
  */
 import { isLexicalValue } from './value-boundary';
+import { propertyWindow, propertyRelation } from './claim-property';
 
 export type TitleClaimVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'UNCHECKED';
 export interface TitleAuthorityClaim { claim: string; kind: 'numeric' | 'categorical'; verdict: TitleClaimVerdict; reason: string; evidence: string[] }
 export interface TitleAuthorityResult { title: string; pass: boolean; claims: TitleAuthorityClaim[] }
 
 const QUANTITY = /(\d[\d,]*(?:\.\d+)?)\s*(mAh|kWh|kW|W|km|㎞|인치|GB|TB|mm|kg|%|퍼센트|만\s*원|억\s*원|원|개월|시간|분)(?![A-Za-z])/g;
-/** 단위만으로 같은 대상이라고 볼 수 있는 물리 단위(배터리 mAh · 충전 W · 거리 km …). %·원·기간은 같은 낱말이 곁에 있어야 같은 대상이다 */
-const SPECIFIC_UNIT = /^(?:mAh|kWh|kW|W|km|㎞|인치|GB|TB|mm|kg)$/;
+/**
+ * 단위만으로 속성이 정해지는 단위(mAh = 용량 · 인치 = 화면 · GB/TB = 저장 …). 곁 낱말이 없어도(UNKNOWN) 같은 속성으로 본다.
+ * v3.8.771 — W·kW·km·kWh 는 뺐다: 충전기 출력 vs 기기 입력 · 충전기 350kW vs 차량 수용 180kW 처럼 같은 단위가 여러 속성을 뜻한다(live a4fc1b 45W).
+ */
+const UNIT_NAMES_PROPERTY = /^(?:mAh|인치|GB|TB|mm|kg)$/;
 const REJECT = /아니라|아닌|아닙니다|알려진|섞여|섞인|혼동|혼재|다른\s*(?:지역|모델|제품|기종)|오래된|근거로[^.]{0,30}(?:않|말)|틀린|잘못|맞지\s*않/;
 /** 같은 문장에 같은 단위의 다른 값이 함께 있을 때의 대조 표지 — "4000mAh보다 4300mAh를 기준으로" · "45W 충전기가 있더라도 기준은 25W" */
 const CONTRAST = /보다|더라도|대신|구분|기준은|기준으로|않|없|아니/;
@@ -47,18 +51,17 @@ function quantities(text: string): Array<{ num: number; unit: string; raw: strin
   }
   return out;
 }
-/** 값 바로 앞의 낱말(같은 대상 판정용) — "교통비 35%" → 교통비 */
-function wordBefore(text: string, index: number): string {
-  const words = text.slice(Math.max(0, index - 20), index).split(/[\s,·|]+/).filter((w) => /[가-힣A-Za-z]{2,}/.test(w));
-  return (words[words.length - 1] || '').replace(/(?:은|는|이|가|을|를|의)$/, '');
-}
-
 function checkNumeric(title: string, authority: string[]): TitleAuthorityClaim[] {
   const out: TitleAuthorityClaim[] = [];
-  const auth = authority.map((s) => ({ s, q: quantities(s) }));
-  for (const tv of quantities(title)) {
-    const context = wordBefore(title, tv.index);
-    const same = auth.filter((a) => a.q.some((q) => q.unit === tv.unit && q.num === tv.num));
+  /**
+   * v3.8.771 — 값은 대상·속성과 함께 비교한다(claim-property). 같은 값이어도 다른 항목(충전기 45W ≠ 기기 충전 45W)이면 지지도 모순도 아니다.
+   * 속성 창이 겹치면 같은 주장(SAME). 한쪽 창이 비면(UNKNOWN) 단위만으로 속성이 정해지는 물리 단위(mAh·W·km …)일 때만 같은 주장으로 본다.
+   */
+  const withProp = (s: string) => quantities(s).map((q) => ({ ...q, prop: propertyWindow(s, q.index, q.raw.length) }));
+  const auth = authority.map((s) => ({ s, q: withProp(s) }));
+  for (const tv of withProp(title)) {
+    const bound = (q: { prop: string[] }) => { const r = propertyRelation(tv.prop, q.prop); return r === 'SAME' || (r === 'UNKNOWN' && UNIT_NAMES_PROPERTY.test(tv.unit)); };
+    const same = auth.map((a) => ({ ...a, q: a.q.filter((q) => q.unit !== tv.unit || q.num !== tv.num || bound(q)) })).filter((a) => a.q.some((q) => q.unit === tv.unit && q.num === tv.num));
     /**
      * 거부 표지는 **그 표지 앞의 값**에만 걸린다: "4000mAh가 아니라 4300mAh" 에서 4000mAh 만 거부, 4300mAh 는 긍정.
      * 값과 표지 사이에 같은 단위의 다른 값이 끼어 있으면 표지는 그 값의 것이다.
@@ -72,10 +75,10 @@ function checkNumeric(title: string, authority: string[]): TitleAuthorityClaim[]
     // 같은 단위의 다른 값과 대조되는 문장("X보다 Y를 기준으로" · "X 충전기가 있더라도 기준은 Y")도 제목 값을 지지하지 않는다 — 대조 표지가 이 값 뒤에 올 때
     const contrasted = (a: { s: string; q: Array<{ num: number; unit: string; index: number }> }) => a.q.some((o) => o.unit === tv.unit && o.num !== tv.num) && a.q.filter((q) => q.unit === tv.unit && q.num === tv.num).every((q) => CONTRAST.test(a.s.slice(q.index)));
     const affirmed = same.filter((a) => !rejectedHere(a) && !contrasted(a) && !QUESTION.test(a.s));
-    const others = auth.filter((a) => a.q.some((q) => q.unit === tv.unit && q.num !== tv.num) && (SPECIFIC_UNIT.test(tv.unit) || (context && a.s.includes(context))));
+    const others = auth.filter((a) => a.q.some((q) => q.unit === tv.unit && q.num !== tv.num && bound(q)));
     const claim = tv.raw.replace(/\s+/g, '');
     if (affirmed.length) { out.push({ claim, kind: 'numeric', verdict: 'SUPPORTED', reason: '최종 권위가 같은 값을 말함', evidence: affirmed.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
-    if (same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: `최종 권위가 이 값을 거부하고 다른 값(${[...new Set(others.flatMap((a) => a.q.filter((q) => q.unit === tv.unit && q.num !== tv.num).map((q) => q.raw.replace(/\s+/g, ''))))].slice(0, 3).join('·')})을 말함`, evidence: same.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
+    if (same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: `최종 권위가 이 값을 거부하고 다른 값(${[...new Set(others.flatMap((a) => a.q.filter((q) => q.unit === tv.unit && q.num !== tv.num && bound(q)).map((q) => q.raw.replace(/\s+/g, ''))))].slice(0, 3).join('·')})을 말함`, evidence: same.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
     if (!same.length && others.length) { out.push({ claim, kind: 'numeric', verdict: 'CONTRADICTED', reason: '오래된 제목 — 최종 권위에 이 값이 없고 같은 대상의 다른 값만 있음', evidence: others.slice(0, 2).map((a) => a.s.slice(0, 160)) }); continue; }
     out.push({ claim, kind: 'numeric', verdict: 'UNCHECKED', reason: '최종 권위에 같은 대상의 값이 없음(대조 불가)', evidence: [] });
   }
@@ -109,15 +112,26 @@ function checkCategorical(title: string, authority: string[]): TitleAuthorityCla
  */
 export function checkTitleAuthority(title: string, finalDocument: string, factcheck: ReadonlyArray<string> = []): TitleAuthorityResult {
   const t = String(title || '').trim();
-  const doc = String(finalDocument || '')
-    .replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' ')
-    // 제목 줄·소제목·목차 버튼은 이름표지 사실 진술이 아니다(live a4fc1b: 소제목 "4000mAh 45W 충전 성능" 이 제목 값을 지지하는 것처럼 세졌다)
-    .replace(/<h[1-6]\b[\s\S]*?<\/h[1-6]>/gi, ' ')
-    .replace(/<a\b[^>]*class="[^"]*toc[^"]*"[^>]*>[\s\S]*?<\/a>/gi, ' ')
-    .split(t).join(' ');
-  const authority = [...sentencesOf(doc), ...factcheck.flatMap((f) => sentencesOf(f))];
-  const claims = [...checkNumeric(t, authority), ...checkCategorical(t, authority)];
+  const claims = authorityClaims(t, authoritySentences(finalDocument, factcheck, [t]));
   return { title: t, pass: !claims.some((c) => c.verdict === 'CONTRADICTED'), claims };
+}
+
+/**
+ * 최종 권위 문장 — 독자가 보는 진술(답 상자·본문·표·FAQ) + 채택 팩트체크 문단.
+ * 제목 줄·소제목·목차 버튼은 이름표지 사실 진술이 아니다(live a4fc1b: 소제목 "4000mAh 45W 충전 성능" 이 제목 값을 지지하는 것처럼 세졌다).
+ */
+export function authoritySentences(finalDocument: string, factcheck: ReadonlyArray<string> = [], exclude: ReadonlyArray<string> = []): string[] {
+  let doc = String(finalDocument || '')
+    .replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<h[1-6]\b[\s\S]*?<\/h[1-6]>/gi, ' ')
+    .replace(/<a\b[^>]*class="[^"]*toc[^"]*"[^>]*>[\s\S]*?<\/a>/gi, ' ');
+  for (const x of exclude) if (x) doc = doc.split(x).join(' ');
+  return [...sentencesOf(doc), ...factcheck.flatMap((f) => sentencesOf(f))];
+}
+
+/** 한 줄(제목·소제목)의 수치·가능/불가 주장을 최종 권위와 대조 */
+export function authorityClaims(line: string, authority: string[]): TitleAuthorityClaim[] {
+  return [...checkNumeric(line, authority), ...checkCategorical(line, authority)];
 }
 
 /**

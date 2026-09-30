@@ -14,6 +14,7 @@ import { alignSummaryToBody, checkFaqConsistency, type FidelityChange, type FaqC
 import { coverCoreQuestions, type CoreQuestion, type CoverageResult } from './core-questions';
 import { criticalStateCoverage, type CriticalState, type CriticalStateCheck } from './critical-state';
 import { checkTitleAuthority, type TitleAuthorityResult } from './title-authority';
+import { checkHeadingAuthority, type HeadingAuthorityResult } from './factual-surface';
 import { parseVisibleArticle } from './visible-article';
 import { annotateHtml, restoreFractionNotation } from './claim-status';
 
@@ -33,6 +34,8 @@ export interface FinalAuthorityReport {
   criticalStates: CriticalStateCheck[];
   /** v3.8.770 — 제목의 수치·가능/불가 주장이 최종 권위와 맞는가(보고). 교체·보류는 발행 판단 시점에 한다 */
   title: TitleAuthorityResult | null;
+  /** v3.8.771 — 사실을 말하는 소제목(h2·h3)의 검사 결과(주장이 없는 소제목은 빠짐) */
+  headings: HeadingAuthorityResult[];
   /** v3.8.763/764 — 근거보다 확정적으로 쓴 문장(rewritten = 술어를 근거 상태로 고침 · flagged = 못 고쳐 그대로) · 분수 표기 복원 */
   status: Array<{ location: string; sentence: string; action: 'rewritten' | 'flagged'; after: string; reason: string; values: Array<{ value: string; status: string; qualifier: string | null; marker: string }> }>;
   fractions: Array<{ from: string; to: string }>;
@@ -145,6 +148,7 @@ export function runFinalAuthority(input: FinalAuthorityInput): { html: string; r
     coreQuestions: coverage,
     criticalStates,
     title: input.title ? checkTitleAuthority(input.title, html, input.factcheck || []) : null,
+    headings: checkHeadingAuthority(html, input.factcheck || []),
     status, fractions: fr.restored,
     changed: html !== String(input.html || ''),
   };

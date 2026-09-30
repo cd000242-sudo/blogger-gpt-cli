@@ -75,6 +75,7 @@ import type { EmptyFinding } from './empty-section-gate';
 import type { ProvenanceEntry } from './content-provenance';
 import { criticalStateCoverage, criticalStateGate } from './critical-state';
 import { resolveTitleAuthority, checkTitleAuthority } from './title-authority';
+import { checkHeadingAuthority, factualSurfaceGate } from './factual-surface';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
 import { suggestNarrowerKeywords, buildNarrowFocusBlock } from '../keyword-narrowing';
@@ -7572,6 +7573,7 @@ ${conclusionHTML}
       trace.event('final-authority.input', { artifact: faInput?.id ?? null, keyword, coreQuestions: coreQuestionsPlan.map((q) => `${q.id}:${q.applicable ? 'on' : 'off'}`), dimensions: decisionDimensions });
       const fa = runFinalAuthority({ html, evidence: validationView().evidence, keyword, coreQuestions: coreQuestionsPlan, dimensions: decisionDimensions, criticalStates: researchPacket.criticalStates || [], title: String(h1 || ''), factcheck: factcheckLedger.map((l) => l.text) });
       if (fa.report.title) trace.event('final-authority.title', { title: fa.report.title.title, pass: fa.report.title.pass, claims: fa.report.title.claims });
+      if (fa.report.headings.length) trace.event('final-authority.headings', { headings: fa.report.headings });
       trace.event('final-authority.fact', fa.report.fact);
       trace.event('final-authority.decision', { changes: fa.report.decision });
       trace.event('final-authority.answer', fa.report.answer);
@@ -7702,8 +7704,15 @@ ${conclusionHTML}
      * 교체는 제목이 굳는 자리(비평 루프 뒤, title.authority.draft)에서만 한다 — 여기서는 제목·HTML 을 바꾸지 않고(Judge 뒤 불변 계약) 모순이면 보류한다.
      */
     const titleAuth = checkTitleAuthority(String(h1 || ''), html, factcheckLedger.map((l) => l.text));
-    const titleGate = { pass: titleAuth.pass, reason: titleAuth.claims.filter((c) => c.verdict === 'CONTRADICTED').map((c) => `${c.claim}: ${c.reason}`).join(' · ') };
-    trace.event('title.final-authority', { title: String(h1 || ''), pass: titleGate.pass, claims: titleAuth.claims });
+    trace.event('title.final-authority', { title: String(h1 || ''), pass: titleAuth.pass, claims: titleAuth.claims });
+    /**
+     * 🧾 v3.8.771 — 사실을 말하는 소제목(h2·h3)도 같은 최종 권위로 검사한다(live a4fc1b 2절 "4000mAh 45W 충전 성능"). 새 소제목을 짓지 않는다.
+     * 제목·소제목의 모순은 보류 하나(FINAL_FACTUAL_SURFACE_PASS)로 묶고, 같은 값은 위치를 모아 한 번만 사유에 쓴다 — 위치별 상세는 캡처에.
+     */
+    const headingAuth = checkHeadingAuthority(html, factcheckLedger.map((l) => l.text));
+    if (headingAuth.length) trace.event('heading.final-authority', { headings: headingAuth });
+    const surfaceGate = factualSurfaceGate(titleAuth, headingAuth);
+    if (!surfaceGate.pass) trace.event('factual-surface.gate', { pass: false, reason: surfaceGate.reason, blockers: surfaceGate.blockers });
     if (criticalFinal.length) trace.event('critical-state.gate', { coverage: criticalFinal, pass: criticalGate.pass, reason: criticalGate.reason });
     /**
      * 🚦 Hard Gates → 발행 결정. 숫자 점수는 참고이고 PASS/FAIL 이 결정한다.
@@ -7723,22 +7732,22 @@ ${conclusionHTML}
       FINAL_JUDGE_PASS: runFinalQa ? !!finalJudge && finalJudge.decision === 'PASS' : true,
       // v3.8.769 — 최종 글(답 상자·본문·표·FAQ)이 현재 상태와 정면으로 반대면 자동 발행하지 않는다. 상태가 없는 글은 늘 true
       CRITICAL_STATE_PASS: criticalGate.pass,
-      // v3.8.770 — 제목이 최종 본문·채택 팩트체크와 정면으로 어긋나면(통과하는 기존 후보도 없으면) 자동 발행하지 않는다
-      TITLE_AUTHORITY_PASS: titleGate.pass,
+      // v3.8.770/771 — 제목·사실 소제목이 최종 본문·채택 팩트체크와 정면으로 어긋나면 자동 발행하지 않는다(보류 하나로 묶음)
+      FINAL_FACTUAL_SURFACE_PASS: surfaceGate.pass,
     };
     hardGatesAllPass = Object.values(hardGates).every(Boolean);
     qualityConverged = runFinalQa
       ? hardGatesAllPass && !!critiqueReport && critiqueReport.converged === true
       : hardGatesAllPass;
     manualReviewReason = qualityConverged ? '' : [
-      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k === 'TITLE_AUTHORITY_PASS' ? `${k}(${titleGate.reason})` : k)),
+      ...Object.entries(hardGates).filter(([, ok]) => !ok).map(([k]) => (k === 'CRITICAL_STATE_PASS' ? `${k}(${criticalGate.reason})` : k === 'FINAL_FACTUAL_SURFACE_PASS' ? `${k}(${surfaceGate.reason})` : k)),
       ...(critiqueReport && !critiqueReport.converged ? [critiqueReport.manualReviewReason] : []),
       ...(finalJudge?.decision === 'BLOCK' ? finalJudge.blockingIssues.slice(0, 2).map((b: any) => `심사: ${b.sectionId} ${b.type}`) : []),
     ].filter(Boolean).join(' · ');
     publishDecision = qualityConverged ? 'AUTO_PUBLISH' : 'MANUAL_REVIEW';
     // v3.8.769 — 현재 상태와 반대로 안내하는 글은 품질 루프와 상관없이 막는다(enforced). 사람이 편집하거나 forcePublish 로 명시하면 예전처럼 지나간다
     // v3.8.770 — 제목 모순도 같은 계약: 품질 루프와 상관없이 보류(PUBLISH_HELD)
-    const publishEnforced = qualityLoopOn || !criticalGate.pass || !titleGate.pass;
+    const publishEnforced = qualityLoopOn || !criticalGate.pass || !surfaceGate.pass;
     /**
      * v3.8.752 (감사 F12) — 상태 이름표를 여섯 개념으로 가른다(quality-status.ts).
      * 4편 실측: 루프 OFF 인데 `FINAL: QUALITY_CONVERGED` 가 찍혔다 — 미실행 관문이 true 라 '수렴' 별칭이 붙은 것.
