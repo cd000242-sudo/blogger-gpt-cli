@@ -3,7 +3,7 @@ const path = require('path');
 
 import { inspectArticleFactIntegrity, type FactEvidence } from '../src/core/final/fact-integrity';
 import { checkClaims, ledgerFromItems } from '../src/core/final/fact-claims';
-import { buildVariantLedger, bodyUnits, judgeVariantValue, sentenceUnit, claimKey } from '../src/core/final/variant-ledger';
+import { buildVariantLedger, bodyUnits, judgeVariantValue, sentenceUnit, claimKey, variantDeletes, variantHolds } from '../src/core/final/variant-ledger';
 import { checkTitleAuthority, authorityContext } from '../src/core/final/title-authority';
 import { checkHeadingAuthority, factualSurfaceGate } from '../src/core/final/factual-surface';
 import { factcheckWithLineage } from '../src/core/final/content-provenance';
@@ -17,7 +17,12 @@ const FX = path.join(__dirname, 'fixtures');
 const A4 = JSON.parse(fs.readFileSync(path.join(FX, 'run-batch2-770', 'run-inputs.json'), 'utf8')).it;
 const F9 = JSON.parse(fs.readFileSync(path.join(FX, 'run-batch3-773', 'f91a10.json'), 'utf8'));
 
-type Src = { id: string; title: string; text: string; html?: string };
+/**
+ * v3.8.774 계약 개정: 모순은 1차 원문(당사자·공적 기관)만 말하고, 사실 필터는 1차 원문이 반박할 때만 지운다.
+ * 서드파티·모호한 근거의 판정은 지우지 않고 본문 관문이 보류한다. 삭제·모순을 보려는 경우 원문에 authority 를 준다.
+ */
+type Src = { id: string; title: string; text: string; html?: string; authority?: string; hasBody?: boolean };
+const OWNER = 'SUBJECT_OWNER_PRIMARY';
 type Prose = { id: string; text: string };
 const plain = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 /** 본문 HTML → 파이프라인의 원고 구조(h2 필드 + h3 content). 사실 필터는 이 구조로 절 범위를 받는다 */
@@ -41,8 +46,13 @@ function run(title: string, bodyHtml: string, sources: Src[], prose: Prose[] = [
 const verdicts = (r: { variant?: Array<{ claim: string; verdict: string }> }) => [...new Set((r.variant || []).map((v) => `${v.claim.replace(/\s+/g, '')}:${v.verdict}`))].sort();
 
 const TITLE = 'Z10 충전 속도';
-const A_PAGE: Src = { id: 'E01', title: 'Z10 사양', text: 'Z10은 약 30분 만에 최대 55% 고속 충전됩니다.' };
-const PLUS_PAGE: Src = { id: 'E02', title: 'Z10+ 사양', text: 'Z10+는 약 30분 만에 최대 69% 고속 충전됩니다.' };
+const A_PAGE: Src = { id: 'E01', title: 'Z10 사양', text: 'Z10은 약 30분 만에 최대 55% 고속 충전됩니다.', authority: OWNER };
+const PLUS_PAGE: Src = { id: 'E02', title: 'Z10+ 사양', text: 'Z10+는 약 30분 만에 최대 69% 고속 충전됩니다.', authority: OWNER };
+/** 판정 목록 → 기대 행동: 필터는 variantDeletes 가 있으면 지우고, 관문은 variantHolds 가 있으면 보류 */
+const contract = (r: { filterOn: { variant?: any[] }; gateOn: { variant?: any[] } }) => ({
+  filterBlocked: (r.filterOn.variant || []).some(variantDeletes),
+  gateFails: (r.gateOn.variant || []).some(variantHolds),
+});
 const BODY_69 = '<p>Z10은 약 30분 만에 최대 69% 고속 충전됩니다.</p>';
 const BODY_55 = '<p>Z10은 약 30분 만에 최대 55% 고속 충전됩니다.</p>';
 
@@ -54,6 +64,11 @@ describe('BODY (T1~T4)', () => {
     expect(r.filterOn.status).toBe('blocked');
     expect(r.gateOn.unsupported).toContain('69%');
     expect(verdicts(r.gateOn)).toEqual(['69%:VARIANT_MISMATCH']);
+    // 같은 반례를 서드파티 원문이 말하면 — 지우지 않고(필터 통과) 본문 관문이 보류(774)
+    const weak = run(TITLE, BODY_69, [{ ...PLUS_PAGE, authority: 'SECONDARY' }]);
+    expect(verdicts(weak.gateOn)).toEqual(['69%:VARIANT_MISMATCH']);
+    expect(weak.filterOn.status).toBe('passed');
+    expect(weak.gateOn.unsupported).toContain('69%');
   });
   test('T2 같은 변형·속성·값 → 지지', () => {
     const r = run(TITLE, BODY_55, [A_PAGE, PLUS_PAGE]);
@@ -73,7 +88,9 @@ describe('BODY (T1~T4)', () => {
     const r = run(TITLE, BODY_69, [series]);
     expect(r.filterOff.status).toBe('passed');
     expect(verdicts(r.gateOn)).toEqual(['69%:UNKNOWN']);
-    expect(r.filterOn.status).toBe('blocked');
+    // 모호한 근거로는 지우지 않는다(774) — 본문 관문이 보류
+    expect(r.filterOn.status).toBe('passed');
+    expect(r.gateOn.unsupported).toContain('69%');
     // 원문이 모델을 전혀 말하지 않으면(범위 없음) 예전 동작 — 값 존재로 지지
     const unscoped = run(TITLE, BODY_69, [{ id: 'E04', title: '고속 충전 비교', text: '약 30분 만에 최대 69% 고속 충전됩니다.' }]);
     expect(unscoped.filterOn.status).toBe('passed');
@@ -82,7 +99,7 @@ describe('BODY (T1~T4)', () => {
 });
 
 describe('LEDGER (T5~T6)', () => {
-  test('T5 사실 필터와 본문 관문은 같은 판정·같은 통과/실패', () => {
+  test('T5 사실 필터와 본문 관문은 같은 판정 — 행동은 판정표대로(필터 = 1차 원문 반박만 삭제, 관문 = 지지 아니면 보류)', () => {
     const series: Src = { id: 'E03', title: 'Z10 | Z10+', text: '약 30분 만에 최대 69% 고속 충전됩니다.' };
     const cases: Array<[string, string, Src[], Prose[]]> = [
       ['T1', BODY_69, [PLUS_PAGE], []], ['T2', BODY_55, [A_PAGE, PLUS_PAGE], []], ['T3', BODY_69, [A_PAGE, PLUS_PAGE], []],
@@ -92,14 +109,18 @@ describe('LEDGER (T5~T6)', () => {
     for (const [name, body, sources, prose] of cases) {
       const r = run(TITLE, body, sources, prose);
       expect({ name, v: verdicts(r.filterOn) }).toEqual({ name, v: verdicts(r.gateOn) });
-      expect({ name, fail: r.filterOn.status === 'blocked' }).toEqual({ name, fail: r.gateOn.unsupported.length > 0 });
+      const c = contract(r);
+      expect({ name, blocked: r.filterOn.status === 'blocked' }).toEqual({ name, blocked: c.filterBlocked });
+      expect({ name, fail: r.gateOn.unsupported.length > 0 }).toEqual({ name, fail: c.gateFails });
+      // 지운 것은 반드시 보류 대상이기도 하다(필터 통과·관문 실패는 있어도, 필터 삭제·관문 지지는 없다)
+      if (c.filterBlocked) expect(c.gateFails).toBe(true);
     }
   });
   test('T6 제목·소제목·본문이 같은 주장 신원(claimKey) — 같은 문서에서 같은 판정', () => {
     const page = '<h1>Z10 | Z10+</h1><p>약 30분 만에 최대 69% 고속 충전*</p><p>* Z10+에만 적용됩니다.</p><table><tr><th>구분</th><th>Z10</th><th>Z10+</th></tr><tr><td>30분 고속 충전</td><td>55%</td><td>69%</td></tr></table>';
     const line = 'Z10 30분 최대 69% 고속 충전';
     expect(checkTitleAuthority(line, page).claims.find((c) => c.claim === '69%')!.verdict).toBe('CONTRADICTED');
-    const ledger = buildVariantLedger({ title: 'Z10 충전', sources: [{ id: 'E01', title: 'Z10 | Z10+', text: plain(page), html: page }] });
+    const ledger = buildVariantLedger({ title: 'Z10 충전', sources: [{ id: 'E01', title: 'Z10 | Z10+', text: plain(page), html: page, authority: OWNER }] });
     expect(judgeVariantValue(ledger, sentenceUnit(ledger, 'Z10은 약 30분 만에 최대 69% 고속 충전됩니다.'), '69%').verdict).toBe('CONTRADICTED');
     // 제목 권위의 권위 단위와 장부 단위가 같은 claimKey 를 낸다
     const ctx = authorityContext(page, [], { pageTitle: 'Z10 | Z10+', claimLines: [line] });
@@ -120,7 +141,7 @@ describe('FACTCHECK (T7~T9)', () => {
   const footnotePage = '<h1>Z10 | Z10+</h1><p>약 30분 만에 최대 69% 고속 충전*</p><p>* Z10+에만 적용됩니다.</p>';
   const FC_69: Prose = { id: 'FACTCHECK1', text: 'Z10은 약 30분 만에 최대 69% 고속 충전됩니다.\n[출처] https://www.example.com/z10/specs/' };
   test('T7 팩트체크가 "Z10 69%" 라고 해도 원문이 "Z10+ 전용" 이면 Z10 지지 금지 — 원문 범위가 LLM 서술보다 우선', () => {
-    const src: Src = { id: 'E01', title: 'Z10 | Z10+', text: plain(footnotePage), html: footnotePage };
+    const src: Src = { id: 'E01', title: 'Z10 | Z10+', text: plain(footnotePage), html: footnotePage, authority: OWNER };
     const r = run(TITLE, BODY_69, [src], [FC_69]);
     expect(r.gateOff.unsupported).toEqual([]); // BEFORE: 팩트체크 문단이 지지
     expect(verdicts(r.gateOn)).toEqual(['69%:VARIANT_MISMATCH']);
@@ -137,10 +158,11 @@ describe('FACTCHECK (T7~T9)', () => {
     const reworded = run(TITLE, '<p>Z10은 30분이면 배터리의 69%까지 채워진다고 합니다.</p>', [], [FC_69]);
     expect(reworded.gateOff.unsupported).toEqual([]);
     expect(verdicts(reworded.gateOn)).toEqual(['69%:UNKNOWN']);
-    expect(reworded.filterOn.status).toBe('blocked');
+    expect(reworded.filterOn.status).toBe('passed');   // 모호 — 지우지 않고
+    expect(reworded.gateOn.unsupported).toContain('69%'); // 보류
   });
   test('충전기 45W ≠ 기기 충전 45W — 같은 모델 원문이라도 충전기 문장은 기기 충전의 근거가 아니다(같은 속성의 25W 와 모순)', () => {
-    const src: Src = { id: 'E01', title: 'Z10 사양', text: '45W 충전기 보유 여부와 Z10의 유선 충전 기준은 구분해서 봐야 합니다. Z10은 25W 유선 충전을 지원합니다.' };
+    const src: Src = { id: 'E01', title: 'Z10 사양', text: '45W 충전기 보유 여부와 Z10의 유선 충전 기준은 구분해서 봐야 합니다. Z10은 25W 유선 충전을 지원합니다.', authority: OWNER };
     const ledger = buildVariantLedger({ title: TITLE, sources: [src] });
     const j = judgeVariantValue(ledger, sentenceUnit(ledger, 'Z10은 45W 유선 충전을 지원합니다.'), '45W');
     expect(j.verdict).toBe('CONTRADICTED');
@@ -149,7 +171,7 @@ describe('FACTCHECK (T7~T9)', () => {
   });
   test('T9 원문 표가 Z10 = 55% 를 확인하면 지지 · 같은 표의 Z10 69% 는 모순', () => {
     const table = '<h1>Z10 | Z10+</h1><table><tr><th>구분</th><th>Z10</th><th>Z10+</th></tr><tr><td>30분 고속 충전</td><td>55%</td><td>69%</td></tr></table>';
-    const src: Src = { id: 'E01', title: 'Z10 | Z10+', text: plain(table), html: table };
+    const src: Src = { id: 'E01', title: 'Z10 | Z10+', text: plain(table), html: table, authority: OWNER };
     expect(verdicts(run(TITLE, BODY_55, [src], [{ id: 'FACTCHECK1', text: 'Z10은 약 30분 만에 최대 55% 충전됩니다.' }]).gateOn)).toEqual(['55%:SUPPORTED']);
     expect(verdicts(run(TITLE, BODY_69, [src]).gateOn)).toEqual(['69%:CONTRADICTED']);
   });
@@ -157,7 +179,7 @@ describe('FACTCHECK (T7~T9)', () => {
 
 describe('CROSS DOMAIN (T10~T12)', () => {
   test('T10 EV 스탠다드 / 롱레인지 — 롱레인지 가격을 스탠다드 값으로 쓰지 않음', () => {
-    const src: Src = { id: 'E01', title: 'EV9 가격표', text: 'EV9 스탠다드 가격은 3,995만 원입니다. EV9 롱레인지 가격은 4,415만 원입니다.' };
+    const src: Src = { id: 'E01', title: 'EV9 가격표', text: 'EV9 스탠다드 가격은 3,995만 원입니다. EV9 롱레인지 가격은 4,415만 원입니다.', authority: OWNER };
     const bad = run('EV9 스탠다드 구매 가이드', '<p>EV9 스탠다드 가격은 4,415만 원입니다.</p>', [src]);
     expect(bad.gateOff.unsupported).toEqual([]);
     expect(verdicts(bad.gateOn)).toEqual(['4,415만원:CONTRADICTED']);
@@ -167,14 +189,14 @@ describe('CROSS DOMAIN (T10~T12)', () => {
     expect(good.filterOn.status).toBe('passed');
   });
   test('T11 적금 일반형 / 우대형', () => {
-    const src: Src = { id: 'E01', title: '청년 적금 안내', text: '일반형 기본 금리는 연 6%입니다. 우대형 기본 금리는 연 12%입니다.' };
+    const src: Src = { id: 'E01', title: '청년 적금 안내', text: '일반형 기본 금리는 연 6%입니다. 우대형 기본 금리는 연 12%입니다.', authority: OWNER };
     const bad = run('청년 적금 일반형 금리', '<p>일반형 기본 금리는 연 12%입니다.</p>', [src]);
     expect(verdicts(bad.gateOn)).toEqual(['12%:CONTRADICTED']);
     expect(bad.filterOn.status).toBe('blocked');
     expect(run('청년 적금 우대형 금리', '<p>우대형 기본 금리는 연 12%입니다.</p>', [src]).filterOn.status).toBe('passed');
   });
   test('T12 Base / Pro / Max', () => {
-    const src: Src = { id: 'E01', title: 'Laptop / Laptop Pro / Laptop Pro Max 가격', text: 'Laptop 가격은 149만 원입니다. Laptop Pro 가격은 199만 원입니다. Laptop Pro Max 가격은 249만 원입니다.' };
+    const src: Src = { id: 'E01', title: 'Laptop / Laptop Pro / Laptop Pro Max 가격', text: 'Laptop 가격은 149만 원입니다. Laptop Pro 가격은 199만 원입니다. Laptop Pro Max 가격은 249만 원입니다.', authority: OWNER };
     const bad = run('Laptop Pro 구매 가이드', '<p>Laptop Pro 가격은 249만 원입니다.</p>', [src]);
     expect(verdicts(bad.gateOn)).toEqual(['249만원:CONTRADICTED']);
     expect(bad.filterOn.status).toBe('blocked');
