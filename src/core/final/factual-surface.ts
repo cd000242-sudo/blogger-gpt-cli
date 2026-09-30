@@ -10,7 +10,7 @@
  *   · 새 소제목을 짓지 않는다. 모순이면 HEADING_CONTRADICTED 로 기록하고 발행 판단에서 보류한다.
  *   · 제목과 소제목이 같은 틀린 값을 가지면 둘 다 기록하되, 보류 사유는 값 하나에 위치를 모아 한 번만 쓴다(FINAL_FACTUAL_SURFACE_PASS 하나).
  */
-import { authorityClaims, authorityContext, type TitleAuthorityClaim, type TitleAuthorityResult } from './title-authority';
+import { authorityClaims, authorityContext, type SpecConflict, type TitleAuthorityClaim, type TitleAuthorityResult } from './title-authority';
 import { scopeFromMentions, variantMentions } from './claim-variant';
 
 export interface HeadingAuthorityResult { heading: string; level: 'h2' | 'h3'; pass: boolean; claims: TitleAuthorityClaim[] }
@@ -46,8 +46,11 @@ export function checkHeadingAuthority(finalDocument: string, factcheck: Readonly
   return out;
 }
 
-/** 제목 + 소제목 모순을 하나의 보류로 — 같은 값은 위치를 모아 한 번만 */
-export function factualSurfaceGate(title: TitleAuthorityResult | null, headings: ReadonlyArray<HeadingAuthorityResult>): SurfaceGate {
+/**
+ * 제목 + 소제목 모순을 하나의 보류로 — 같은 값은 위치를 모아 한 번만.
+ * v3.8.774 — internal: 최종 표면 안의 사양값 내부 모순(checkSpecConsistency). 새 관문이 아니라 같은 사실 표면 관문의 사유로 싣는다.
+ */
+export function factualSurfaceGate(title: TitleAuthorityResult | null, headings: ReadonlyArray<HeadingAuthorityResult>, internal: ReadonlyArray<SpecConflict> = []): SurfaceGate {
   const byClaim = new Map<string, SurfaceBlocker>();
   const add = (claim: TitleAuthorityClaim, location: string) => {
     const key = claim.claim.replace(/\s+/g, '').replace(/,/g, '');
@@ -57,6 +60,6 @@ export function factualSurfaceGate(title: TitleAuthorityResult | null, headings:
   };
   for (const c of title?.claims || []) if (c.verdict === 'CONTRADICTED') add(c, '제목');
   for (const h of headings) for (const c of h.claims) if (c.verdict === 'CONTRADICTED') add(c, `소제목 "${h.heading}"`);
-  const blockers = [...byClaim.values()];
+  const blockers = [...byClaim.values(), ...internal.map((c) => ({ claim: c.values.join('↔'), locations: ['본문·표·답 상자 내부'], reason: `같은 모델(${c.variant})·같은 속성의 사양값이 서로 다름` }))];
   return { pass: blockers.length === 0, reason: blockers.map((b) => `${b.claim}(${b.locations.join('·')})`).join(' · '), blockers };
 }

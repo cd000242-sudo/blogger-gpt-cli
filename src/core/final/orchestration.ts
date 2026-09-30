@@ -74,7 +74,7 @@ import type { FidelityChange, FaqConsistencyNote } from './answer-fidelity';
 import type { EmptyFinding } from './empty-section-gate';
 import type { ProvenanceEntry } from './content-provenance';
 import { criticalStateCoverage, criticalStateGate } from './critical-state';
-import { resolveTitleAuthority, checkTitleAuthority } from './title-authority';
+import { resolveTitleAuthority, checkTitleAuthority, checkSpecConsistency } from './title-authority';
 import { checkHeadingAuthority, factualSurfaceGate } from './factual-surface';
 import { buildAudienceBlock } from './audience-block';
 import { dropValuelessSections } from './value-promise';
@@ -1751,6 +1751,8 @@ export async function generateUltimateMaxModeArticleFinal(
     /** 제목·본문의 값을 대조할 장부(근거 항목 + 패킷). 제목 사실 관문·비평·최종 심사가 같은 장부를 본다 */
     /** v3.8.770 — 채택된 팩트체크 문단(주소·원문·주제 범위 통과). 사실 필터 문맥과 같은 문단 — 팩트체크가 돌기 전에는 비어 있다 */
     let factcheckLedger: Array<{ id: string; text: string }> = [];
+    /** v3.8.774 — 팩트체크 검색 결과의 원문 조각(주소·글자). 모델 장부에서 원문 근거(FCSRC)로 — 요약 문단(FACTCHECK)은 여전히 LLM 서술 */
+    let factSourceSpans: Array<{ url: string; title: string; text: string }> = [];
     const claimLedger = (): Array<{ id: string; text: string }> => require('./fact-claims').ledgerFromItems([
       ...evidenceItems.map((i: any) => ({ id: i.id, text: `${i.title} ${i.cleanedText}` })),
       { id: 'PACKET', text: researchPacketText },
@@ -1763,10 +1765,18 @@ export async function generateUltimateMaxModeArticleFinal(
      */
     const variantLedger = (): VariantLedger | null => {
       try {
+        // v3.8.774 — 원문의 권위(당사자 1차·공적 기관·서드파티)·본문 확인 여부를 그대로 싣는다. 팩트체크 원문 조각은 근거 단계와 같은 규칙으로 권위를 매긴다
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { classifySourceAuthority } = require('./source-authority');
+        const spanAuthority = (s: { url: string; title: string; text: string }): string => (evidenceMod.classifySource(s.url, 'factcheck').isOfficial ? 'PUBLIC_AUTHORITY_OFFICIAL'
+          : classifySourceAuthority({ url: s.url, tag: 'factcheck', title: s.title, text: s.text, mainKeyword: keyword, distinctive: evidenceMod.distinctiveTokens(keyword) }).authority);
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         return require('./variant-ledger').buildVariantLedger({
           title: String(h1 || ''),
-          sources: evidenceItems.map((i) => ({ id: String(i.id), title: String(i.title || ''), text: String(i.cleanedText || '') })),
+          sources: [
+            ...evidenceItems.map((i) => ({ id: String(i.id), title: String(i.title || ''), text: String(i.cleanedText || ''), authority: i.authority || (i.isOfficial ? 'PUBLIC_AUTHORITY_OFFICIAL' : undefined), hasBody: i.hasBody })),
+            ...factSourceSpans.map((s, k) => ({ id: `FCSRC${k + 1}`, title: s.title, text: s.text, authority: spanAuthority(s), hasBody: true })),
+          ],
           prose: [{ id: 'PACKET', text: researchPacketText }, ...factcheckLedger.map((l) => ({ id: l.id, text: l.text }))],
         });
       } catch { return null; }
@@ -3014,6 +3024,9 @@ ${quoted}
           sourceUrls: factResult.sourceUrls || [],
           topic: keyword,
         };
+        // v3.8.774 — 검색 결과 원문 조각(LLM 요약이 아닌 출처 글자). 범위 검증에서 요약을 버렸으면 조각도 버린다
+        factSourceSpans = factResult.success && factResult.context ? (factResult.sourceSpans || []) : [];
+        if (factSourceSpans.length) trace.event('factcheck.source-spans', { count: factSourceSpans.length, urls: factSourceSpans.map((s) => s.url).slice(0, 10) });
         if (factResult.success && factResult.context) {
           onLog?.(`[PROGRESS] 47% - ✅ 팩트체크 완료 (${factResult.provider}, ${factResult.context.length}자)`);
 
@@ -7745,7 +7758,13 @@ ${conclusionHTML}
      */
     const headingAuth = checkHeadingAuthority(html, factcheckLedger.map((l) => l.text), String(h1 || ''));
     if (headingAuth.length) trace.event('heading.final-authority', { headings: headingAuth });
-    const surfaceGate = factualSurfaceGate(titleAuth, headingAuth);
+    /**
+     * 🧾 v3.8.774 — 답 상자·본문·표·FAQ 안의 사양값 내부 모순(같은 모델·같은 속성, 다른 값). 제목·소제목과 같은 추출기·claimKey.
+     * 새 관문이 아니라 같은 사실 표면 관문의 사유로 싣는다.
+     */
+    const specInternal = checkSpecConsistency(html, String(h1 || ''));
+    if (specInternal.length) trace.event('spec.internal-consistency', { conflicts: specInternal });
+    const surfaceGate = factualSurfaceGate(titleAuth, headingAuth, specInternal);
     if (!surfaceGate.pass) trace.event('factual-surface.gate', { pass: false, reason: surfaceGate.reason, blockers: surfaceGate.blockers });
     if (criticalFinal.length) trace.event('critical-state.gate', { coverage: criticalFinal, pass: criticalGate.pass, reason: criticalGate.reason });
     /**

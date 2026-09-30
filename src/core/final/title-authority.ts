@@ -15,19 +15,22 @@
 import { isLexicalValue } from './value-boundary';
 import { propertyRelation } from './claim-property';
 import { anchorsFrom, labelsOf, scopeHtml, scopePlain, scopeFromMentions, variantRelation, variantMentions, NO_SCOPE, type Anchors, type ScopedUnit, type VariantScope } from './claim-variant';
-import { claimKey } from './variant-ledger';
+import { claimKey, propertyContradicts } from './variant-ledger';
+import { SPEC_UNIT_SOURCE, isSpecUnit, unitClass, unitKey } from './spec-units';
 
 export type TitleClaimVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'UNCHECKED';
 /** variant — 주장 값이 묶인 모델·트림(v3.8.772). variantExcluded — 같은 값이지만 다른·모호한 변형이라 지지로 세지 않은 권위 문장 */
 export interface TitleAuthorityClaim { claim: string; kind: 'numeric' | 'categorical'; verdict: TitleClaimVerdict; reason: string; evidence: string[]; variant?: string; variantExcluded?: string[] }
 export interface TitleAuthorityResult { title: string; pass: boolean; claims: TitleAuthorityClaim[] }
 
-const QUANTITY = /(\d[\d,]*(?:\.\d+)?)\s*(mAh|kWh|kW|W|km|㎞|인치|GB|TB|mm|kg|%|퍼센트|만\s*원|억\s*원|원|개월|시간|분)(?![A-Za-z])/g;
+/** v3.8.774 — 사양 단위는 공용 목록(spec-units)에서 — 본문 필터·본문 관문·내부 대조와 같은 목록 */
+const QUANTITY = new RegExp(`(\\d[\\d,]*(?:\\.\\d+)?)\\s*(${SPEC_UNIT_SOURCE}|인치|GB|TB|mm|kg|%|퍼센트|만\\s*원|억\\s*원|원|개월|시간|분)(?![A-Za-z])`, 'g');
 /**
  * 단위만으로 속성이 정해지는 단위(mAh = 용량 · 인치 = 화면 · GB/TB = 저장 …). 곁 낱말이 없어도(UNKNOWN) 같은 속성으로 본다.
  * v3.8.771 — W·kW·km·kWh 는 뺐다: 충전기 출력 vs 기기 입력 · 충전기 350kW vs 차량 수용 180kW 처럼 같은 단위가 여러 속성을 뜻한다(live a4fc1b 45W).
+ * v3.8.774 — 목록은 spec-units(unitClass PROPERTY) 한 곳.
  */
-const UNIT_NAMES_PROPERTY = /^(?:mAh|인치|GB|TB|mm|kg)$/;
+const UNIT_NAMES_PROPERTY = { test: (u: string) => unitClass(u) === 'PROPERTY' };
 const REJECT = /아니라|아닌|아닙니다|알려진|섞여|섞인|혼동|혼재|다른\s*(?:지역|모델|제품|기종)|오래된|근거로[^.]{0,30}(?:않|말)|틀린|잘못|맞지\s*않/;
 /** 같은 문장에 같은 단위의 다른 값이 함께 있을 때의 대조 표지 — "4000mAh보다 4300mAh를 기준으로" · "45W 충전기가 있더라도 기준은 25W" */
 const CONTRAST = /보다|더라도|대신|구분|기준은|기준으로|않|없|아니/;
@@ -38,7 +41,6 @@ const NEG_TEXT = /불가|불가능|할\s*수\s*없|허용되지\s*않|허용하�
 const POS_TEXT = /가능|할\s*수\s*있|지원합니다|지원한다|지원해요|지원하|허용/;
 const GENERIC = new Set(['및', '또는', '그리고', '정리', '총정리', '방법', '기준', '안내', '확인', '비교', '가격', '여부']);
 
-const unitKey = (u: string) => u.replace(/\s+/g, '').replace('퍼센트', '%').replace('㎞', 'km');
 const numKey = (n: string) => Number(String(n).replace(/,/g, ''));
 const sentencesOf = (text: string) => String(text || '')
   .replace(/<\/(?:td|th)\s*>/gi, ' | ')
@@ -176,6 +178,42 @@ export function authorityClaims(line: string, authority: ReadonlyArray<string | 
  * 모순이면 이미 만든 후보(제목 사실 관문 기록 등) 중 통과하는 첫 제목으로 바꾼다. 없으면 그대로 두고 pass=false(보류).
  * 새 제목을 짓지 않는다.
  */
+export interface SpecConflict { variant: string; unit: string; values: string[]; evidence: string[] }
+/**
+ * 🧾 v3.8.774 — 최종 표면(답 상자·본문·표·FAQ) **안에서** 같은 모델·같은 속성의 사양값(mAh·W·kW·Wh·kWh·km)이 서로 다르면 내부 모순.
+ * 예: 본문 "S26 25W 고속 유선 충전" ↔ 표 "유선 충전 | 45W". 새 추출기를 만들지 않는다 — 제목 권위와 같은 수치 추출·claimKey·거부/대조/질문 표지.
+ *   · 거부 문맥("4000mAh가 아니라")·대조("X보다 Y")·질문 문장의 값은 주장이 아니다.
+ *   · 모델이 붙은 값만(주장에 변형이 없으면 대조하지 않음). 한정어가 서로 다르면(표준 ↔ 정격 · 복합 ↔ 고속도로) 다른 주장이다.
+ */
+export function checkSpecConsistency(finalDocument: string, title: string): SpecConflict[] {
+  const t = String(title || '').trim();
+  const ctx = authorityContext(finalDocument, [], { pageTitle: t, claimLines: [t], exclude: [t] });
+  const occ: Array<{ num: number; unit: string; raw: string; s: string; variant: VariantScope; prop: string[] }> = [];
+  for (const u of ctx.units) {
+    if (QUESTION.test(u.s)) continue;
+    const qs = quantities(u.s);
+    for (const q of qs.filter((x) => isSpecUnit(x.unit))) {
+      const tail = u.s.slice(q.index);
+      const cue = tail.search(REJECT);
+      const rejected = cue >= 0 && !qs.some((o) => o.unit === q.unit && o.num !== q.num && o.index > q.index && o.index < q.index + cue);
+      const contrasted = qs.some((o) => o.unit === q.unit && o.num !== q.num) && CONTRAST.test(tail);
+      if (rejected || contrasted) continue;
+      const k = claimKey(u, q.index, q.raw.length);
+      if (k.variant.keys.length) occ.push({ num: q.num, unit: q.unit, raw: q.raw.replace(/\s+/g, ''), s: u.s, variant: k.variant, prop: k.property });
+    }
+  }
+  const out = new Map<string, SpecConflict>();
+  occ.forEach((a, i) => occ.slice(i + 1).forEach((b) => {
+    if (a.unit !== b.unit || a.num === b.num || variantRelation(a.variant, b.variant) !== 'SAME' || variantRelation(b.variant, a.variant) !== 'SAME') return;
+    // 글 안의 두 진술끼리는 단위가 속성을 정한다고 보지 않는다 — 속성 창이 둘 다 있고 겹쳐야(SAME) 같은 주장("4300mAh는 표준 용량이고 4175mAh는 정격 용량")
+    if (propertyRelation(a.prop, b.prop) !== 'SAME' || !propertyContradicts('CONTEXT', a.prop, b.prop)) return;
+    const key = `${a.variant.label}|${a.unit}`;
+    const c = out.get(key) || { variant: a.variant.label, unit: a.unit, values: [], evidence: [] };
+    out.set(key, { ...c, values: [...new Set([...c.values, a.raw, b.raw])], evidence: [...new Set([...c.evidence, a.s.slice(0, 140), b.s.slice(0, 140)])].slice(0, 4) });
+  }));
+  return [...out.values()];
+}
+
 export function resolveTitleAuthority(title: string, candidates: ReadonlyArray<string>, finalDocument: string, factcheck: ReadonlyArray<string> = []): { title: string; replaced: boolean; result: TitleAuthorityResult; tried: TitleAuthorityResult[] } {
   const result = checkTitleAuthority(title, finalDocument, factcheck);
   if (result.pass) return { title: result.title, replaced: false, result, tried: [] };

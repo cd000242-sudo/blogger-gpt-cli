@@ -30,6 +30,19 @@ export interface FactCheckResult {
   success: boolean;
   trustLevel: FactTrustLevel;
   sourceUrls?: string[];
+  /**
+   * v3.8.774 — 검색 결과 원문 조각(search_results 의 snippet). LLM 요약(context)이 아니라 **출처 페이지의 글자**라
+   * 모델·트림 장부에서 원문 근거로 쓸 수 있다(주소·조각·값·범위가 맞을 때만). 새 호출 없음 — 같은 응답에 이미 오는 필드.
+   */
+  sourceSpans?: Array<{ url: string; title: string; text: string }>;
+}
+
+/** 검색 결과에서 원문 조각 — 주소와 글자가 둘 다 있는 것만 */
+function spansOf(results: unknown): Array<{ url: string; title: string; text: string }> {
+  if (!Array.isArray(results)) return [];
+  return results
+    .map((r: { url?: unknown; title?: unknown; snippet?: unknown; content?: unknown } | null) => ({ url: String(r?.url || ''), title: String(r?.title || ''), text: String(r?.snippet || r?.content || '') }))
+    .filter((s) => /^https?:\/\//i.test(s.url) && s.text.trim().length >= 20);
 }
 
 /**
@@ -184,6 +197,7 @@ export async function fetchFactContext(
             success: true,
             trustLevel: result.sourceUrls.length > 0 ? 'strong' : 'weak',
             sourceUrls: result.sourceUrls,
+            ...(result.sourceSpans?.length ? { sourceSpans: result.sourceSpans } : {}),
           };
         }
         if (result?.context) {
@@ -357,7 +371,7 @@ export function buildLatestNaverFactQuery(keyword: string, now: Date = new Date(
   return `${compact} ${freshnessTerms}`.trim();
 }
 
-async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise<{ context: string; sourceUrls: string[] } | null> {
+async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise<{ context: string; sourceUrls: string[]; sourceSpans?: Array<{ url: string; title: string; text: string }> } | null> {
   const MODELS = ['sonar-pro', 'sonar'];
   let lastError: any = null;
 
@@ -395,7 +409,8 @@ async function callPerplexityFactCheck(apiKey: string, keyword: string): Promise
         const sourceBlock = sourceUrls.length > 0
           ? `\n\n[Verified source URLs]\n${sourceUrls.map((url) => `- ${url}`).join('\n')}`
           : '';
-        return { context: `${content}${sourceBlock}`, sourceUrls };
+        const sourceSpans = spansOf(data.search_results);
+        return { context: `${content}${sourceBlock}`, sourceUrls, ...(sourceSpans.length ? { sourceSpans } : {}) };
       }
     } catch (e: any) {
       lastError = e;

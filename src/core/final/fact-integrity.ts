@@ -3,7 +3,8 @@ import { resolveDerivedDifferences, resolveHypotheticalValues, type DerivedCheck
 import { resolveEvidenceArithmetic } from './derived-arithmetic';
 import { isLexicalValue, lexicalMatches } from './value-boundary';
 import { extractRanges, rangesOf, sameRange, isRangeBound, boundTokens } from './range-value';
-import { judgeVariantValue, sentenceUnit, sectionScope, variantFails, type VariantJudgement, type VariantLedger } from './variant-ledger';
+import { judgeVariantValue, sentenceUnit, sectionScope, variantDeletes, variantSkips, type VariantJudgement, type VariantLedger } from './variant-ledger';
+import { isSpecDifference, specValues } from './spec-units';
 import type { VariantScope } from './claim-variant';
 
 export type FactTrustLevel = 'strong' | 'weak' | 'none';
@@ -349,6 +350,13 @@ function isSupportedToken(value: string, evidence: FactEvidence, evidenceIsStron
   return evidenceIsStrong || contextText.length >= SUBSTANTIAL_CONTEXT_MIN_LENGTH;
 }
 
+/** v3.8.774 — 근거 문맥의 사양값(한 문맥당 한 번 계산) — 장부 원문에 없는 사양값이 문맥 어딘가에 글자로 있는지(값 존재 판정) */
+let specCache: { context: string; values: Set<string> } = { context: '', values: new Set() };
+function contextSpecValues(context: string): Set<string> {
+  if (specCache.context !== context) specCache = { context, values: new Set(specValues(toPlainText(context)).map((v) => v.value)) };
+  return specCache.values;
+}
+
 function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: DerivedCheck[], variantOut?: VariantJudgement[]): FactIntegrityViolation[] {
   const violations: FactIntegrityViolation[] = [];
   const exactValues = extractExactValues(sentence);
@@ -372,6 +380,8 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
 
   if (valuesToVerify.length > 0) {
     let unsupported = valuesToVerify.filter((value) => !supportedBounds.has(normalize(value)) && !isSupportedToken(value, evidence, evidenceIsStrong));
+    // v3.8.774 — 근거 글자로 직접 지지된 값만 모델 판정 대상(파생 검산·가정 값은 이미 다른 규칙이 지지했다 — 3694만 원 = 4415 − 721 이 다시 판정되던 문제)
+    const directlySupported = valuesToVerify.filter((v) => !unsupported.includes(v));
     // v3.8.757 — 직접 근거가 없는 값이라도 같은 블록의 표로 검산되는 단순 차액이면 지원된 것으로 본다(검산 기록은 derived 로 남긴다)
     if (unsupported.length > 0 && evidence.blockHtml) {
       const { resolved, checks } = resolveDerivedDifferences(sentence, unsupported, evidence.blockHtml, evidence.context || '', (t) => isSupportedToken(t, evidence, evidenceIsStrong));
@@ -396,11 +406,12 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
      */
     if (evidence.variant) {
       const unit = sentenceUnit(evidence.variant.ledger, sentence, evidence.variant.scope);
-      for (const value of valuesToVerify.filter((v) => !unsupported.includes(v))) {
+      for (const value of directlySupported.filter((v) => !unsupported.includes(v))) {
         const j = judgeVariantValue(evidence.variant.ledger, unit, value);
-        if (j.verdict === 'NOT_APPLICABLE') continue;
+        if (variantSkips(j)) continue;
         variantOut?.push(j);
-        if (variantFails(j)) unsupported = [...unsupported, value];
+        // 지우는 것은 1차 원문이 반박할 때만 — 서드파티·모호한 근거면 남기고 본문 관문이 보류한다(variantHolds)
+        if (variantDeletes(j)) unsupported = [...unsupported, value];
       }
     }
     if (unsupported.length > 0) {
@@ -410,6 +421,23 @@ function inspectSentence(sentence: string, evidence: FactEvidence, derivedOut?: 
         detail: `근거 장부에서 확인되지 않은 정확한 값: ${unsupported.join(', ')}`,
       });
     }
+  }
+
+  /**
+   * v3.8.774 — 사양값(mAh·W·kW·Wh·kWh·km)도 모델·트림이 붙은 문장이면 제목·소제목과 같은 추출기·같은 장부·같은 판정으로 본다.
+   * 실측(a4fc1b E06): 블로그의 "S26 4000mAh · 45W" 는 제목에선 막혀도 본문에선 아무도 읽지 않았다.
+   * 모델 축이 없는 글(전기요금 등)은 예전과 같다 — 사양값을 새로 읽지 않는다(삭제가 늘지 않게). UNRESOLVED 는 지우지 않는다(본문 관문이 보류).
+   */
+  if (evidence.variant) {
+    const unit = sentenceUnit(evidence.variant.ledger, sentence, evidence.variant.scope);
+    const bad: string[] = [];
+    for (const sv of specValues(sentence)) {
+      const j = judgeVariantValue(evidence.variant.ledger, unit, sv.raw);
+      if (j.verdict === 'NOT_APPLICABLE') continue;
+      variantOut?.push(j);
+      if (j.verdict === 'NOT_FOUND' ? !contextSpecValues(evidence.context || '').has(sv.value) && !isSpecDifference(sentence, sv) : variantDeletes(j)) bad.push(sv.value);
+    }
+    if (bad.length) violations.push({ kind: 'unsupported_exact_value', sentence, detail: `근거 장부에서 같은 모델·속성으로 확인되지 않은 사양값: ${[...new Set(bad)].join(', ')}` });
   }
 
   if (institutions.length > 0 && (sensitive || exactValues.length > 0)) {

@@ -15,11 +15,20 @@
  */
 import { propertyWindow, propertyWords, propertyRelation } from './claim-property';
 import { anchorsFrom, scopeHtml, scopePlain, scopeFromMentions, valueScope, variantMentions, variantRelation, type Anchors, type ScopedUnit, type VariantScope } from './claim-variant';
+import { unitClass, type UnitClass } from './spec-units';
 
 export interface ClaimKey { variant: VariantScope; property: string[] }
-export type VariantVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'VARIANT_MISMATCH' | 'UNKNOWN' | 'NOT_APPLICABLE';
-export interface VariantJudgement { claim: string; sentence: string; variant: string; verdict: VariantVerdict; sourceIds: string[]; reason: string }
-export interface VariantLedger { anchors: Anchors; docScope: VariantScope; sources: Array<{ id: string; kind: 'SOURCE' | 'PROSE'; scope: VariantScope; units: ScopedUnit[] }> }
+/**
+ * v3.8.774 — PROPERTY_MISMATCH(같은 숫자가 다른 속성에만: 충전기 45W ↔ 기기 45W) · UNRESOLVED(서드파티만 말하고 당사자 1차 후보는 원문 없음 — 지우지 않되 자동 발행 근거 아님)
+ * · NOT_FOUND(장부 원문에 값 없음 — 호출부가 값 존재로 판정)
+ */
+export type VariantVerdict = 'SUPPORTED' | 'CONTRADICTED' | 'VARIANT_MISMATCH' | 'PROPERTY_MISMATCH' | 'UNKNOWN' | 'UNRESOLVED' | 'NOT_FOUND' | 'NOT_APPLICABLE';
+/** authority — 판정을 정한 원문의 권위(PRIMARY = 당사자 1차·공적 기관 · SECONDARY = 서드파티) */
+export interface VariantJudgement { claim: string; sentence: string; variant: string; verdict: VariantVerdict; sourceIds: string[]; reason: string; authority?: 'PRIMARY' | 'SECONDARY' }
+export type SourceKind = 'SOURCE' | 'PROSE';
+export interface LedgerSource { id: string; kind: SourceKind; scope: VariantScope; units: ScopedUnit[]; authority?: string | undefined; hasBody?: boolean | undefined }
+export interface VariantLedger { anchors: Anchors; docScope: VariantScope; sources: LedgerSource[] }
+const PRIMARY = new Set(['SUBJECT_OWNER_PRIMARY', 'PUBLIC_AUTHORITY_OFFICIAL']);
 
 /**
  * 값 하나의 주장 신원 — 변형(같은 절 → 각주 → 열 → 행 → 소제목 → 문서)과 속성 창.
@@ -57,15 +66,17 @@ export function findValue(text: string, value: string): Array<{ index: number; l
  * 검증 장부 — 원문(E번호, 페이지 제목이 문서 범위) + LLM 서술(팩트체크 문단·패킷, 모델 권위 없음).
  * title 은 글 제목(모델 이름의 닻), headings 는 글 소제목.
  */
-export function buildVariantLedger(input: { title: string; headings?: ReadonlyArray<string>; sources: ReadonlyArray<{ id: string; title?: string; text: string; html?: string }>; prose?: ReadonlyArray<{ id: string; text: string }> }): VariantLedger {
-  const anchors = anchorsFrom([input.title, ...(input.headings || [])], input.sources.map((s) => s.title || '').filter(Boolean));
+export function buildVariantLedger(input: { title: string; headings?: ReadonlyArray<string>; sources: ReadonlyArray<{ id: string; title?: string; text: string; html?: string; authority?: string | undefined; hasBody?: boolean | undefined }>; prose?: ReadonlyArray<{ id: string; text: string }> }): VariantLedger {
+  // v3.8.774 — 원문의 페이지 제목에 있는 코드는 그 페이지가 다루는 모델 이름이다("Y30 사양") — 주장 줄처럼 닻으로 쓴다
+  const anchors = anchorsFrom([input.title, ...(input.headings || []), ...input.sources.map((s) => s.title || '').filter(Boolean)]);
   const docScope = scopeFromMentions(variantMentions(input.title, anchors), input.title, 'document');
   // html — 표·각주 관계를 이미 가진 원문만(있는 관계만 쓴다). 수집 원문은 평문(cleanedText)이라 문장·각주 표지·페이지 제목까지만 본다
   const unitsOf = (s: { title?: string; text: string; html?: string }) => (s.html ? scopeHtml(s.html, { pageTitle: s.title || '', anchors }) : scopePlain(s.text, { pageTitle: s.title || '', anchors }));
   return {
     anchors, docScope,
     sources: [
-      ...input.sources.map((s) => { const units = unitsOf(s); return { id: s.id, kind: 'SOURCE' as const, scope: units[0]?.scope || docScope, units }; }),
+      // authority·hasBody — 기존 근거 판정(source-authority · 본문 확인 여부)을 그대로 싣는다
+      ...input.sources.map((s) => { const units = unitsOf(s); return { id: s.id, kind: 'SOURCE' as const, scope: units[0]?.scope || docScope, units, authority: s.authority, hasBody: s.hasBody }; }),
       ...(input.prose || []).map((p) => ({ id: p.id, kind: 'PROSE' as const, scope: { keys: [], via: 'prose' as const, label: 'LLM 서술' }, units: scopePlain(p.text, { anchors, prose: true }) })),
     ],
   };
@@ -82,7 +93,8 @@ export function sectionScope(ledger: VariantLedger, ...headings: ReadonlyArray<s
 }
 /** 최종 HTML → 범위 붙은 본문 단위(본문 관문용) */
 export function bodyUnits(ledger: VariantLedger, html: string, title: string): ScopedUnit[] {
-  return scopeHtml(String(html || '').replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' '), { pageTitle: title, anchors: ledger.anchors, exclude: [title] });
+  // 제목 글자를 본문 문장에서 걷지 않는다(v3.8.774) — "EV9 스탠다드 주행거리는 501km" 처럼 제목을 품은 문장의 모델·속성 낱말이 지워졌다. 제목 줄(h1)은 원래 단위가 아니다
+  return scopeHtml(String(html || '').replace(/<script\b[\s\S]*?<\/script>|<style\b[\s\S]*?<\/style>/gi, ' '), { pageTitle: title, anchors: ledger.anchors });
 }
 
 /** 같은 단위의 다른 값들(모순 후보) */
@@ -99,47 +111,99 @@ function otherValues(s: string, value: string): Array<{ index: number; length: n
   return out;
 }
 
-/** 본문 한 단위 안의 값 하나를 장부와 대조 */
+/** 양쪽 모두 상대에게 없는 한정 낱말을 가지면(복합 ↔ 고속도로 · 표준 ↔ 정격) 같은 주장이라 단정하지 않는다 */
+export function qualifierConflict(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  return a.some((w) => !b.includes(w)) && b.some((w) => !a.includes(w));
+}
+/**
+ * 같은 값 발생이 이 주장의 근거로 맞는가 — FIT(맞음) · UNCERTAIN(창은 겹치지만 양쪽에 서로 없는 한정어: "도심 주행거리 501km" ↔ "복합 인증 주행거리 501km") · OTHER(다른 항목).
+ * PROPERTY 단위(mAh …)는 단위가 속성이라 FIT. LEGACY 는 예전처럼 창이 다를 때만 OTHER. CONTEXT(W·km …)만 한정어를 본다.
+ */
+export function propertyFit(cls: UnitClass, a: ReadonlyArray<string>, b: ReadonlyArray<string>): 'FIT' | 'UNCERTAIN' | 'OTHER' {
+  if (cls === 'PROPERTY') return 'FIT';
+  if (propertyRelation([...a], [...b]) === 'DIFFERENT') return 'OTHER';
+  return cls === 'CONTEXT' && qualifierConflict(a, b) ? 'UNCERTAIN' : 'FIT';
+}
+/** 모순을 말할 수 있는 같은 속성 — PROPERTY 는 한정어 충돌만 없으면, 그 밖은 창이 같고 한정어 충돌이 없을 때 */
+export function propertyContradicts(cls: UnitClass, a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  if (qualifierConflict(a, b)) return false;
+  return cls === 'PROPERTY' || propertyRelation([...a], [...b]) === 'SAME';
+}
+
+interface Hit { id: string; rel: string; primary: boolean }
+/** 장부의 같은 값 발생(변형 관계로 분류)과 같은 변형·같은 속성의 다른 값(모순 후보) */
+function collect(ledger: VariantLedger, claim: ClaimKey, value: string, cls: UnitClass): { hits: Hit[]; contra: Array<{ id: string; raw: string; primary: boolean }> } {
+  const hits: Hit[] = [];
+  const contra: Array<{ id: string; raw: string; primary: boolean }> = [];
+  for (const src of ledger.sources) {
+    const primary = PRIMARY.has(String(src.authority || ''));
+    for (const u of src.units) {
+      for (const f of findValue(u.s, value)) {
+        // LLM 서술은 모델이 붙은 주장을 지지하지 못한다 — 속성과 관계없이 모호(어미 차이로 "장부에 없음" 으로 새지 않게)
+        if (src.kind === 'PROSE') { hits.push({ id: src.id, rel: 'AMBIGUOUS', primary: false }); continue; }
+        const k = claimKey(u, f.index, f.length);
+        const rel = variantRelation(claim.variant, k.variant);
+        const fit = rel === 'SAME' || rel === 'UNKNOWN' ? propertyFit(cls, claim.property, k.property) : 'FIT';
+        hits.push({ id: src.id, rel: fit === 'OTHER' ? `${rel}_OTHER_PROP` : fit === 'UNCERTAIN' ? 'QUALIFIER' : rel, primary });
+      }
+      if (src.kind !== 'SOURCE') continue;
+      for (const o of otherValues(u.s, value)) {
+        const k = claimKey(u, o.index, o.length);
+        if (variantRelation(claim.variant, k.variant) === 'SAME' && propertyContradicts(cls, claim.property, k.property)) contra.push({ id: src.id, raw: o.raw.replace(/\s+/g, ''), primary });
+      }
+    }
+  }
+  return { hits, contra };
+}
+
+/**
+ * 본문 한 단위 안의 값 하나를 장부와 대조.
+ * 순서: 1차(당사자·공적 기관) 원문 지지 → 1차 원문 모순(서드파티 지지보다 우선, LOWER_AUTHORITY) → 서드파티 지지(사양값인데 당사자 후보가 원문 없이만 있으면 UNRESOLVED)
+ *       → 범위 없는 원문의 값(예전 동작) → 한정어가 다른 같은 값(UNRESOLVED) → 다른 속성의 같은 숫자(사양값은 PROPERTY_MISMATCH, 그 밖은 예전 동작)
+ *       → 다른 변형 → 모호 → 없음.
+ * 모순은 **1차 원문만** 말할 수 있다(§3 authoritative). 서드파티끼리 다른 값은 모순이 아니다 — 실측(BATCH 1 자동차): 블로그·뉴스 수십 건의
+ * "가격·보조금" 창이 겹쳐 맞는 721만 원이 모순으로 지워질 뻔했다(773 회귀).
+ */
 export function judgeVariantValue(ledger: VariantLedger, unit: ScopedUnit, value: string): VariantJudgement {
   const base = { claim: value, sentence: unit.s.slice(0, 160) };
   const at = findValue(unit.s, value)[0];
   if (!at) return { ...base, variant: '', verdict: 'NOT_APPLICABLE', sourceIds: [], reason: '문장에서 값 자리를 못 찾음' };
   const claim = claimKey(unit, at.index, at.length);
   if (!claim.variant.keys.length) return { ...base, variant: '', verdict: 'NOT_APPLICABLE', sourceIds: [], reason: '주장에 모델·트림 범위 없음 — 값 존재로 판정(예전 동작)' };
-  const variant = claim.variant.label;
-  /**
-   * 발생 분류 — 속성 창은 **같은 변형 안에서** 지지·모순을 가를 때만 쓴다. 다른 변형·모호한 문맥의 발생은 속성과 관계없이 그대로 센다
-   * (속성 창은 어미 차이 "충전된다고 ↔ 충전" 로도 갈려, 걸러 버리면 S26+ 의 69% 가 "장부에 없음 → 값 존재 지지" 로 샌다).
-   * 같은 변형·다른 속성(SAME_OTHER_PROP)과 범위 없는 원문(UNKNOWN)만 예전 동작으로 넘긴다 — 동의어 차이로 멀쩡한 문장을 지우지 않게.
-   */
-  const hits: Array<{ id: string; rel: string }> = [];
-  const contra: Array<{ id: string; raw: string }> = [];
-  for (const src of ledger.sources) {
-    for (const u of src.units) {
-      for (const f of findValue(u.s, value)) {
-        // LLM 서술은 모델이 붙은 주장을 어차피 지지하지 못한다 — 모호로 센다
-        if (src.kind === 'PROSE') { hits.push({ id: src.id, rel: 'AMBIGUOUS' }); continue; }
-        const k = claimKey(u, f.index, f.length);
-        const rel = variantRelation(claim.variant, k.variant);
-        const propDiffers = propertyRelation(claim.property, k.property) === 'DIFFERENT';
-        hits.push({ id: src.id, rel: propDiffers && rel === 'SAME' ? 'SAME_OTHER_PROP' : propDiffers && rel === 'UNKNOWN' ? 'UNKNOWN_OTHER_PROP' : rel });
-      }
-      if (src.kind !== 'SOURCE') continue;
-      for (const o of otherValues(u.s, value)) {
-        const k = claimKey(u, o.index, o.length);
-        if (variantRelation(claim.variant, k.variant) === 'SAME' && propertyRelation(claim.property, k.property) === 'SAME') contra.push({ id: src.id, raw: o.raw.replace(/\s+/g, '') });
-      }
-    }
+  const cls = unitClass((flat(value).match(/^\d+(?:\.\d+)?(.*)$/) || [])[1] || '');
+  const { hits, contra } = collect(ledger, claim, value, cls);
+  const r = (verdict: VariantVerdict, sourceIds: string[], reason: string, authority?: 'PRIMARY' | 'SECONDARY'): VariantJudgement => ({ ...base, variant: claim.variant.label, verdict, sourceIds, reason, ...(authority ? { authority } : {}) });
+  const ids = (xs: ReadonlyArray<{ id: string }>) => [...new Set(xs.map((x) => x.id))];
+  const rel = (name: string) => hits.filter((h) => h.rel === name);
+  const others = (xs: ReadonlyArray<{ raw: string }>) => [...new Set(xs.map((c) => c.raw))].slice(0, 3).join('·');
+  const same = rel('SAME');
+  if (same.some((h) => h.primary)) return r('SUPPORTED', ids(same.filter((h) => h.primary)), '당사자·공식 원문이 같은 모델·트림의 값으로 말함', 'PRIMARY');
+  const primaryContra = contra.filter((c) => c.primary);
+  if (primaryContra.length) return r('CONTRADICTED', ids(primaryContra), `당사자·공식 원문의 같은 모델·같은 속성 값은 ${others(primaryContra)}${same.length ? ` — 서드파티(${ids(same).join(',')})의 값은 낮은 권위(LOWER_AUTHORITY)` : ''}`, 'PRIMARY');
+  if (same.length) {
+    const ownerUnfetched = cls !== 'LEGACY' && ledger.sources.some((s) => s.kind === 'SOURCE' && s.authority === 'SUBJECT_OWNER_PRIMARY' && s.hasBody === false);
+    if (ownerUnfetched) return r('UNRESOLVED', ids(same), '사양값을 서드파티만 말하고 당사자 1차 후보는 원문을 확인하지 못함 — 지우지 않되 자동 발행 근거로 쓰지 않음', 'SECONDARY');
+    return r('SUPPORTED', ids(same), '원문이 같은 모델·트림의 값으로 말함', 'SECONDARY');
   }
-  const ids = (rel: string) => [...new Set(hits.filter((h) => h.rel === rel).map((h) => h.id))];
-  if (ids('SAME').length) return { ...base, variant, verdict: 'SUPPORTED', sourceIds: ids('SAME'), reason: '원문이 같은 모델·트림의 값으로 말함' };
-  if (contra.length) return { ...base, variant, verdict: 'CONTRADICTED', sourceIds: [...new Set(contra.map((c) => c.id))], reason: `원문의 같은 모델·같은 속성 값은 ${[...new Set(contra.map((c) => c.raw))].slice(0, 3).join('·')}` };
-  if (ids('UNKNOWN').length) return { ...base, variant, verdict: 'SUPPORTED', sourceIds: ids('UNKNOWN'), reason: '원문이 모델을 말하지 않음 — 값 존재로 지지(예전 동작)' };
-  if (ids('SAME_OTHER_PROP').length || ids('UNKNOWN_OTHER_PROP').length) return { ...base, variant, verdict: 'NOT_APPLICABLE', sourceIds: [...ids('SAME_OTHER_PROP'), ...ids('UNKNOWN_OTHER_PROP')], reason: '같은 모델(또는 범위 없는) 원문의 같은 값이 다른 속성 창에 있음 — 동의어일 수 있어 값 대조(예전 동작)가 판정' };
-  if (ids('DIFFERENT').length) return { ...base, variant, verdict: 'VARIANT_MISMATCH', sourceIds: ids('DIFFERENT'), reason: '원문에서 이 값은 다른 모델·트림의 값' };
-  if (ids('AMBIGUOUS').length) return { ...base, variant, verdict: 'UNKNOWN', sourceIds: ids('AMBIGUOUS'), reason: '시리즈 문맥·LLM 서술에만 있음 — 원문이 모델을 정하지 않음' };
-  return { ...base, variant, verdict: 'NOT_APPLICABLE', sourceIds: [], reason: '장부 원문에 이 값이 없음 — 값 대조(예전 동작)가 판정' };
+  if (rel('UNKNOWN').length) return r('SUPPORTED', ids(rel('UNKNOWN')), '원문이 모델을 말하지 않음 — 값 존재로 지지(예전 동작)');
+  if (rel('QUALIFIER').length) return r('UNRESOLVED', ids(rel('QUALIFIER')), '같은 값이 한정어가 다른 문맥에만 있음(예: 복합 ↔ 도심) — 같은 주장인지 확인 불가, 지우지 않되 자동 발행 근거로 쓰지 않음');
+  const otherProp = [...rel('SAME_OTHER_PROP'), ...rel('UNKNOWN_OTHER_PROP')];
+  if (otherProp.length && cls === 'LEGACY') return r('NOT_APPLICABLE', ids(otherProp), '같은 값이 다른 속성 창에 있음 — 동의어일 수 있어 값 대조(예전 동작)가 판정');
+  const auth = (xs: ReadonlyArray<Hit>) => (xs.some((h) => h.primary) ? 'PRIMARY' as const : 'SECONDARY' as const);
+  if (otherProp.length) return r('PROPERTY_MISMATCH', ids(otherProp), '같은 숫자가 다른 항목(속성)의 값으로만 있음 — 예: 충전기 출력 ↔ 기기 충전', auth(otherProp));
+  if (rel('DIFFERENT').length) return r('VARIANT_MISMATCH', ids(rel('DIFFERENT')), '원문에서 이 값은 다른 모델·트림의 값', auth(rel('DIFFERENT')));
+  if (rel('AMBIGUOUS').length) return r('UNKNOWN', ids(rel('AMBIGUOUS')), '시리즈 문맥·LLM 서술에만 있음 — 원문이 모델을 정하지 않음');
+  return r('NOT_FOUND', [], '장부 원문에 이 값이 없음 — 호출부가 값 존재로 판정');
 }
 
-/** SUPPORTED·NOT_APPLICABLE 이 아니면 근거 없음 — 사실 필터와 본문 관문이 같은 뜻으로 쓴다 */
-export const variantFails = (j: VariantJudgement) => j.verdict === 'CONTRADICTED' || j.verdict === 'VARIANT_MISMATCH' || j.verdict === 'UNKNOWN';
+/**
+ * v3.8.774 — 판정은 사실 필터와 본문 관문이 공유하고, **행동**만 권위로 나눈다(되돌릴 수 없는 삭제는 권위 있는 근거가 있을 때만).
+ *   · variantDeletes(사실 필터가 지움): 1차 원문의 모순 · 1차 원문이 다른 모델·다른 항목의 값이라고 말함.
+ *   · variantHolds(본문 관문이 보류 — 자동 발행 근거 아님): 지지가 아닌 모든 판정(모순·다른 모델·다른 항목·모호·UNRESOLVED).
+ * 773 은 서드파티·모호한 근거만으로도 지웠다 — 실측(a4fc1b)에서 맞는 S26 4300mAh·25W·55% 가 블로그 E06 때문에 지워질 뻔했다.
+ */
+export const variantDeletes = (j: VariantJudgement): boolean => j.verdict === 'CONTRADICTED'
+  || ((j.verdict === 'VARIANT_MISMATCH' || j.verdict === 'PROPERTY_MISMATCH') && j.authority === 'PRIMARY');
+export const variantHolds = (j: VariantJudgement): boolean => ['CONTRADICTED', 'VARIANT_MISMATCH', 'PROPERTY_MISMATCH', 'UNKNOWN', 'UNRESOLVED'].includes(j.verdict);
+/** 판정을 건너뛸 것 — 모델 없는 주장 · 장부에 없는 값(값 존재로 판정) */
+export const variantSkips = (j: VariantJudgement) => j.verdict === 'NOT_APPLICABLE' || j.verdict === 'NOT_FOUND';

@@ -86,7 +86,8 @@ function tokenize(text: string): Tok[] {
   const out: Tok[] = [];
   for (const m of text.matchAll(/[^\s/·,()[\]|:;“”"'‘’=]+/g)) {
     const raw = m[0]; const start = m.index || 0;
-    let w = raw.replace(/[.!?…*]+$/, '');
+    // v3.8.774 — 앞에 붙은 문장부호("…EV3" · "‘S26")도 뗀다: 실측(BATCH 1 E01 제목 "…EV3 보러 왔다가 EV5 탄다")에서 EV3 가 빠져 EV5 만의 페이지로 읽혔다
+    let w = raw.replace(/^[^\p{L}\p{N}]+/u, '').replace(/[.!?…*]+$/, '');
     let c = classify(w);
     let closed = false;
     for (let i = 0; !c && i < 3 && PARTICLE.test(w); i += 1) { w = w.replace(PARTICLE, ''); c = w ? classify(w) : null; closed = true; }
@@ -262,7 +263,14 @@ export function variantRelation(claim: VariantScope, evidence: VariantScope): Va
   if (!claim.keys.length) return 'UNKNOWN';
   if (evidence.via === 'ambiguous' || evidence.via === 'prose') return 'AMBIGUOUS';
   if (!evidence.keys.length) return 'UNKNOWN';
-  return claim.keys.some((a) => evidence.keys.some((b) => compatible(a, b))) ? 'SAME' : 'DIFFERENT';
+  if (claim.keys.some((a) => evidence.keys.some((b) => compatible(a, b)))) return 'SAME';
+  /**
+   * v3.8.774 — 근거가 트림 없는 이름("EV3")이고 주장은 트림("EV3 롱레인지")이면 모호: 맨 이름은 기본 모델(S26)일 수도, 제품군 전체(EV3)일 수도 있다.
+   * 실측(BATCH 1 자동차): 제품군을 말한 "EV3 … 보조금" 이 롱레인지와 "다른 모델" 이 되어 맞는 보조금 값이 지워질 뻔했다. 반대(주장이 맨 이름, 근거가 트림)는 그대로 다른 변형.
+   */
+  // 주장이 트림만 말해도("롱레인지 … 721만원") 같다 — 이름이 비었거나 같으면
+  if (evidence.keys.some((b) => !b.trim && b.name && claim.keys.some((a) => (!a.name || a.name === b.name) && a.trim && a.trim !== '*'))) return 'AMBIGUOUS';
+  return 'DIFFERENT';
 }
 
 /** 문장 나누기 — title-authority 와 같은 규칙(표 칸은 " | ", 블록 끝은 줄바꿈) */

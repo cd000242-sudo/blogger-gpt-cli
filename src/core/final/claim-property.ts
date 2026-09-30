@@ -16,9 +16,11 @@ export type PropertyRelation = 'SAME' | 'DIFFERENT' | 'UNKNOWN';
 
 /** 속성을 가르지 않는 낱말 — 한정·상태·서술어 조각 */
 const STOP = new Set(['최대', '최소', '약', '기준', '지원', '가능', '정도', '이상', '이하', '사용', '경우', '현재', '실제', '공식', '국내', '전제', '판단', '표기', '수치', '값', '총', '각', '모두', '함께', '따로', '먼저', '다시', '이번', '올해', '하루', '매월', '월', '연', '로', '및', '또는', '그리고']);
-const PARTICLE_END = /(?:에서는|에서|에게|으로는|으로|로는|까지|부터|이며|이고|입니다|이다|이죠|합니다|해요|했고|하며|하고|는|은|이|가|을|를|의|에|로|와|과|도|만|죠)$/;
+/** v3.8.774 — 어미(됩니다·된다고·되는 …)도 뗀다: "충전됩니다" 와 "충전된다고" 는 같은 낱말 "충전" 이다(동의어 사전 아님 — 같은 어간만) */
+const PARTICLE_END = /(?:에서는|에서|에게|으로는|으로|로는|까지|부터|이며|이고|입니다|이다|이죠|합니다|해요|했고|하며|하고|됩니다|된다고|된다|되며|되는|되어|돼요|됐다|한다고|한다|하는|는|은|이|가|을|를|의|에|로|와|과|도|만|죠)$/;
 /** 절을 끊는 낱말 끝 — 이 낱말부터는 다른 절이다 */
-const CLAUSE_END = /(?:하고|되고|이고|있고|없고|했고|하며|되며|이며|하면|되면|으면|라면|다면|지만|는데|면서|거나|니다|어요|아요|해서|어서)$/;
+/** v3.8.774 — 비교 표지(보다·대비)도 경계: "복합 수치보다 고속도로 447km" 의 "복합" 은 447km 의 속성이 아니라 비교 대상이다 */
+const CLAUSE_END = /(?:하고|되고|이고|있고|없고|했고|하며|되며|이며|하면|되면|으면|라면|다면|지만|는데|면서|거나|니다|어요|아요|해서|어서|보다|대비)$/;
 const BOUNDARY_TOKEN = /[,|·:;]$|^[|·:;]$/;
 
 function normalizeWord(w: string): string {
@@ -46,13 +48,18 @@ export function propertyWindow(text: string, index: number, length: number): str
   const after = src.slice(index + length);
   if (/^\s/.test(after)) {
     const toks = after.trim().split(/\s+/).filter(Boolean);
+    const tail: string[] = [];
     for (let i = 0; i < toks.length && i < 3; i += 1) {
       const tok = toks[i]!;
-      if (/\d/.test(tok) || /^[|·:;]/.test(tok)) break;
+      // v3.8.774 — 뒤 창 안에서 다음 값을 만나면 그 사이 낱말은 다음 값의 이름표다("표준 용량 4300mAh 정격 용량 4175mAh" 의 "정격 용량")
+      if (/^\d/.test(tok)) { tail.length = 0; break; }
+      if (/\d/.test(tok)) break;   // 모델 코드(Z10 · EV3)는 값이 아니다 — 멈추기만 한다
+      if (/^[|·:;]/.test(tok)) break;
       const w = normalizeWord(tok);
-      if (usable(w)) words.push(w);
+      if (usable(w)) tail.push(w);
       if (/[.,!?|·;:]$/.test(tok) || CLAUSE_END.test(tok.replace(/[.,!?]$/, ''))) break;
     }
+    words.push(...tail);
   }
   return [...new Set(words)];
 }

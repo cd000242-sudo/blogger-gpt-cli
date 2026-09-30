@@ -13,7 +13,8 @@
 import { kstYear } from './kst-date';
 import { extractRanges, isRangeBound, type ValueRange } from './range-value';
 import { isLexicalValue } from './value-boundary';
-import { findValue, judgeVariantValue, variantFails, type VariantJudgement, type VariantLedger } from './variant-ledger';
+import { findValue, judgeVariantValue, variantHolds, variantSkips, type VariantJudgement, type VariantLedger } from './variant-ledger';
+import { isSpecDifference, specValues } from './spec-units';
 import type { ScopedUnit } from './claim-variant';
 
 export type ClaimKind = 'date' | 'range' | 'amount' | 'percent' | 'count' | 'rank' | 'duration';
@@ -101,12 +102,26 @@ export function checkClaims(text: string, ledger: LedgerItem[], now: Date = new 
    */
   const judged: VariantJudgement[] = [];
   const failed = new Set<string>();
+  // v3.8.774 — 지지가 아닌 판정은 모두 보류(자동 발행 근거 아님). 사실 필터는 같은 판정 중 1차 원문이 반박한 것만 지운다(variantDeletes)
+  const holds = variantHolds;
   for (const s of base.supported.filter((x) => !x.via)) {
     for (const u of variant.units.filter((unit) => findValue(unit.s, s.claim).length)) {
       const j = judgeVariantValue(variant.ledger, u, s.claim);
+      if (variantSkips(j)) continue;
+      judged.push(j);
+      if (holds(j)) failed.add(s.claim);
+    }
+  }
+  /**
+   * v3.8.774 — 사양값(mAh·W·kW·Wh·kWh·km)도 같은 추출기(spec-units)·같은 장부·같은 판정. 모델이 붙은 단위만(NOT_APPLICABLE 은 건너뜀).
+   * 장부 원문에 없으면(NOT_FOUND) 근거 없음 — 본문 관문의 장부(claimLedger)와 모델 장부는 같은 문서들이다.
+   */
+  for (const u of variant.units) {
+    for (const sv of specValues(u.s)) {
+      const j = judgeVariantValue(variant.ledger, u, sv.raw);
       if (j.verdict === 'NOT_APPLICABLE') continue;
       judged.push(j);
-      if (variantFails(j)) failed.add(s.claim);
+      if ((j.verdict === 'NOT_FOUND' && !isSpecDifference(u.s, sv)) || holds(j)) failed.add(sv.raw);
     }
   }
   return {
