@@ -468,7 +468,12 @@
           </div>
           <div class="header-badge header-badge--warning">
             <span class="badge-label">AI 모델:</span>
-            <span id="aiModelStatus" class="badge-value badge-warning">Gemini AI</span>
+            <!--
+              v3.8.753: 'Gemini AI' 하드코딩 제거 — licenseStatus(v3.8.463)와 같은 이유다.
+              갱신이 한 번이라도 빠지면 이 글자가 **고른 모델처럼** 읽힌다(사장님 실보고).
+              '확인 중…' 이면 틀린 값을 믿을 일이 없고, 안 채워지는 것도 눈에 보인다.
+            -->
+            <span id="aiModelStatus" class="badge-value badge-warning">확인 중…</span>
           </div>
         </div>
         <div class="header-actions">
@@ -1202,17 +1207,28 @@
                         if (currentBadge && titleEl) {
                           currentBadge.textContent = '현재: ' + titleEl.textContent.replace(/^[💰⚖️👑🚀💜📜🔮]\s*/, '') + ' · ~₩' + cost + '/글';
                         }
-                        // v3.8.753: generationEngine 동기화는 이 함수 맨 위 한 곳으로 옮겼다(에이전트 모드에서도 돌아야 한다)
-                        // 상단 배지 + 포스팅 탭 칩 즉시 갱신
-                        if (typeof window.updateAiModelStatus === 'function') {
-                          try { window.updateAiModelStatus(); } catch (e) { /* ignore */ }
-                        }
+                        // v3.8.753: generationEngine 동기화·상단 배지 갱신은 루프 밖으로 옮겼다(아래 주석)
                       } else {
                         card.style.background = 'rgba(15,23,42,0.55)';
                         card.style.boxShadow = 'none';
                         card.style.transform = 'translateY(0)';
                       }
                     });
+                    /**
+                     * 🏷️ v3.8.753 — 상단 'AI 모델' 배지 갱신을 **루프 밖, 조건 밖으로** 옮긴다.
+                     *
+                     * 사장님: "배찌도 … 선택안했는데 렌더링이 느리다고 해야 하나,
+                     *          클릭하면 또 제대로 선택되어 있고"
+                     *
+                     * 예전에는 이 호출이 카드 루프의 `input.checked && !agentMode` 갈래 안에 있었다.
+                     * 그래서 **에이전트 모드면 한 번도 안 불렸다** — 배지는 index.html 에 적힌
+                     * 'Gemini AI' 를 그대로 들고 있었고, 눌러서 연 드롭다운만 지금 상태를 읽어
+                     * 제대로 표시했다. 사장님 눈에는 "배지가 늦게 따라온다" 로 보인다.
+                     * 배지는 모드와 무관하게 늘 지금 상태를 보여야 한다 — 조건 없이 한 번 부른다.
+                     */
+                    if (typeof window.updateAiModelStatus === 'function') {
+                      try { window.updateAiModelStatus(); } catch (e) { /* 배지 갱신 실패가 선택을 되돌리진 않는다 */ }
+                    }
                   }
 
                   tierCards.forEach(card => {
@@ -3954,9 +3970,10 @@
                     </div>
                   </h2>
                   <div style="display: flex; gap: 8px;">
+                    <!-- v3.8.753: 상단 배지와 같은 이유로 하드코딩 제거 (updateAiModelStatus 가 채운다) -->
                     <span id="aiEngineBadge"
                       style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.3); color: #10b981; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                      🤖 Gemini AI
+                      🤖 확인 중…
                     </span>
                     <span
                       style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.3); color: #f59e0b; padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">
@@ -4129,7 +4146,8 @@
                       onclick="if(typeof openSettingsModal==='function') openSettingsModal();"
                       title="클릭하면 환경설정이 열립니다"
                       style="width: 100%; padding: 8px 12px; background: rgba(15,23,42,0.8); color: white; border: 1px solid rgba(139,92,246,0.35); border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; outline: none; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                      <span id="currentEngineLabel">🤖 Gemini 3.8 Flash</span>
+                      <!-- v3.8.753: 'Gemini 3.8 Flash' 하드코딩 제거 — 목록에 없는 이름이라 더 나빴다(updateAiModelStatus 가 채운다) -->
+                      <span id="currentEngineLabel">🤖 확인 중…</span>
                       <span style="font-size: 11px; color: rgba(255,255,255,0.45); font-weight: 500;">⚙️ 변경</span>
                     </button>
                   </div>

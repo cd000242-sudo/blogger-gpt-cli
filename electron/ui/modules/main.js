@@ -910,6 +910,30 @@ async function initializeApp() {
     // 7. 플랫폼 상태 업데이트
     updatePlatformStatus();
 
+    /**
+     * 🏷️ 7-b. v3.8.753 — **'AI 모델' 배지도 시작할 때 한 번 맞춘다.**
+     *
+     * 사장님: "배찌도 … 선택안했는데 렌더링이 느리다고 해야 하나,
+     *          클릭하면 또 제대로 선택되어 있고"
+     *
+     * 플랫폼 배지는 여기서 갱신되는데(7번) AI 모델 배지는 **시작 경로에 호출이 아예 없었다.**
+     * 유일한 갱신 통로가 refreshTierUI 의 `input.checked && !agentMode` 갈래라서,
+     * 에이전트 모드로 앱을 켜면 배지가 index.html 의 글자('Gemini AI')에 그대로 머물렀다.
+     * 눌러서 연 드롭다운만 지금 상태를 읽으니 "배지가 늦다"로 보인 것이다.
+     * 실행 모드 배지도 같이 맞춘다 — 둘이 어긋나면 어느 쪽을 믿어야 하는지 알 수 없다.
+     */
+    if (typeof window.updateAiModelStatus === 'function') {
+      try { await window.updateAiModelStatus(); } catch (e) { console.warn('[MAIN] AI 모델 배지 갱신 실패:', e?.message || e); }
+    } else {
+      console.warn('[MAIN] ⚠️ updateAiModelStatus 가 없어 AI 모델 배지를 맞추지 못했습니다');
+    }
+    try {
+      const { renderExecutionModeBadge } = await import('./header-badges.js');
+      renderExecutionModeBadge();
+    } catch (e) {
+      console.warn('[MAIN] 실행 모드 배지 갱신 실패:', e?.message || e);
+    }
+
     // 8. 플랫폼 필드 토글 (초기 상태 설정)
     if (typeof togglePlatformFields === 'function') {
       togglePlatformFields();

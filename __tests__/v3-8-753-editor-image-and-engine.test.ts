@@ -18,6 +18,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { improveDraft } from '../src/core/final/editor-draft';
+import { blockBetween } from './helpers/source-block';
 import { loosenedProbes } from '../src/core/final/critique-targeted-edit';
 import { rewriteAbility, type CritiqueIssue } from '../src/core/final/post-critique';
 
@@ -249,6 +250,49 @@ describe('③ 유령 기본값(#generationEngine = openai) 제거', () => {
   });
 
   it('대량 포스팅도 라디오를 보고, 고른 모델을 싣는다', () => {
+    expect(scriptJs).toContain("const bulkTierModel = document.querySelector('input[name=\"primaryGeminiTextModel\"]:checked')?.value || '';");
+    expect(scriptJs).toContain('provider: bulkProvider');
+    expect(scriptJs).toContain('primaryGeminiTextModel: currentSettings.primaryGeminiTextModel');
+  });
+});
+
+/* ────────────────────────────────────────────────────────────────
+ * ④ 상단 배지가 늦게 따라오던 것 — 에이전트 모드면 아예 안 불렸다
+ * ──────────────────────────────────────────────────────────────── */
+describe('④ AI 모델 배지는 모드와 무관하게 지금 상태를 보여준다', () => {
+  const mainJs = read('electron/ui/modules/main.js');
+
+  it('⭐ refreshTierUI 의 배지 갱신이 카드 루프 밖에 있다 — 안에 있으면 에이전트 모드에서 안 불린다', () => {
+    const fn = blockBetween(indexHtml, 'function refreshTierUI()', 'tierCards.forEach(card => {\n                    card.addEventListener');
+    const loop = blockBetween(fn, 'tierCards.forEach(card => {', '});');
+    expect(fn).toContain('window.updateAiModelStatus');          // 함수 안에는 있다
+    expect(loop).not.toContain('updateAiModelStatus');            // 루프(조건 갈래) 안에는 없다
+  });
+
+  it('⭐ 시작할 때 플랫폼 배지만 맞추지 않는다 — AI 모델·실행 모드 배지도 맞춘다', () => {
+    const boot = blockBetween(mainJs, '// 7. 플랫폼 상태 업데이트', '// 8. 플랫폼 필드 토글');
+    expect(boot).toContain('updatePlatformStatus()');
+    expect(boot).toContain('window.updateAiModelStatus()');
+    expect(boot).toContain('renderExecutionModeBadge()');
+  });
+
+  it('⭐ 배지 초기 글자에 모델 이름을 박아 두지 않는다 — 갱신이 빠지면 고른 모델처럼 읽힌다', () => {
+    expect(indexHtml).toContain('<span id="aiModelStatus" class="badge-value badge-warning">확인 중…</span>');
+    expect(indexHtml).toContain('<span id="currentEngineLabel">🤖 확인 중…</span>');
+    expect(indexHtml).not.toContain('>Gemini AI</span>');
+    expect(indexHtml).not.toContain('🤖 Gemini 3.8 Flash');
+  });
+
+  it('updateAiModelStatus 는 두 갈래 모두에서 세 자리를 전부 채운다 ("확인 중…"이 남지 않는다)', () => {
+    const fn = blockBetween(scriptJs, 'async function updateAiModelStatus()', 'window.updateAiModelStatus = updateAiModelStatus;');
+    const agentBranch = blockBetween(fn, "if (executionMode === 'agent')", '// 1순위: 환경설정 라디오');
+    for (const id of ['aiModelStatus', 'aiEngineBadge', 'currentEngineLabel']) {
+      expect(agentBranch).toContain(`getElementById('${id}')`);
+      expect(fn.slice(fn.indexOf('// 1순위: 환경설정 라디오'))).toContain(`getElementById('${id}')`);
+    }
+  });
+
+  it('남겨진 사실: 지금도 에이전트 모드면 generationEngine 이 라디오에서만 파생된다 (유령 기본값 차단)', () => {
     expect(scriptJs).toContain("const bulkTierModel = document.querySelector('input[name=\"primaryGeminiTextModel\"]:checked')?.value || '';");
     expect(scriptJs).toContain('provider: bulkProvider');
     expect(scriptJs).toContain('primaryGeminiTextModel: currentSettings.primaryGeminiTextModel');

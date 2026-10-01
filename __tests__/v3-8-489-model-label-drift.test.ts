@@ -66,14 +66,25 @@ describe('① 화면 라벨이 백엔드 표와 일치한다', () => {
     expect(Object.values(uiLabels).join(' ')).not.toContain('3.1 Pro Preview');
   });
 
-  it('⭐⭐ 화면에 처음 뜨는 기본 라벨도 실제 기본 모델과 같다', () => {
-    const defaultTier = TIER_MODELS.find((t) => (t as any).default);
-    expect(defaultTier).toBeTruthy();
+  /**
+   * ⭐ v3.8.753 — **베껴 쓰지 않는 쪽으로 조건을 올렸다.**
+   *
+   * 예전 조건은 "하드코딩된 첫 라벨이 기본 티어 제목과 같아야 한다" 였다. 그 복사본이
+   * 애초에 이 테스트가 막으려던 드리프트의 원인이고, 더 나쁜 일도 했다 —
+   * 갱신이 한 번이라도 빠지면 그 글자가 **사장님이 고른 모델처럼** 읽힌다
+   * (실보고: "선택안했는데 … 클릭하면 또 제대로 선택되어 있고". 에이전트 모드에서
+   * updateAiModelStatus 가 아예 안 불려 'Gemini 3.8 Flash' 가 그대로 남아 있었다).
+   * 그래서 복사본을 지우고 '확인 중…' 으로 두었다. 복사본이 없으면 드리프트도 없다.
+   */
+  it('⭐⭐ 화면에 모델 이름을 베껴 두지 않는다 — 채우는 것은 updateAiModelStatus 하나다', () => {
     const span = indexHtml.slice(
       indexHtml.indexOf('<span id="currentEngineLabel">'),
       indexHtml.indexOf('</span>', indexHtml.indexOf('<span id="currentEngineLabel">')),
     );
-    expect(span).toContain(defaultTier!.title);
+    expect(span).toContain('확인 중');
+    for (const tier of TIER_MODELS) expect(span).not.toContain(tier.title);
+    // 채우는 쪽이 실제로 이 자리를 쓴다 (안 쓰면 '확인 중…' 이 영원히 남는다)
+    expect(read('electron/ui/script.js')).toContain("getElementById('currentEngineLabel')");
   });
 });
 
