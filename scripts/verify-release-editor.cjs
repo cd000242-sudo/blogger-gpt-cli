@@ -33,7 +33,7 @@ const yaml = require('js-yaml');
     'dist/core/final/post-critique.js', 'dist/thumbnail.js',
   ];
   for (const module of modules) {
-    assert(asar.extractFile(archive, module).equals(fs.readFileSync(path.join(root, module))), `${module} differs from the verified workspace`);
+    assert(asar.extractFile(archive, path.normalize(module)).equals(fs.readFileSync(path.join(root, module))), `${module} differs from the verified workspace`);
   }
   console.log(`PASS v${version}: installer SHA-512/size, blockmap, package version and ${modules.length} packaged modules match.`);
 })().catch(error => { console.error(error); process.exitCode = 1; });
