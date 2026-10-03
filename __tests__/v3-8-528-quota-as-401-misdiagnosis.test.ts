@@ -17,6 +17,12 @@
  */
 
 const postMock = jest.fn();
+const savedNoLive = process.env['NO_LIVE_LLM'];
+beforeEach(() => { delete process.env['NO_LIVE_LLM']; }); // All provider HTTP requests below use postMock.
+afterAll(() => {
+  if (savedNoLive === undefined) delete process.env['NO_LIVE_LLM'];
+  else process.env['NO_LIVE_LLM'] = savedNoLive;
+});
 
 jest.mock('axios', () => {
   const actual = jest.requireActual('axios');

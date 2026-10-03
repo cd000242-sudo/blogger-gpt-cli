@@ -159,8 +159,7 @@ export function resetImageDispatcherEnvCache(): void {
   }
 }
 
-function getGeminiApiKey(): string {
-  const env = getCachedEnv();
+function getGeminiApiKey(env: Record<string, string> = getCachedEnv()): string {
   return (env['geminiKey'] || env['GEMINI_API_KEY'] || env['geminiApiKey'] || '').trim();
 }
 
@@ -383,6 +382,8 @@ function preSanitizePrompt(prompt: string, onLog?: (msg: string) => void): strin
 //   - low/medium/high — OpenAI 공식 가격은 quality 별로 다름
 //   - dispatcher signature 호환성 유지를 위해 새 옵션 객체로 받음
 export interface DispatchExtraOptions {
+  /** Explicit editor requests must not spend on another engine or a placeholder after failure. */
+  allowFallback?: boolean;
   gptImageQuality?: 'low' | 'medium' | 'high';
   leonardoModel?: string;
   allowFreeTrialPublishing?: boolean;
@@ -439,7 +440,7 @@ const TEXT_CAPABLE_IMAGE_ENGINES = new Set<string>([
   'gptimage25sunburst',
 ]);
 
-function engineAllowsImageText(engine: string): boolean {
+export function engineAllowsImageText(engine: string): boolean {
   return TEXT_CAPABLE_IMAGE_ENGINES.has(engine);
 }
 
@@ -462,7 +463,7 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
     case 'nanobanana':
     case 'nanobanana2':
     case 'nanobananapro':
-      return getGeminiApiKey().length >= 10;
+      return getGeminiApiKey(env).length >= 10;
     case 'prodia':
       return getProdiaApiKey(env).length >= 10;
     case 'deepinfra':
@@ -673,6 +674,10 @@ export async function dispatchH2ImageGeneration(
       onLog?.(`🎯 자동 모드: 신뢰성 우선 '${auto}' 엔진으로 생성`);
       imageSource = auto;
     }
+  }
+
+  if (extra?.allowFallback === false) {
+    return tryEngine(imageSource, prompt, keyword, env, onLog, false, contentMode, extra);
   }
 
   // 🎯 v3.6.0: 기본값 = 보장형 폴백 (near-100% 이미지 성공 목표)
@@ -890,6 +895,13 @@ export async function dispatchThumbnailGeneration(
       onLog?.(`🎯 자동 모드: 신뢰성 우선 '${auto}' 썸네일 엔진으로 생성`);
       thumbnailSource = auto;
     }
+  }
+
+  if (extra?.allowFallback === false) {
+    if (thumbnailSource === 'text' || thumbnailSource === 'svg') {
+      return { ok: false, dataUrl: '', source: '', error: 'text/svg 생성은 지원하지 않습니다. 사용할 이미지 엔진을 선택해 주세요.' };
+    }
+    return tryEngine(thumbnailSource, title, keyword, env, onLog, true, undefined, extra);
   }
 
   // text/svg 모드 → 더 이상 지원하지 않음 (SVG 텍스트 썸네일 폐지)

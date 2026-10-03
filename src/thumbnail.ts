@@ -1332,7 +1332,7 @@ function generateCleanImagePrompt(title: string, topic: string): string {
 }
 
 // 🔥 하단 텍스트 오버레이 적용 함수
-async function applyBottomTextOverlay(
+export async function applyBottomTextOverlay(
   imageData: string,
   title: string,
   width: number,

@@ -19,6 +19,10 @@ import * as path from 'path';
 import { braceBlock, blockBetween } from './helpers/source-block';
 import { buildGeminiReferenceParts, fetchImagesAsBlobs } from '../src/thumbnail';
 
+// Keep key-availability tests independent of this machine's saved provider keys.
+jest.mock('../src/env', () => ({ loadEnvFromFile: jest.fn(() => ({})) }));
+jest.mock('../src/core/engine-stats', () => ({ getSuccessRate: jest.fn(() => null) }));
+
 const ROOT = path.join(__dirname, '..');
 const read = (...p: string[]) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
 const thumb = read('src', 'thumbnail.ts');
@@ -250,13 +254,19 @@ describe('쇼핑모드 엔진 자동 전환', () => {
   });
 
   it('⭐ 결과는 항상 i2i 가능한 엔진이거나 입력 그대로다 (엉뚱한 엔진으로 튀지 않는다)', () => {
-    // 빈 env 를 넘겨도 engineKeyAvailable 은 실제 .env 를 함께 본다(운영 동작).
-    // 그래서 "키가 하나도 없는 상황"은 여기서 흉내낼 수 없다.
-    // 대신 **어떤 입력에도 결과가 안전한지**를 본다.
+    // Explicit empty credentials must not borrow keys from the host's .env/cache.
     ['imagefx', 'flow', 'crawled', 'custom', '', 'nanobanana2'].forEach((e) => {
       const r = pickI2iEngine(e, {});
       expect(engineSupportsI2i(r.engine) || r.engine === e).toBe(true);
     });
+  });
+
+  it('Gemini 별칭 키도 전달한 환경에서만 읽는다', () => {
+    for (const key of ['GEMINI_API_KEY', 'geminiKey', 'geminiApiKey']) {
+      expect(pickI2iEngine('nanobanana2', { [key]: 'test-key-1234567890' }))
+        .toMatchObject({ engine: 'nanobanana2', switched: false });
+    }
+    expect(pickI2iEngine('imagefx', {})).toMatchObject({ engine: 'imagefx', switched: false });
   });
 
   it('orchestration 이 이 판정을 쓴다', () => {

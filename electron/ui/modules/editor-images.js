@@ -44,8 +44,7 @@ export function initImageEditing(frame, doc, { setStatus, onAfterRestore, onRege
     imgToolbar.querySelector('#veImgRegenBtn').addEventListener('click', () => {
       const img = state?.selectedImg;
       if (!img) return;
-      // 되돌리기 스택은 **여기서** 쌓는다 — 교체·삭제와 같은 ↩️ 버튼으로 되돌아가야 한다
-      pushImageOp();
+      // The generation controller records undo only after a successful response.
       state.onRegenerateImage?.(img);
     });
   }

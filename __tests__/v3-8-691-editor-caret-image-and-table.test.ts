@@ -31,35 +31,37 @@ function bodyOf(src: string, start: string, end: string): string {
   return src.slice(a, b);
 }
 
-describe('① [이 영역 이미지] 는 커서 자리에 넣는다', () => {
-  const fn = bodyOf(editor, 'async function generateEditorImage(kind)', "modalRefs.thumbBtn?.addEventListener");
+describe('① AI 이미지는 선택 범위의 슬롯에, 수동 삽입은 커서 자리에 넣는다', () => {
+  const plan = read('electron/ui/modules/editor-image-plan.js');
+  const fn = bodyOf(editor, 'async function runEditorImageBatch(', 'function loadIntoFrame');
 
-  test('⭐ 커서 삽입 헬퍼를 쓴다 (광고·CTA 와 같은 것)', () => {
-    expect(fn).toContain('insertHtmlAtCaret(doc,');
+  test('⭐ 범위로 계획을 만들고 각 슬롯에 이미지를 반영한다', () => {
+    expect(fn).toContain('buildEditorImagePlan(doc, scope)');
+    expect(fn).toContain('placeEditorImage(doc, slot, res)');
+    expect(editor).toContain('runEditorImageBatch(modalRefs.imageScope.value)');
   });
 
-  test('⭐ 소제목 뒤에 꽂는 것은 커서를 못 찾았을 때뿐이다', () => {
-    expect(fn).toContain("if (!placedAtCaret && anchor) anchor.insertAdjacentElement('afterend', node)");
-    // 무조건 소제목 뒤에 넣던 옛 코드가 남아 있으면 안 된다
-    expect(fn).not.toMatch(/if \(kind === 'section' && anchor\) \{\s*anchor\.insertAdjacentElement/);
+  test('⭐ 새 소제목 이미지는 소제목 뒤, 썸네일은 본문 처음이다', () => {
+    expect(plan).toContain("slot.heading.insertAdjacentElement('afterend', wrapper)");
+    expect(plan).toContain('slot.root.prepend(wrapper)');
+    expect(fn).not.toContain('findCaretBlock');
   });
 
   test('⭐ 커서를 잃지 않게 mousedown 가드가 커서 삽입 버튼들을 막는다', () => {
     // 이 가드가 없으면 버튼을 누르는 순간 본문 선택이 풀려 늘 글 끝으로 간다
-    /**
-     * v3.8.729 는 [이 영역 이미지] 버튼을 뺐고 이 자리에 "없어야 한다"를 못박았다.
-     * v3.8.753 에서 되살렸다 — 대신 쓰라던 [🖼️ 이미지]는 내 PC 파일만 넣어서,
-     * 그때부터 편집기에서 소제목 이미지를 AI 로 만들 길이 아예 없었다(사장님 재신고).
-     * 이 버튼도 커서를 읽으므로 가드에 함께 들어가야 한다.
-     */
-    expect(editor).toContain('id="veSectionImgBtn"');
+    // AI generation now targets heading slots; manual insertion still needs the
+    // caret guard. The guard follows controls into the right-hand tool panel.
+    expect(editor).toContain('id="veGenerateAllImagesBtn"');
+    expect(editor).not.toContain('id="veSectionImgBtn"');
     const guard = bodyOf(editor, "toolbar.addEventListener('mousedown'", '});');
-    for (const id of ['#veInsertImageBtn', '#veInsertAdBtn', '#veInsertCtaBtn', '#veSectionImgBtn']) expect(guard).toContain(id);
+    for (const id of ['#veInsertImageBtn', '#veInsertAdBtn', '#veInsertCtaBtn']) expect(guard).toContain(id);
+    expect(editor).toContain('const toolbar = modalRefs.overlay');
   });
 
   test('어디에 들어갔는지 사장님께 말해 준다 — 조용히 넘기지 않는다', () => {
-    expect(fn).toContain('커서 위치에 넣었습니다');
-    expect(fn).toContain('커서 위치를 찾지 못했습니다');
+    expect(fn).toContain('job.done + 1');
+    expect(fn).toContain('modalRefs.imageBatchSummary.textContent');
+    expect(fn).toContain('자동 재시도하지 않습니다');
   });
 });
 
@@ -128,7 +130,8 @@ describe('②③④ 이미지 다시 생성 · 이미지별 다시 생성 · 엔
     expect(main).toContain('const images = regen.findPostImages(previousHtml)');
     expect(main).toContain('for (const image of images)');
     // 버튼 설명이 "모두" 라고 말해야 한다 — 한 장만 바뀌는 줄 알면 헷갈린다
-    expect(editor).toContain('이미지를 모두 다시 만듭니다');
+    expect(editor).toContain('id="veGenerateAllImagesBtn"');
+    expect(editor).toContain('id="veImageScope"');
   });
 
   test('⭐③ 이미지 도구막대에 [다시 생성] 이 있다', () => {
@@ -143,13 +146,18 @@ describe('②③④ 이미지 다시 생성 · 이미지별 다시 생성 · 엔
 
   test('⭐③ 되돌리기 스택을 실제로 쌓는다 — 안 쌓으면 "복구 가능"이 거짓말이다', () => {
     const handler = images.slice(images.indexOf("#veImgRegenBtn').addEventListener"));
-    expect(handler.slice(0, 320)).toContain('pushImageOp()');
-    expect(editor).toContain('↩️ 되돌리기로 복구 가능');
+    expect(handler.slice(0, handler.indexOf('});'))).not.toContain('pushImageOp()');
+    const batch = bodyOf(editor, 'async function runEditorImageBatch(', 'function loadIntoFrame');
+    expect(batch.indexOf('pushUndo(')).toBeGreaterThan(batch.indexOf('if (!res?.ok)'));
+    expect(batch.indexOf('pushUndo(')).toBeLessThan(batch.indexOf('placeEditorImage(doc, slot, res)'));
   });
 
   test('⭐③ 블록을 갈아끼우지 않고 src 만 바꾼다 — 클래스·스타일이 사라지면 모양이 바뀐다', () => {
-    const fn = editor.slice(editor.indexOf('async function regenerateOneImage'));
-    expect(fn.slice(0, 2200)).toContain("img.setAttribute('src', src)");
+    const fn = bodyOf(editor, 'async function regenerateOneImage', 'function imagePlanKey');
+    expect(fn).toContain('targetImage: img');
+    const plan = read('electron/ui/modules/editor-image-plan.js');
+    expect(plan).toContain('const image = existing || generated');
+    expect(plan).toContain("image.setAttribute('src', url)");
   });
 
   test('⭐④ 편집기에 글·이미지 엔진 칸이 있다', () => {

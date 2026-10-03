@@ -97,7 +97,7 @@ describe('v3.8.752 발행 시도 run 연결', () => {
     });
 
     test('publish-content(편집기·대기열 재발행) 도 잇는다', () => {
-      const block = blockBetween(main, "const result = await publishGeneratedContent(\n      data.payload, data.title, data.content, data.thumbnailUrl, publishOnLog,", "console.log('[PUBLISH] 발행 결과:'");
+      const block = blockBetween(main, /const result = await publishGeneratedContent\(\s+data\.payload, data\.title, data\.content, data\.thumbnailUrl, publishOnLog,/, "console.log('[PUBLISH] 발행 결과:'");
       expect(block).toContain('recordPublishAttemptSafely({');
       expect(block).toContain("runId: String(data?.runId || data?.payload?.runId || '')");
       expect(block).toContain("source: 'publish-content'");

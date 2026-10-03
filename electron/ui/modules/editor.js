@@ -5,6 +5,8 @@ import { getAppState, addLog, getTextLength } from './core.js';
 import { initImageEditing, detachImageEditing, hostPendingImages, insertImagesAtCaret, insertHtmlAtCaret, findCaretBlock } from './editor-images.js';
 import { loadAdUnits, makeAdSlotHtml, expandAdSlots, collapseAdBlocks, AD_SLOT_STYLE } from './ad-slots.js';
 import { openRegenModal, engineOverrides, startRegenTask } from './regen-modal.js';
+import { arrangeEditorWorkspace } from './editor-workspace.js';
+import { articleRoot, articleHeadings, buildEditorImagePlan, thumbnailImage, placeEditorImage } from './editor-image-plan.js';
 
 // 생성된 글목록 탭에서 넘어온 "이미 발행된 글" 소스 — 저장 = 해당 플랫폼에 수정발행
 const PUBLISHED_POST_SOURCES = {
@@ -200,7 +202,7 @@ export function serializeEditor() {
 function computeThumbnailUrl() {
   const doc = getFrameDoc();
   if (!doc) return '';
-  const sepImg = doc.querySelector('div.separator img');
+  const sepImg = thumbnailImage(doc);
   return sepImg ? (sepImg.getAttribute('src') || '') : '';
 }
 
@@ -284,7 +286,6 @@ function ensureEditorModal() {
       <span id="veRegenWrap" class="ve-visual-only" style="display:none;align-items:center;gap:6px;">
         <span style="${DIVIDER}"></span>
         <button id="veRegenBtn" style="${BTN_BASE}background:#134e4a;color:#a7f3d0;border:1px solid #115e59;" title="같은 주소 그대로 본문만 새로 만들어 덮어씁니다">🔄 글 다시 생성</button>
-        <button id="veRegenImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="글자는 그대로 두고 이 글의 AI 이미지를 모두 다시 만듭니다 (한 장만 바꾸려면 본문에서 그 이미지를 클릭하세요)">🖼️ 이미지 다시 생성</button>
       </span>
 
       <!-- ✏️ v3.8.683 — 어디서 온 글이든(붙여넣기·파일·발행글) 비평→수정, 썸네일, 영역 이미지 -->
@@ -292,6 +293,7 @@ function ensureEditorModal() {
         <span style="${DIVIDER}"></span>
         <button id="veCritiqueBtn" style="${BTN_BASE}background:#3b0764;color:#e9d5ff;border:1px solid #6b21a8;" title="지금 편집기의 글을 비평합니다. 항목을 고르고 '수정하기'를 누르면 그 구간만 고쳐 편집기에 다시 싣습니다 (발행은 저장 버튼)">🩺 비평·개선</button>
         <button id="veThumbBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="제목으로 썸네일 이미지를 만들어 글 맨 위에 넣습니다">🖼️ 썸네일 생성</button>
+        <label id="veThumbTextLabel" style="display:inline-flex;align-items:center;gap:6px;color:#e2e8f0;font-size:12px;cursor:pointer;"><input id="veThumbTextChk" type="checkbox" checked />텍스트 포함</label>
         <!--
           🖼️ v3.8.696 — 사장님: "이미지를 삽입은 있는데 썸네일 삽입은없네..??"
           [🖼️ 이미지]는 커서 자리에 넣을 뿐 썸네일이 되지 않는다(<p> 로 들어가서
@@ -299,19 +301,15 @@ function ensureEditorModal() {
           쓰려면 별도의 자리가 필요하다.
         -->
         <button id="veThumbInsertBtn" style="${BTN_BASE}background:#334155;color:#fcd34d;border:1px solid #475569;" title="내 PC 이미지를 골라 글 맨 위 썸네일(대표 이미지)로 넣습니다. 이미 있으면 바꿔 끼웁니다">🖼️ 썸네일 넣기</button>
-        <!--
-          🖼️ v3.8.753 — **소제목 이미지 생성 버튼을 되살린다.**
-
-          사장님: "편집기에 소제목 이미지 생성버튼 여전히 누락되어있고"
-
-          v3.8.729 에서 이 버튼을 뺐다 — "이미 이미지 넣는 버튼이 있으니까 그걸 활용하면 될 것 같아"
-          라는 말을 [🖼️ 이미지] 로 대신하라는 뜻으로 읽었다. 그런데 그 버튼은 **내 PC 파일만** 고른다
-          (select-image-files). AI 로 만드는 길이 아니어서, 그때부터 편집기에서 소제목 이미지를
-          AI 로 만들 방법이 **아예 없어졌다.** 기능(generateEditorImage('section') · IPC
-          generate-editor-image kind:'section')은 그대로 살아 있었고 부르는 버튼만 없었다.
-          — 이 저장소의 단골 사고인 "조용한 미배선" 이다.
-        -->
-        <button id="veSectionImgBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="커서를 둔 소제목 영역의 이미지를 AI 로 만들어 커서 위치에 넣습니다 (본문에서 넣을 자리를 먼저 클릭하세요)">🖼️ 소제목 이미지</button>
+        <button id="veGenerateAllImagesBtn" style="${BTN_BASE}background:#3f3016;color:#fcd34d;border:1px solid #57411f;" title="본문의 소제목을 읽어 선택한 범위의 이미지만 생성합니다. 글자는 그대로 둡니다.">🖼️ 이미지 모두 생성</button>
+        <select id="veImageScope" aria-label="이미지 생성 범위" title="전체·홀수·짝수 소제목 선택에도 썸네일이 포함됩니다" style="${BTN_BASE}background:#0f172a;color:#e2e8f0;border:1px solid #475569;">
+          <option value="all">전체</option>
+          <option value="odd">홀수</option>
+          <option value="even">짝수</option>
+          <option value="thumbnail">썸네일만</option>
+        </select>
+        <button id="veImageBatchCancelBtn" hidden style="${BTN_BASE}background:#7f1d1d;color:#fecaca;">현재 이미지 완료 후 중지</button>
+        <span id="veImageBatchSummary" role="status" aria-live="polite" style="font-size:12px;color:#94a3b8;"></span>
         <!--
           🔗 v3.8.688 — 사장님: "글 다시 생성이랑 이미지 다시 생성 옆에 CTA 다시 생성을 추가해"
           발행글 전용인 veRegenWrap 이 아니라 여기 둔다 — 붙여넣기·대기열 글에도 버튼은 필요하다.
@@ -390,6 +388,7 @@ function ensureEditorModal() {
     </style>
   `;
   document.body.appendChild(overlay);
+  arrangeEditorWorkspace(overlay);
 
   modalRefs = {
     overlay,
@@ -411,13 +410,15 @@ function ensureEditorModal() {
     targetPlatform: overlay.querySelector('#veTargetPlatform'),
     regenWrap: overlay.querySelector('#veRegenWrap'),          // v3.8.603
     regenBtn: overlay.querySelector('#veRegenBtn'),
-    regenImgBtn: overlay.querySelector('#veRegenImgBtn'),
     draftWrap: overlay.querySelector('#veDraftWrap'),           // v3.8.683
     critiqueBtn: overlay.querySelector('#veCritiqueBtn'),
     thumbBtn: overlay.querySelector('#veThumbBtn'),
     thumbInsertBtn: overlay.querySelector('#veThumbInsertBtn'),   // v3.8.696
-    // v3.8.753: 소제목 이미지 AI 생성 — v3.8.729 에서 뺐다가 되살렸다(위 버튼 주석 참고)
-    sectionImgBtn: overlay.querySelector('#veSectionImgBtn'),
+    batchImageBtn: overlay.querySelector('#veGenerateAllImagesBtn'),
+    imageScope: overlay.querySelector('#veImageScope'),
+    thumbTextChk: overlay.querySelector('#veThumbTextChk'),
+    imageBatchCancelBtn: overlay.querySelector('#veImageBatchCancelBtn'),
+    imageBatchSummary: overlay.querySelector('#veImageBatchSummary'),
     regenCtaBtn: overlay.querySelector('#veRegenCtaBtn'),       // v3.8.688
     textEngine: overlay.querySelector('#veTextEngine'),          // v3.8.691
     imageEngine: overlay.querySelector('#veImageEngine'),        // v3.8.691
@@ -468,7 +469,7 @@ function ensureEditorModal() {
     }
     const targetPostId = session.postId;
 
-    const buttons = [modalRefs.regenBtn, modalRefs.regenImgBtn].filter(Boolean);
+    const buttons = [modalRefs.regenBtn].filter(Boolean);
     buttons.forEach((b) => { b.disabled = true; b.style.opacity = '0.5'; });
     setStatus(mode === 'images'
       ? '🖼️ 이미지를 다시 만드는 중… 다른 작업을 하셔도 됩니다 (진행률은 오른쪽 아래 카드)'
@@ -519,14 +520,13 @@ ${err?.message || err}
     }
   }
   modalRefs.regenBtn?.addEventListener('click', () => runEditorRegenerate('article'));
-  modalRefs.regenImgBtn?.addEventListener('click', () => runEditorRegenerate('images'));
 
   /**
    * ✏️ v3.8.683 — 편집기 안의 글을 그대로 비평하고, 고른 지적만 고쳐서 편집기에 다시 싣는다. 발행은 저장 버튼이 한다.
    * 사장님: "비평 개선 버튼 구현해서 누르면 비평할 부분 알려주고 수정하기 버튼 누르면 알아서 그 위치가 수정 개선되게."
    * postId 가 없어도 된다 — 붙여넣기·파일 글도 같은 버튼이다. 발행된 글은 postId 로 비평 이력을 남기는 기존 경로가 따로 있다.
    */
-  draftButtons = () => [modalRefs.askFixBtn, modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.sectionImgBtn, modalRefs.regenCtaBtn].filter(Boolean);
+  draftButtons = () => [modalRefs.askFixBtn, modalRefs.critiqueBtn, modalRefs.thumbBtn, modalRefs.batchImageBtn, modalRefs.regenCtaBtn].filter(Boolean);
   lockDraftButtons = (locked) => draftButtons().forEach((b) => { b.disabled = locked; b.style.opacity = locked ? '0.5' : '1'; });
   editorPayload = async () => {
     const target = selectedEditorPlatform() || normalizeEditorPlatform(session?.originalPlatform);
@@ -683,92 +683,6 @@ ${err?.message || err}
     }
   });
 
-  /** 커서가 있는 소제목 영역 — 커서 블록에서 위로 올라가 첫 h2 를 찾는다 */
-  function sectionTitleAtCaret(doc) {
-    let block = findCaretBlock(doc);
-    let hops = 0;
-    while (block && hops < 200) {
-      if (/^H2$/i.test(block.tagName)) return { h2: block, title: (block.textContent || '').trim() };
-      block = block.previousElementSibling || block.parentElement;
-      hops += 1;
-    }
-    return null;
-  }
-
-  async function generateEditorImage(kind) {
-    if (!session) return;
-    const doc = getFrameDoc();
-    if (!doc) return;
-    const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
-    if (!title) { setStatus('제목 칸을 먼저 채워 주세요 — 이미지 프롬프트는 제목으로 만듭니다.'); return; }
-    let sectionTitle = '';
-    let anchor = null;
-    let placedAtCaret = false;
-    if (kind === 'section') {
-      const found = sectionTitleAtCaret(doc);
-      if (!found) { setStatus('본문에서 이미지를 넣을 소제목 영역을 먼저 클릭해 주세요.'); return; }
-      sectionTitle = found.title;
-      anchor = found.h2;
-    }
-    lockDraftButtons(true);
-    setStatus(kind === 'section' ? `🖼️ "${sectionTitle.slice(0, 24)}" 영역 이미지를 만드는 중… (1~2분)` : '🖼️ 썸네일을 만드는 중… (1~2분)');
-    try {
-      const payload = await editorPayload();
-      const res = await window.electronAPI.invoke('generate-editor-image', { title, sectionTitle, kind, payload });
-      if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
-      const wrap = doc.createElement('div');
-      wrap.innerHTML = res.html;
-      const node = wrap.firstElementChild;
-      if (kind === 'section') {
-        /**
-         * 🖼️ v3.8.691 — **커서 자리에** 넣는다.
-         *
-         * 사장님: "[이 영역 이미지]는 마우스커서 위치에 정확하게 이미지가 생성이 되어야 돼"
-         *
-         * 예전에는 `anchor.insertAdjacentElement('afterend')` 로 **소제목(H2) 바로 뒤**에
-         * 꽂았다. 그래서 소제목 영역 한가운데를 클릭해도 이미지는 늘 그 영역 맨 위로 갔다.
-         * 커서는 프롬프트를 지을 소제목을 고르는 데만 쓰이고, 넣는 자리는 무시된 것이다.
-         *
-         * 광고·CTA·내 PC 이미지가 쓰는 insertHtmlAtCaret 을 그대로 쓴다 —
-         * 커서 → 마지막 커서 → 마우스가 지나간 블록 → 화면 한가운데 순으로 물러나므로
-         * "넣고 보니 딴 데 있다"가 없다. 되돌리기 스택도 그쪽과 공유된다.
-         */
-        // 넣은 자리를 다시 찾으려고 표시를 달아 둔다 — 문자열로 넣으면 node 참조가 끊긴다
-        placedAtCaret = insertHtmlAtCaret(doc, `<span class="bgpt-img-mark" hidden></span>${res.html}`);
-        if (!placedAtCaret && anchor) anchor.insertAdjacentElement('afterend', node);
-      } else {
-        const container = doc.querySelector('.content, article, main, body') || doc.body;
-        // 이미 썸네일(첫 separator 이미지)이 있으면 바꿔 끼운다
-        const existing = doc.querySelector('div.separator img');
-        if (existing && existing.closest('div.separator') && existing.closest('div.separator').parentElement === container) {
-          existing.closest('div.separator').replaceWith(node);
-        } else {
-          container.insertBefore(node, container.firstChild);
-        }
-      }
-      // 커서 삽입은 문자열로 들어갔으니 표시를 따라가 실물을 찾는다 (표시는 곧 지운다)
-      let placed = node;
-      if (kind === 'section') {
-        const marks = doc.querySelectorAll('.bgpt-img-mark');
-        const mark = marks[marks.length - 1];
-        if (mark) {
-          placed = mark.nextElementSibling || placed;
-          mark.remove();
-        }
-      }
-      try { placed?.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
-      setStatus(kind === 'section'
-        ? (placedAtCaret
-          ? `✅ "${sectionTitle.slice(0, 24)}" 이미지를 커서 위치에 넣었습니다.`
-          : `✅ "${sectionTitle.slice(0, 24)}" 이미지를 소제목 아래에 넣었습니다(커서 위치를 찾지 못했습니다).`)
-        : '✅ 썸네일을 글 맨 위에 넣었습니다 (저장 시 썸네일로 씁니다).');
-    } catch (err) {
-      setStatus(`❌ 이미지 생성 실패: ${err?.message || err}`);
-    } finally {
-      lockDraftButtons(false);
-    }
-  }
-
   /**
    * 🖼️ v3.8.696 — 내 PC 이미지를 **썸네일(대표 이미지)** 로 넣는다.
    *
@@ -788,35 +702,26 @@ ${err?.message || err}
       const dataUrl = res.files[0]?.dataUrl || '';
       if (!dataUrl) { setStatus('이미지를 읽지 못했습니다.'); return; }
 
-      // 발행기가 썸네일로 집는 모양(div.separator > img)과 같아야 한다
-      const alt = (modalRefs.titleInput.value || session.originalTitle || '').replace(/"/g, '&quot;');
-      const block = `<div class="separator" style="clear:both;text-align:center;margin:18px 0;">`
-        + `<img src="${dataUrl}" data-bgpt-user-image="1" alt="${alt}" style="max-width:100%;height:auto;border-radius:12px;" /></div>`;
-
+      if (session?.imageBatchRunning || doc !== getFrameDoc()) return;
       pushUndo('썸네일 넣기');
-      const wrap = doc.createElement('div');
-      wrap.innerHTML = block;
-      const node = wrap.firstElementChild;
-
-      const container = doc.querySelector('.content, article, main, body') || doc.body;
-      const existing = doc.querySelector('div.separator img');
-      const existingBox = existing?.closest('div.separator');
-      if (existingBox && existingBox.parentElement === container) {
-        existingBox.replaceWith(node);
-        setStatus('✅ 썸네일을 바꿨습니다. 저장하면 대표 이미지로 올라갑니다.');
-      } else {
-        container.insertBefore(node, container.firstChild);
-        setStatus('✅ 썸네일을 글 맨 위에 넣었습니다. 저장하면 대표 이미지로 올라갑니다.');
-      }
+      const node = placeEditorImage(doc, buildEditorImagePlan(doc, 'thumbnail')[0], {
+        url: dataUrl, alt: modalRefs.titleInput.value || session.originalTitle || '',
+      });
+      node.setAttribute('data-bgpt-user-image', '1');
+      setStatus('✅ 썸네일을 넣었습니다. 저장하면 대표 이미지로 올라갑니다.');
       try { node.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 삽입을 되돌릴 이유는 없다 */ }
     } catch (err) {
       setStatus(`❌ 썸네일을 넣지 못했습니다: ${err?.message || err}`);
     }
   });
 
-  modalRefs.thumbBtn?.addEventListener('click', () => generateEditorImage('thumbnail'));
-  // v3.8.753: 소제목 이미지 — 커서가 있는 소제목으로 프롬프트를 짓고, 넣는 자리는 커서다(generateEditorImage 안 주석)
-  modalRefs.sectionImgBtn?.addEventListener('click', () => generateEditorImage('section'));
+  modalRefs.thumbBtn?.addEventListener('click', () => runEditorImageBatch('thumbnail'));
+  modalRefs.batchImageBtn?.addEventListener('click', () => runEditorImageBatch(modalRefs.imageScope.value));
+  modalRefs.imageBatchCancelBtn?.addEventListener('click', stopEditorImageBatch);
+  modalRefs.imageScope?.addEventListener('change', refreshEditorImagePlan);
+  modalRefs.thumbTextChk?.addEventListener('change', refreshEditorImagePlan);
+  modalRefs.titleInput?.addEventListener('input', refreshEditorImagePlan);
+  modalRefs.imageEngine?.addEventListener('change', refreshEditorImagePlan);
 
   modalRefs.undoBtn?.addEventListener('click', () => {
     if (!undoOnce()) setStatus('되돌릴 작업이 없습니다.');
@@ -932,12 +837,11 @@ ${err?.message || err}
    * 같은 줄의 다른 버튼(제목 입력·저장·닫기)은 기본 동작이 필요하므로
    * **삽입 계열 버튼에만** 건다.
    */
-  const toolbar = modalRefs.overlay.querySelector('#veToolbar');
+  const toolbar = modalRefs.overlay;
   if (toolbar) {
     toolbar.addEventListener('mousedown', (e) => {
       // 커서 자리에 넣는 버튼들은 mousedown 에서 선택이 풀리지 않게 막는다
-      // v3.8.753: 소제목 이미지도 커서를 읽는다(어느 소제목인지 + 어디에 넣을지) — 가드에 같이 넣는다
-      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn, #veSectionImgBtn')) e.preventDefault();
+      if (e.target?.closest?.('#veInsertImageBtn, #veInsertAdBtn, #veInsertCtaBtn')) e.preventDefault();
     });
   }
 
@@ -1114,7 +1018,7 @@ let undoStack = [];
 function refreshUndoButton() {
   const btn = modalRefs?.undoBtn;
   if (!btn) return;
-  btn.disabled = undoStack.length === 0;
+  btn.disabled = !!session?.imageBatchRunning || undoStack.length === 0;
   btn.style.opacity = undoStack.length === 0 ? '0.45' : '1';
   btn.title = undoStack.length === 0
     ? '되돌릴 작업이 없습니다'
@@ -1131,6 +1035,7 @@ export function pushUndo(label) {
 }
 
 function undoOnce() {
+  if (session?.imageBatchRunning) return false;
   const doc = getFrameDoc();
   if (!doc || undoStack.length === 0) return false;
   const last = undoStack.pop();
@@ -1150,6 +1055,7 @@ function clearUndo() {
 }
 
 function applyRevisedHtml(html) {
+  session.imageBatch = null;
   const baseline = session.baseline;
   const parts = splitDocument(html);
   session.isFullDocument = parts.isFullDocument;
@@ -1867,41 +1773,130 @@ function setSourceMode(on) {
  * 무엇을 그릴지는 그 이미지 **바로 앞의 소제목**에서 가져온다(발행 때와 같은 규칙).
  */
 async function regenerateOneImage(img) {
-  if (!session || !img) return;
+  if (!session || !img?.isConnected || session.imageBatchRunning) return;
   const doc = getFrameDoc();
   if (!doc) return;
-  const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
-  if (!title) { setStatus('제목 칸을 먼저 채워 주세요 — 이미지 프롬프트는 제목으로 만듭니다.'); return; }
-
-  // 이 이미지 앞의 가장 가까운 소제목 — 없으면 제목만으로 만든다
-  let sectionTitle = '';
-  for (let el = img; el; el = el.previousElementSibling || el.parentElement) {
-    const h = el.previousElementSibling?.matches?.('h2,h3') ? el.previousElementSibling
-      : el.matches?.('h2,h3') ? el : null;
-    if (h) { sectionTitle = (h.textContent || '').trim(); break; }
-    if (el === doc.body) break;
+  const isThumbnail = thumbnailImage(doc) === img;
+  const heading = isThumbnail ? null : articleHeadings(doc).filter(h => Boolean(h.compareDocumentPosition(img) & 4)).pop();
+  if (!isThumbnail && !heading) {
+    setStatus('이 이미지 앞에 소제목이 없습니다. 썸네일 생성 또는 이미지 모두 생성을 이용해 주세요.');
+    return;
   }
+  await runEditorImageBatch('single', {
+    kind: isThumbnail ? 'thumbnail' : 'section', root: articleRoot(doc),
+    heading, sectionTitle: heading?.textContent.trim() || '', targetImage: img,
+  });
+}
 
-  lockDraftButtons(true);
-  setStatus(`🎨 이 이미지를 다시 만드는 중… (1~2분)${sectionTitle ? ` — "${sectionTitle.slice(0, 20)}"` : ''}`);
+function imagePlanKey(scope) {
+  return JSON.stringify([scope, modalRefs.titleInput.value.trim(), modalRefs.thumbTextChk.checked, modalRefs.imageEngine.value]);
+}
+
+function refreshEditorImagePlan() {
+  if (!session || !modalRefs?.imageBatchSummary || session.imageBatchRunning) return;
+  const doc = getFrameDoc();
+  if (!doc?.body) return;
+  const scope = modalRefs.imageScope.value;
+  const plan = buildEditorImagePlan(doc, scope);
+  const job = session.imageBatch;
+  const canResume = job?.pending.length && job.key === imagePlanKey(scope) && job.html === serializeEditor();
+  modalRefs.batchImageBtn.textContent = canResume ? `🖼️ 남은 ${job.pending.length}장 이어 생성` : '🖼️ 이미지 모두 생성';
+  modalRefs.imageBatchSummary.textContent = canResume
+    ? `${job.done}/${job.total}장 완료 · 완료한 이미지는 유지하고 나머지만 생성합니다.`
+    : `썸네일 1장 + 소제목 ${plan.length - 1}장 · 총 ${plan.length}장${scope !== 'thumbnail' && !articleHeadings(doc).length ? ' (소제목 없음)' : ''}. 기존 이미지는 교체합니다. 생성 비용은 장수에 따라 발생합니다.`;
+}
+
+function stopEditorImageBatch() {
+  if (!session?.imageBatchRunning) return;
+  session.imageBatchCancelRequested = true;
+  modalRefs.imageBatchCancelBtn.disabled = true;
+  setStatus('현재 생성 중인 이미지까지 반영한 뒤 중지합니다.');
+}
+
+/** Freeze mutation controls while one request is in flight; scrolling and panel folding remain available. */
+function lockImageBatch(doc) {
+  modalRefs.overlay.classList.add('ve-images-busy');
+  const controls = [...modalRefs.overlay.querySelectorAll('button,input,select,textarea')]
+    .filter(el => !['veToolsToggle', 'veCancelBtn', 'veImageBatchCancelBtn'].includes(el.id));
+  const disabled = controls.map(el => el.disabled);
+  controls.forEach(el => { el.disabled = true; });
+  const editable = doc.body.contentEditable;
+  doc.body.contentEditable = 'false';
+  doc.dispatchEvent(new Event('scroll')); // hide existing image/link popovers
+  const blockClick = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+  doc.addEventListener('click', blockClick, true);
+  doc.addEventListener('mouseover', blockClick, true);
+  return () => {
+    modalRefs.overlay.classList.remove('ve-images-busy');
+    controls.forEach((el, i) => { el.disabled = disabled[i]; });
+    doc.body.contentEditable = editable;
+    doc.removeEventListener('click', blockClick, true);
+    doc.removeEventListener('mouseover', blockClick, true);
+    refreshUndoButton();
+  };
+}
+
+/** One chosen engine call per slot. A partial batch resumes only against the unchanged document. */
+async function runEditorImageBatch(scope, singleSlot = null) {
+  if (!session || session.imageBatchRunning || modalRefs.thumbBtn.disabled) return;
+  if (session.sourceMode) setSourceMode(false);
+  const doc = getFrameDoc();
+  const title = modalRefs.titleInput.value.trim() || session.originalTitle || '';
+  if (!doc || !title) { setStatus('제목 칸을 먼저 채워 주세요.'); return; }
+  const requestSession = session;
+  const thumbnailText = modalRefs.thumbTextChk.checked;
+  const key = imagePlanKey(scope);
+  const before = serializeEditor();
+  let job = requestSession.imageBatch;
+  const sameTarget = !singleSlot || job?.pending[0]?.targetImage === singleSlot.targetImage;
+  if (!sameTarget || !job?.pending.length || job.key !== key || job.html !== before) {
+    const pending = singleSlot ? [singleSlot] : buildEditorImagePlan(doc, scope);
+    job = { key, pending, total: pending.length, done: 0, html: before, ready: null };
+    requestSession.imageBatch = job;
+  }
+  requestSession.imageBatchRunning = true;
+  requestSession.imageBatchCancelRequested = false;
+  const unlock = lockImageBatch(doc);
+  modalRefs.imageBatchCancelBtn.hidden = false;
+  modalRefs.imageBatchCancelBtn.disabled = false;
+  let checkpoint = false;
   try {
     const payload = await editorPayload();
-    const res = await window.electronAPI.invoke('generate-editor-image', { title, sectionTitle, kind: 'section', payload });
-    if (!res?.ok) throw new Error(res?.error || '알 수 없는 오류');
-    // 새로 만든 블록에서 img 주소만 꺼내 **그 자리 이미지의 src 만** 바꾼다.
-    // 블록을 통째로 갈아끼우면 발행기가 넣어 둔 클래스·스타일이 사라져 글 모양이 바뀐다.
-    const holder = doc.createElement('div');
-    holder.innerHTML = res.html;
-    const src = holder.querySelector('img')?.getAttribute('src') || '';
-    if (!src) throw new Error('만들어진 이미지 주소를 찾지 못했습니다.');
-    img.setAttribute('src', src);
-    img.removeAttribute('srcset');
-    try { img.scrollIntoView({ block: 'center' }); } catch { /* 스크롤 실패가 교체를 되돌릴 이유는 없다 */ }
-    setStatus('✅ 이 이미지를 다시 만들었습니다. (↩️ 되돌리기로 복구 가능)');
+    while (job.pending.length && !requestSession.imageBatchCancelRequested) {
+      if (session !== requestSession) return;
+      const slot = job.pending[0];
+      if (!slot.root.isConnected || (slot.heading && !slot.heading.isConnected)) throw Error('본문 구조가 바뀌었습니다.');
+      const label = slot.kind === 'thumbnail' ? '썸네일' : slot.sectionTitle;
+      modalRefs.imageBatchSummary.textContent = `${job.done}/${job.total}장 완료 · ${label} 생성 중…`;
+      setStatus(`🖼️ ${job.done + 1}/${job.total} — ${label} 생성 중…`);
+      const res = job.ready || await window.electronAPI.invoke('generate-editor-image', {
+        title, kind: slot.kind, sectionTitle: slot.sectionTitle, thumbnailText, payload,
+        ...(job.retryToken ? { retryToken: job.retryToken } : {}),
+      });
+      if (session !== requestSession) return;
+      if (res?.retryToken) job.retryToken = res.retryToken;
+      if (!res?.ok) throw Error(res?.error || '이미지를 만들지 못했습니다.');
+      job.ready = res; // retain a paid result if DOM insertion needs another attempt
+      if (!checkpoint) { pushUndo(singleSlot ? '이미지 한 장 다시 생성' : '이미지 일괄 생성'); checkpoint = true; }
+      placeEditorImage(doc, slot, res);
+      job.pending.shift();
+      job.ready = null;
+      job.retryToken = null;
+      job.done += 1;
+    }
+    setStatus(job.pending.length
+      ? `이미지 생성을 중지했습니다. ${job.done}/${job.total}장 완료 · 남은 ${job.pending.length}장은 이어 생성할 수 있습니다.`
+      : `✅ 이미지 ${job.total}장을 반영했습니다. 되돌리기로 복구할 수 있습니다. 저장하면 글에 적용됩니다.`);
   } catch (err) {
-    setStatus(`❌ 이미지 다시 생성 실패: ${err?.message || err}`);
+    setStatus(`❌ ${job.done}/${job.total}장 완료 후 멈췄습니다: ${err?.message || err}. 완료한 이미지는 유지됩니다. 자동 재시도하지 않습니다.`);
   } finally {
-    lockDraftButtons(false);
+    requestSession.imageBatchRunning = false;
+    unlock();
+    if (session === requestSession) {
+      job.html = serializeEditor();
+      modalRefs.imageBatchCancelBtn.hidden = true;
+      refreshEditorImagePlan();
+    }
   }
 }
 
@@ -1969,6 +1964,7 @@ function loadIntoFrame(rawBodyHtml) {
    * 1.5초 안에 이어 친 글자는 한 단계로 묶는다.
    */
   doc.addEventListener('beforeinput', (e) => {
+    if (session?.imageBatchRunning) { e.preventDefault(); return; }
     if (String(e.inputType || '').startsWith('history')) return;
     const now = Date.now();
     const top = undoStack[undoStack.length - 1];
@@ -1993,6 +1989,8 @@ function loadIntoFrame(rawBodyHtml) {
     onRegenerateImage: (img) => regenerateOneImage(img),   // 🎨 v3.8.691
   });
   session.baseline = serializeEditor();
+  doc.addEventListener('input', refreshEditorImagePlan);
+  refreshEditorImagePlan();
   try { doc.body.focus(); } catch { /* noop */ }
 }
 
@@ -2007,6 +2005,7 @@ function isDirty() {
 
 function requestClose() {
   if (!session) { hideModal(); return; }
+  if (session.imageBatchRunning) { stopEditorImageBatch(); return; }
   if (isDirty() && !confirm('저장하지 않은 편집 내용이 있습니다. 닫을까요?')) return;
   hideModal();
 }
@@ -2032,6 +2031,7 @@ function hideModal() {
 // ─────────────────────────────────────────────
 
 export async function openVisualEditor(source) {
+  if (session?.imageBatchRunning) { setStatus('이미지 생성이 끝난 뒤 다른 글을 열어 주세요.'); return; }
   const kind = source?.kind;
   try {
     let title = '';
@@ -2168,7 +2168,7 @@ export async function openVisualEditor(source) {
 // ─────────────────────────────────────────────
 
 async function saveCurrentSession(saveAs) {
-  if (!session) return;
+  if (!session || session.imageBatchRunning) return;
   const refs = modalRefs;
   const doc = getFrameDoc();
   if (!doc) return;

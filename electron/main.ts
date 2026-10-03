@@ -1,6 +1,9 @@
 import { ipcMain, app, globalShortcut, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { installWindowsBrowserProcessGuard } from './windows-browser-process';
+// Install before lazy browser imports capture child_process launch functions.
+installWindowsBrowserProcessGuard();
 /**
  * ⚡ 무거운 라이브러리는 쓸 때 불러온다 (v3.8.498)
  *
@@ -5120,26 +5123,13 @@ ipcMain.handle('improve-editor-html', async (_evt, args: { title?: string; html?
   }
 });
 
-ipcMain.handle('generate-editor-image', async (_evt, args: { title?: string; sectionTitle?: string; kind?: 'thumbnail' | 'section'; payload?: any }) => {
+ipcMain.handle('generate-editor-image', async (_evt, args: {
+  title?: string; sectionTitle?: string; kind?: 'thumbnail' | 'section'; thumbnailText?: boolean; retryToken?: string; payload?: any;
+}) => {
   const send = (line: string) => { try { if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line); } catch { /* noop */ } };
   try {
-    const title = String(args?.title || '').trim();
-    if (!title) return { ok: false, error: '제목이 있어야 이미지 프롬프트를 만듭니다. 제목 칸을 채워 주세요.' };
-    const { buildDraftImagePrompt, imageBlockHtml } = require('../dist/core/final/editor-draft');
-    const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
-    const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
-    const envData = loadEnvFromFile() as any;
-    const engine = String(args?.payload?.h2ImageSource || args?.payload?.imageSource || envData['IMAGE_SOURCE'] || 'imagefx');
-    const sectionTitle = args?.kind === 'section' ? String(args?.sectionTitle || '').trim() : '';
-    const prompt = buildDraftImagePrompt(title, sectionTitle || null);
-    send(`[PROGRESS] 10% - 🖼️ ${args?.kind === 'section' ? `"${sectionTitle.slice(0, 30)}" 영역` : '썸네일'} 이미지 생성 (${engine})`);
-    const made = await dispatchH2ImageGeneration(engine, prompt, title, send, undefined, { allowFreeTrialPublishing: true });
-    const raw = String(made?.dataUrl || made?.url || '');
-    if (!made?.ok || !raw) return { ok: false, error: made?.error || '이미지를 만들지 못했습니다. 이미지 엔진 로그인을 확인해 주세요.' };
-    const hosted = raw.startsWith('data:') ? await uploadBase64ToImageHost(raw, 'editor') : raw;
-    if (!hosted) return { ok: false, error: '이미지 업로드에 실패했습니다.' };
-    send('[PROGRESS] 100% - ✅ 이미지 준비 완료');
-    return { ok: true, url: hosted, html: imageBlockHtml(hosted, sectionTitle || title), prompt };
+    const { generateEditorImage } = require('../dist/core/final/editor-image');
+    return await generateEditorImage(args || {}, loadEnvFromFile(), send);
   } catch (error: any) {
     const message = error?.message || String(error);
     send(`❌ 이미지 생성 실패: ${message}`);
@@ -9257,7 +9247,7 @@ ipcMain.on('blogger-auth-expiring-soon', (event, data) => {
   if (process.platform === 'darwin') { // macOS
     require('child_process').exec('afplay /System/Library/Sounds/Glass.aiff');
   } else if (process.platform === 'win32') { // Windows
-    require('child_process').exec('powershell.exe [console]::beep(800,500)');
+    require('child_process').exec('powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "[console]::beep(800,500)"', { windowsHide: true });
   } else { // Linux
     require('child_process').exec('paplay /usr/share/sounds/freedesktop/stereo/message.oga || aplay /usr/share/sounds/alsa/Front_Center.wav');
   }
@@ -9280,7 +9270,7 @@ ipcMain.on('blogger-auth-expired', (event, data) => {
   if (process.platform === 'darwin') {
     require('child_process').exec('afplay /System/Library/Sounds/Sosumi.aiff');
   } else if (process.platform === 'win32') {
-    require('child_process').exec('powershell.exe [console]::beep(1000,1000); [console]::beep(1200,1000)');
+    require('child_process').exec('powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "[console]::beep(1000,1000); [console]::beep(1200,1000)"', { windowsHide: true });
   } else {
     require('child_process').exec('paplay /usr/share/sounds/freedesktop/stereo/dialog-error.oga || aplay /usr/share/sounds/alsa/Side_Right.wav');
   }
@@ -11045,7 +11035,7 @@ function killAgentChildTree(child: import('child_process').ChildProcess, opts: {
       // /t: 자식까지 트리 전체, /f: 강제 종료. 이미 죽었으면 에러가 나는데 무시해도 안전하다.
       //   이걸 안 쓰면(그냥 child.kill()) useShell=true 일 때 cmd.exe 만 죽고
       //   그 밑에서 실제로 토큰을 쓰는 codex/claude 프로세스는 계속 돈다.
-      execFile('taskkill', ['/pid', String(pid), '/t', '/f'], () => { /* 이미 종료됐으면 실패해도 무방 */ });
+      execFile('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true }, () => { /* 이미 종료됐으면 실패해도 무방 */ });
     } else {
       child.kill('SIGKILL');
     }

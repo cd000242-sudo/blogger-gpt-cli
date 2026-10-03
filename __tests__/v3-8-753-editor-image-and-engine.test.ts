@@ -1,9 +1,8 @@
 /**
  * v3.8.753 — 사장님 신고 3건
  *
- *  ① "편집기에 소제목 이미지 생성버튼 여전히 누락되어있고"
- *     → generateEditorImage('section') 과 IPC(generate-editor-image kind:'section')는 살아 있는데
- *       v3.8.729 에서 **부르는 버튼만** 뺐다. 되살리고, id 실존·배선을 여기서 못박는다.
+ *  ① 편집기 이미지 생성 진입점 — 이제 범위를 골라 썸네일부터 순서대로 생성한다.
+ *     버튼, 범위 선택, 중지, 단건 IPC의 연결을 확인한다.
  *
  *  ② "비평 개선도 제대로된 기능을 못하는것같아"
  *     → 근거 앞 30자를 한 덩어리로만 찾아, AI 가 한 글자만 바꿔 적어도 문단을 못 찾고 건너뛰었다.
@@ -31,36 +30,47 @@ const indexHtml = read('electron/ui/index.html');
 const mainTs = read('electron/main.ts');
 
 /* ────────────────────────────────────────────────────────────────
- * ① 편집기 소제목 이미지 버튼 — 만들어 놓고 안 부르던 기능
+ * ① 편집기 이미지 일괄 생성 — 범위 선택과 실제 호출 연결
  * ──────────────────────────────────────────────────────────────── */
-describe('① 소제목 이미지 생성 버튼 (AI)', () => {
-  it('도구막대에 버튼이 있다', () => {
-    expect(editorJs).toContain('id="veSectionImgBtn"');
-    expect(editorJs).toContain('🖼️ 소제목 이미지');
+describe('① 이미지 모두 생성 버튼과 범위 선택 (AI)', () => {
+  it('도구막대에 일괄 버튼과 네 가지 범위가 있다', () => {
+    expect(editorJs).toContain('id="veGenerateAllImagesBtn"');
+    expect(editorJs).toContain('🖼️ 이미지 모두 생성');
+    expect(editorJs).not.toContain('id="veSectionImgBtn"');
+    const scope = editorJs.slice(editorJs.indexOf('id="veImageScope"'), editorJs.indexOf('id="veImageBatchCancelBtn"'));
+    for (const value of ['all', 'odd', 'even', 'thumbnail']) expect(scope).toContain(`value="${value}"`);
   });
 
   it('modalRefs 가 그 id 를 잡는다 — 없는 id 를 잡으면 배선이 조용히 죽는다', () => {
-    expect(editorJs).toContain("sectionImgBtn: overlay.querySelector('#veSectionImgBtn')");
+    expect(editorJs).toContain("batchImageBtn: overlay.querySelector('#veGenerateAllImagesBtn')");
+    expect(editorJs).toContain("imageScope: overlay.querySelector('#veImageScope')");
   });
 
-  it('누르면 generateEditorImage(\'section\') 을 부른다', () => {
-    expect(editorJs).toMatch(/modalRefs\.sectionImgBtn\?\.addEventListener\('click', \(\) => generateEditorImage\('section'\)\)/);
+  it('생성 버튼은 선택 범위를 전달하고 중지·범위 변경도 연결되어 있다', () => {
+    expect(editorJs).toContain("modalRefs.batchImageBtn?.addEventListener('click', () => runEditorImageBatch(modalRefs.imageScope.value))");
+    expect(editorJs).toContain("modalRefs.imageBatchCancelBtn?.addEventListener('click', stopEditorImageBatch)");
+    expect(editorJs).toContain("modalRefs.imageScope?.addEventListener('change', refreshEditorImagePlan)");
   });
 
   it('생성 중에는 다른 생성 버튼과 함께 잠긴다 (이중 호출 = 이중 과금)', () => {
     const line = editorJs.split('\n').find((l) => l.includes('draftButtons = () => [modalRefs.')) || '';
-    expect(line).toContain('modalRefs.sectionImgBtn');
+    expect(line).toContain('modalRefs.batchImageBtn');
   });
 
-  it("백엔드가 kind:'section' 을 그대로 받는다 — 프런트만 고치면 조용히 실패한다", () => {
-    expect(editorJs).toContain("invoke('generate-editor-image', { title, sectionTitle, kind, payload })");
+  it('각 자리의 이미지 종류·소제목·썸네일 텍스트 옵션을 단건 백엔드에 전달한다', () => {
+    expect(editorJs).toContain("invoke('generate-editor-image'");
+    expect(editorJs).toContain('kind: slot.kind');
+    expect(editorJs).toContain('sectionTitle: slot.sectionTitle');
+    expect(editorJs).toContain('thumbnailText');
     expect(mainTs).toContain("kind?: 'thumbnail' | 'section'");
+    expect(mainTs).toContain('thumbnailText?: boolean');
   });
 
   it('"이미지가 0장" 지적의 안내가 이 버튼을 가리킨다 — 예전 안내의 두 버튼은 내 PC 파일만 넣는다', () => {
     const ability = rewriteAbility({ id: 'structure-noimage', title: '이미지가 한 장도 없습니다' });
     expect(ability.fixable).toBe(false);
-    expect(ability.hint).toContain('🖼️ 소제목 이미지');
+    expect(ability.hint).toContain('🖼️ 이미지 모두 생성');
+    expect(ability.hint).toContain('생성 범위');
   });
 });
 

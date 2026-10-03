@@ -38,14 +38,19 @@ const read = (p: string) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8
 
 const savedModel = process.env['PRIMARY_TEXT_MODEL'];
 const savedTimeout = process.env['GEMINI_TIMEOUT_MS'];
+const savedNoLive = process.env['NO_LIVE_LLM'];
 
 beforeEach(() => {
+  // SDK/HTTP calls are mocked here; exercise their timeout/cancellation logic even in an offline gate run.
+  delete process.env['NO_LIVE_LLM'];
   generateContent.mockReset();
   process.env['PRIMARY_TEXT_MODEL'] = 'gemini-2.5-flash'; // gemini 티어 강제 (기본은 openai)
   endRun();
 });
 
 afterAll(() => {
+  if (savedNoLive === undefined) delete process.env['NO_LIVE_LLM'];
+  else process.env['NO_LIVE_LLM'] = savedNoLive;
   if (savedModel === undefined) delete process.env['PRIMARY_TEXT_MODEL'];
   else process.env['PRIMARY_TEXT_MODEL'] = savedModel;
   if (savedTimeout === undefined) delete process.env['GEMINI_TIMEOUT_MS'];

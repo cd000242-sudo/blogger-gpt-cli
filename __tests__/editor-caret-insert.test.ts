@@ -17,10 +17,10 @@ const editor = readFileSync(join(__dirname, '..', 'electron/ui/modules/editor.js
 const editorImages = readFileSync(join(__dirname, '..', 'electron/ui/modules/editor-images.js'), 'utf8');
 
 describe('편집기 커서 위치 삽입', () => {
-  /** modalRefs 에도 #veToolbar 조회가 있으므로 가드 코드 자체를 표식으로 삼는다 */
-  const toolbarGuard = () => braceBlock(editor, "const toolbar = modalRefs.overlay.querySelector('#veToolbar')");
+  /** 우측 도구 패널로 이동한 버튼까지 포함하도록 편집기 전체에 위임한다. */
+  const toolbarGuard = () => braceBlock(editor, 'const toolbar = modalRefs.overlay;');
 
-  it('상단 툴바의 이미지 삽입 버튼도 선택 유실을 막는다 (사고 재현 잠금)', () => {
+  it('우측 패널의 이미지 삽입 버튼도 선택 유실을 막는다 (사고 재현 잠금)', () => {
     const guard = toolbarGuard();
     expect(guard).toContain('mousedown');
     expect(guard).toContain('veInsertImageBtn');

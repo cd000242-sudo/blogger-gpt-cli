@@ -105,7 +105,7 @@ async function publishViaGit(root: string, payload: GoldenPayload): Promise<Publ
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, buildContent(payload), 'utf-8');
 
-  const git = (args: string[]) => execFileAsync('git', args, { cwd: root });
+  const git = (args: string[]) => execFileAsync('git', args, { cwd: root, windowsHide: true });
 
   try {
     await git(['add', '--', REPO_REL_PATH]);

@@ -23,6 +23,9 @@ import { braceBlock } from './helpers/source-block';
 const ROOT = path.join(__dirname, '..');
 const uiHtml = fs.readFileSync(path.join(ROOT, 'electron', 'ui', 'index.html'), 'utf8');
 
+// Engine selection must use the supplied credentials, never the developer machine's .env.
+jest.mock('../src/env', () => ({ loadEnvFromFile: jest.fn(() => ({})) }));
+
 jest.mock('../src/core/engine-stats', () => ({
   getSuccessRate: (engine: string) => {
     // 사용자 로그의 실제 수치

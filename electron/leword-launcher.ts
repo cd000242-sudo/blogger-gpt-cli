@@ -233,7 +233,7 @@ function locateViaRegistry(): Promise<string | null> {
     const ps = `Get-ItemProperty HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* ` +
       `| Where-Object { $_.DisplayName -like '*LEWORD*' } ` +
       `| Select-Object -First 1 -ExpandProperty InstallLocation`;
-    exec(`powershell -NoProfile -Command "${ps}"`, { timeout: 5000 }, (err, stdout) => {
+    exec(`powershell -NoProfile -NonInteractive -WindowStyle Hidden -Command "${ps}"`, { timeout: 5000, windowsHide: true }, (err, stdout) => {
       if (err) { resolve(null); return; }
       const dir = stdout.trim();
       if (!dir) { resolve(null); return; }

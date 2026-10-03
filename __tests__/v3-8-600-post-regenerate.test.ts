@@ -135,16 +135,19 @@ describe('편집기에서도 다시 만들 수 있다', () => {
   const editor = read('electron/ui/modules/editor.js');
   const main = read('electron/main.ts');
 
-  test('편집기 도구줄에 버튼 두 개가 있다', () => {
+  test('편집기에서 글 재생성과 범위별 이미지 생성을 각각 실행할 수 있다', () => {
     expect(editor).toContain('id="veRegenBtn"');
-    expect(editor).toContain('id="veRegenImgBtn"');
+    expect(editor).toContain('id="veGenerateAllImagesBtn"');
+    expect(editor).toContain('id="veImageScope"');
+    expect(editor).toContain("batchImageBtn?.addEventListener('click', () => runEditorImageBatch(modalRefs.imageScope.value))");
+    expect(editor).not.toContain('id="veRegenImgBtn"');
   });
 
-  test('목록과 같은 채널을 부른다 (두 벌로 만들지 않는다)', () => {
+  test('글 재생성은 목록과 같은 채널을 부른다 (두 벌로 만들지 않는다)', () => {
     expect(editor).toContain("invoke('regenerate-published-post'");
   });
 
-  test('이미 발행된 글에서만 보인다 — 대기열·파일에는 postId 가 없다', () => {
+  test('글 재생성은 이미 발행된 글에서만 보인다 — 대기열·파일에는 postId 가 없다', () => {
     expect(editor).toMatch(/regenWrap[\s\S]{0,120}getPublishedSource\(kind\) && postId/);
   });
 

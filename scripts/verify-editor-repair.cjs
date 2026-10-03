@@ -29,6 +29,7 @@ const strip = s => s.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     });
     const images = strip(read('electron/ui/modules/editor-images.js'));
     await page.addScriptTag({content: `(function(){${images}\nObject.assign(window,{initImageEditing,detachImageEditing,hostPendingImages,insertImagesAtCaret,insertHtmlAtCaret,findCaretBlock});})();`});
+    await page.addScriptTag({content: `${strip(read('electron/ui/modules/editor-workspace.js'))}\n${strip(read('electron/ui/modules/editor-image-plan.js'))}`});
     const editor = strip(read('electron/ui/modules/editor.js'));
     await page.addScriptTag({content: `(function(){${editor}\nwindow.editorTest={openVisualEditor,serializeEditor,pushUndo,undoOnce,isDirty,applyRevisedHtml};})();`});
     const original = '<!doctype html><html lang="ko" class="custom-root"><head><style>body.custom{background:rgb(12, 34, 56);color:white} .custom p{font-size:27px}</style></head><body class="custom" style="padding:7px"><p>원래 문장</p><h2>안내</h2><p>뒤 문장</p></body></html>';
@@ -53,6 +54,7 @@ const strip = s => s.replace(/^import .*;\r?\n/gm, '').replace(/^export /gm, '')
     assert.match(await page.evaluate(() => window.editorTest.serializeEditor()), /id="inserted"/);
     await page.locator('#veUndoBtn').click();
     assert.doesNotMatch(await page.evaluate(() => window.editorTest.serializeEditor()), /id="inserted"/);
+    await page.locator('#veReviewTools > summary').click();
     await page.locator('#veAskFixBtn').click();
     await page.locator('#veAskMultiDialog textarea').fill('원래 문장을 고친 문장으로 바꿔 주세요');
     await page.locator('#veAskMultiOk').click();

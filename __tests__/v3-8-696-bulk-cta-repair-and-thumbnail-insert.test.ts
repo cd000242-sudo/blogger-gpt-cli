@@ -145,21 +145,27 @@ describe('④ 썸네일 넣기 — 내 PC 이미지를 대표 이미지로', () 
   test('⭐ 썸네일로 잡히는 모양(div.separator > img)으로 넣는다', () => {
     const fn = editor.slice(editor.indexOf("modalRefs.thumbInsertBtn?.addEventListener"));
     const body = fn.slice(0, fn.indexOf('modalRefs.thumbBtn?.addEventListener'));
-    expect(body).toContain('class="separator"');
-    // 썸네일 판정이 실제로 그 선택자를 쓴다
-    expect(editor).toContain("doc.querySelector('div.separator img')");
+    expect(body).toContain("placeEditorImage(doc, buildEditorImagePlan(doc, 'thumbnail')[0]");
+    const plan = read('electron/ui/modules/editor-image-plan.js');
+    expect(plan).toContain("wrapper.className = 'separator'");
+    expect(plan).toContain("image.setAttribute('data-orbit-image-role', slot.kind)");
+    expect(editor).toContain('thumbnailImage(doc)');
   });
 
   test('⭐ 이미 썸네일이 있으면 바꿔 끼운다 — 두 장이 되면 위에 나란히 보인다', () => {
     const fn = editor.slice(editor.indexOf("modalRefs.thumbInsertBtn?.addEventListener"));
     const body = fn.slice(0, fn.indexOf('modalRefs.thumbBtn?.addEventListener'));
-    expect(body).toContain('existingBox.replaceWith(node)');
-    expect(body).toContain('container.insertBefore(node, container.firstChild)');
+    expect(body).toContain("buildEditorImagePlan(doc, 'thumbnail')[0]");
+    const plan = read('electron/ui/modules/editor-image-plan.js');
+    expect(plan).toContain("slot.kind === 'thumbnail' ? thumbnailImage(doc)");
+    expect(plan).toContain('const image = existing || generated');
+    expect(plan).toContain('if (!existing) {');
+    expect(plan).toContain('slot.root.prepend(wrapper)');
   });
 
   test('저장 시 업로드되도록 표시를 단다', () => {
     const fn = editor.slice(editor.indexOf("modalRefs.thumbInsertBtn?.addEventListener"));
-    expect(fn.slice(0, fn.indexOf('modalRefs.thumbBtn?.addEventListener'))).toContain('data-bgpt-user-image="1"');
+    expect(fn.slice(0, fn.indexOf('modalRefs.thumbBtn?.addEventListener'))).toContain("node.setAttribute('data-bgpt-user-image', '1')");
   });
 
   test('AI 썸네일 생성 버튼은 그대로 있다 — 둘은 다른 일이다', () => {

@@ -1109,8 +1109,8 @@ export function rewriteAbility(
   opts: { targeted?: boolean } = {},
 ): RewriteAbility {
   const id = String(issue?.id || '');
-  // v3.8.753: [🖼️ 소제목 이미지](AI 생성)를 되살렸으니 안내도 그 버튼을 먼저 가리킨다 — 예전 안내의 두 버튼은 내 PC 파일만 넣는다
-  if (id === 'structure-noimage') return { fixable: false, hint: '글을 다시 써서는 그림이 생기지 않습니다 — 넣을 자리를 클릭한 뒤 [🖼️ 소제목 이미지](AI 생성), 또는 [🖼️ 이미지]·[🖼️ 썸네일 넣기](내 PC 파일) 버튼으로 넣으세요.' };
+  // 편집기에서 생성 범위를 고른 뒤 썸네일부터 소제목 이미지까지 순서대로 만든다.
+  if (id === 'structure-noimage') return { fixable: false, hint: '글을 다시 써서는 그림이 생기지 않습니다 — 생성 범위를 고르고 [🖼️ 이미지 모두 생성](AI 생성), 또는 [🖼️ 이미지]·[🖼️ 썸네일 넣기](내 PC 파일) 버튼으로 넣으세요.' };
   if (id === 'cta-none') return { fixable: false, hint: '링크는 지어 넣지 않습니다 — [🔗 CTA 다시 생성] 버튼으로 목적지를 찾아 넣으세요.' };
   if (id === 'quality-internalLinks') return { fixable: false, hint: '내부 링크는 발행할 때 자동으로 붙습니다 — 본문 수정으로는 채워지지 않습니다.' };
   if (id === 'quality-imageAlt') return { fixable: false, hint: '이미지 설명(alt)은 본문이 아니라 이미지 속성입니다 — 발행 시 소제목으로 자동 채워집니다.' };
