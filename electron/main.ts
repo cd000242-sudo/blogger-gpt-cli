@@ -14,10 +14,12 @@ import {
   CODEX_PORTABLE_DISPLAY,
   createDefaultPortableDeps,
   getCodexToolsRoot,
+  getToolsRoot,
   installCodexPortable,
   readManagedCodex,
   type CodexInstallProgress,
 } from './codex-portable';
+import { GEMINI_PORTABLE_DISPLAY, installGeminiPortable, readManagedGemini } from './gemini-portable';
 // Install before lazy browser imports capture child_process launch functions.
 installWindowsBrowserProcessGuard();
 /**
@@ -11893,6 +11895,7 @@ function getAgentInstallDisplayCommand(provider: AgentModeProvider): string {
   if (provider === 'claude') {
     return 'irm https://claude.ai/install.ps1 | iex';
   }
+  if (provider === 'gemini') return 'npm install -g @google/gemini-cli';
   return 'npm install -g @openai/codex';
 }
 
@@ -11968,6 +11971,14 @@ function buildInlineAgentInstallProcess(provider: AgentModeProvider): { command:
     };
   }
 
+  // v3.8.755: Gemini 설치 버튼이 Codex 를 깔던 것 — 여기엔 claude 갈래만 있어서 gemini 가 아래 codex 로 빠졌다
+  if (provider === 'gemini') {
+    const geminiCommand = 'npm install -g @google/gemini-cli';
+    return process.platform === 'win32'
+      ? { command: process.env.ComSpec || 'cmd.exe', args: ['/d', '/c', geminiCommand], displayCommand: geminiCommand }
+      : { command: 'npm', args: ['install', '-g', '@google/gemini-cli'], displayCommand: geminiCommand };
+  }
+
   const displayCommand = 'npm install -g @openai/codex';
   if (process.platform === 'win32') {
     // v3.8.755: npm 이 없는 PC 는 winget 공식 패키지로 — electron/agent-install.ts 참고
@@ -11982,6 +11993,10 @@ function buildInlineAgentInstallProcess(provider: AgentModeProvider): { command:
     args: ['install', '-g', '@openai/codex'],
     displayCommand,
   };
+}
+
+function toolsRoot(): string {
+  return getToolsRoot(process.env, app.getPath('userData'));
 }
 
 function codexToolsRoot(): string {
@@ -12007,16 +12022,20 @@ async function installAgentForThisPc(
   provider: AgentModeProvider,
   onProgress?: (progress: CodexInstallProgress) => void,
 ): Promise<{ exitCode: number | null; command: string; output: string; timedOut: boolean }> {
-  if (process.platform !== 'win32' || provider !== 'codex') return runInlineAgentInstall(provider);
+  if (process.platform !== 'win32' || provider === 'claude') return runInlineAgentInstall(provider);
 
-  const portable = await installCodexPortable({
-    root: codexToolsRoot(),
-    arch: process.arch,
-    deps: createDefaultPortableDeps(portableFetch),
-    onProgress,
-  });
+  // Gemini CLI 도 같은 방식 — 공식 번들 + 공식 node.exe (electron/gemini-portable.ts)
+  const deps = createDefaultPortableDeps(portableFetch);
+  const portable = provider === 'gemini'
+    ? await installGeminiPortable({ toolsRoot: toolsRoot(), arch: process.arch, deps, onProgress })
+    : await installCodexPortable({ root: codexToolsRoot(), arch: process.arch, deps, onProgress });
   if (portable.ok) {
-    return { exitCode: 0, command: CODEX_PORTABLE_DISPLAY, output: portable.log.join('\n'), timedOut: false };
+    return {
+      exitCode: 0,
+      command: provider === 'gemini' ? GEMINI_PORTABLE_DISPLAY : CODEX_PORTABLE_DISPLAY,
+      output: portable.log.join('\n'),
+      timedOut: false,
+    };
   }
 
   onProgress?.({ stage: 'check', message: '직접 내려받기가 실패해 다른 방법(npm/winget)으로 다시 시도합니다.' });
@@ -12195,6 +12214,7 @@ function getAgentBinaryCandidates(binaryName: string): string[] {
   if (process.platform === 'win32') {
     // v3.8.755: 앱이 직접 받아 둔 Codex 가 맨 앞 — 설치 버튼이 고른 최신판을 옛 npm 판이 가리지 않게
     if (binaryName === 'codex') pushUniquePath(candidates, readManagedCodex(codexToolsRoot())?.exe);
+    if (binaryName === 'gemini') pushUniquePath(candidates, readManagedGemini(path.join(toolsRoot(), 'gemini'))?.exe);
     pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
     pushUniquePath(npmPrefixes, process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : '');
     pushUniquePath(npmPrefixes, process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm') : '');
@@ -12566,13 +12586,16 @@ function testAgentBinary(binaryPath: string, binaryName: string): Promise<{ usab
     try {
       const { exec, execFile } = require('child_process') as typeof import('child_process');
       const isWindowsScript = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binaryPath || binaryName);
+      // v3.8.755: 5초는 짧았다 — Gemini 는 98MB 번들이라 --version 만 3.1~3.6초(실측), 앱이 돌고 있거나
+      //   느린 PC 면 5초를 넘겨 멀쩡히 깔린 것을 "실행 안 됨" 으로 판정했다(실제 화면 시험에서 잡힘).
+      const timeout = binaryName === 'gemini' ? 30_000 : 15_000;
       const execOptions: import('child_process').ExecOptionsWithStringEncoding = {
-        timeout: 5000,
+        timeout,
         windowsHide: true,
         encoding: 'utf8',
       };
       const execFileOptions: import('child_process').ExecFileOptionsWithStringEncoding = {
-        timeout: 5000,
+        timeout,
         windowsHide: true,
         encoding: 'utf8',
       };

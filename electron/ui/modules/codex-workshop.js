@@ -3794,7 +3794,9 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
       status: `${label} 설치 명령을 실행 중입니다.`,
       output: normalizedProvider === 'codex'
         ? 'OpenAI 공식 Codex 를 내려받아 설치합니다(약 160MB · 인터넷 속도에 따라 1~5분).\n창을 닫지 말고 기다려주세요. 끝나면 로그인 창이 자동으로 열립니다.'
-        : '공식 설치 명령 실행 중...',
+        : normalizedProvider === 'gemini'
+          ? 'Gemini CLI 와 실행에 필요한 Node.js 를 공식 사이트에서 내려받아 설치합니다(약 110MB · 1~5분).\n창을 닫지 말고 기다려주세요. 끝나면 로그인 창이 자동으로 열립니다.'
+          : '공식 설치 명령 실행 중...',
       type: 'info',
     });
     const result = typeof api?.installAgentTool === 'function'
@@ -3851,10 +3853,12 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
     await loadAgentModeStatus(true);
     // v3.8.755: 원클릭 — 설치가 확인되면 로그인 창까지 이어서 연다
     if (finalVerified && options.thenLogin !== false) {
+      // 할 일은 맨 위 상태 줄에 — 로그 상자 아래쪽은 스크롤해야 보여 시니어 고객이 놓친다(실제 화면 확인)
+      const account = normalizedProvider === 'codex' ? 'ChatGPT' : normalizedProvider === 'gemini' ? 'Google' : 'Claude';
       updateAgentInstallModal({
         label,
-        status: `${label} 설치가 완료되었습니다. 이어서 로그인 창을 엽니다.`,
-        output: `${output}\n\n────────────────\n브라우저가 열리면 ChatGPT 계정으로 로그인만 해주세요. 나머지는 자동으로 확인됩니다.`,
+        status: `${label} 설치 완료! 곧 열리는 브라우저에서 ${account} 계정으로 로그인만 해주세요.`,
+        output: `${output}\n\n────────────────\n브라우저가 열리면 ${account} 계정으로 로그인만 해주세요. 나머지는 자동으로 확인됩니다.`,
         type: 'success',
       });
       await startAgentLogin(normalizedProvider, '', { skipInstall: true });

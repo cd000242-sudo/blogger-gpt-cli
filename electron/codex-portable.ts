@@ -32,7 +32,8 @@ export type CodexReleaseInfo = { url: string; sha256: string | null; version: st
 export type PortableDeps = {
   fetch: (url: string, init?: Record<string, unknown>) => Promise<Response>;
   extractZip: (zipPath: string, destDir: string) => Promise<void>;
-  runVersion: (exe: string) => Promise<string | null>;
+  /** 실행 확인 — 인자를 안 주면 `--version` */
+  runVersion: (exe: string, args?: string[]) => Promise<string | null>;
 };
 
 export type PortableInstallResult = {
@@ -48,8 +49,13 @@ export function codexAssetName(arch: string): string {
   return arch === 'arm64' ? 'codex-aarch64-pc-windows-msvc.exe.zip' : 'codex-x86_64-pc-windows-msvc.exe.zip';
 }
 
+/** 앱이 직접 받아 두는 도구들의 자리 — 사용자 로컬 폴더라 관리자 권한이 필요 없다 */
+export function getToolsRoot(env: NodeJS.ProcessEnv, fallbackDir: string): string {
+  return path.join(env.LOCALAPPDATA || fallbackDir, 'LEADERNAM Orbit', 'tools');
+}
+
 export function getCodexToolsRoot(env: NodeJS.ProcessEnv, fallbackDir: string): string {
-  return path.join(env.LOCALAPPDATA || fallbackDir, 'LEADERNAM Orbit', 'tools', 'codex');
+  return path.join(getToolsRoot(env, fallbackDir), 'codex');
 }
 
 /** 릴리스 API 응답에서 이 PC 에 맞는 자산과 sha256 을 고른다 */
@@ -114,9 +120,10 @@ async function fetchRelease(deps: PortableDeps, arch: string): Promise<CodexRele
   }
 }
 
-async function downloadTo(
+/** 받으면서 sha256 을 같이 센다. 바이트가 멈추면 끊는다. 돌려주는 값은 받은 파일의 sha256 */
+export async function downloadTo(
   deps: PortableDeps,
-  info: CodexReleaseInfo,
+  info: Pick<CodexReleaseInfo, 'url' | 'size'>,
   dest: string,
   onProgress: ProgressFn,
 ): Promise<string> {
@@ -162,14 +169,14 @@ async function downloadTo(
   return hash.digest('hex');
 }
 
-function removeQuietly(target: string): void {
+export function removeQuietly(target: string): void {
   try {
     fs.rmSync(target, { recursive: true, force: true });
   } catch { /* 쓰는 중이면 다음 설치 때 지운다 */ }
 }
 
 /** 지금 쓰는 버전 폴더만 남기고 예전 버전·남은 임시 파일을 지운다(앱이 만든 폴더만) */
-function pruneOldVersions(root: string, keepDir: string): void {
+export function pruneOldVersions(root: string, keepDir: string): void {
   let entries: string[] = [];
   try {
     entries = fs.readdirSync(root);
@@ -279,8 +286,8 @@ export function createDefaultPortableDeps(fetchImpl: PortableDeps['fetch']): Por
       ], 15 * 60_000);
       if (!result.ok) throw new Error('압축을 풀지 못했습니다. 디스크 여유 공간(1GB 이상)을 확인해주세요.');
     },
-    runVersion: async (exe) => {
-      const result = await run(exe, ['--version'], 60_000);
+    runVersion: async (exe, args = ['--version']) => {
+      const result = await run(exe, args, 60_000);
       return result.ok && result.stdout.trim() ? result.stdout.trim() : null;
     },
   };

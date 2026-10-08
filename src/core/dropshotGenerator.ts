@@ -1478,35 +1478,29 @@ export async function loginDropshot(): Promise<{
       try {
         const pages = context.pages();
         const p = pages.find((pg: any) => { try { return pg.url().includes('dropshot.io'); } catch { return false; } }) || pages[pages.length - 1];
-        const ok = isDropshotBoardUrl(String(p?.url?.() || ''));
-        if (ok) {
-          loggedIn = true;
-          boardPage = p;
-          try {
-            // v3.8.386: 여기도 죽은 /api/me 를 쓰고 있었다(404 → userName 항상 undefined).
-            //   아래 checkDropshotLogin 결과가 우선이라 화면엔 티가 안 났지만, 그 조회가
-            //   실패했을 때의 폴백 이름까지 비는 문제가 있어 살아있는 세션 API로 교체한다.
-            const u = await p.evaluate(async (sessionUrl: string) => {
-              const r = await fetch(sessionUrl, { credentials: 'include' });
-              if (!r.ok) return null;
-              const body: any = await r.json().catch(() => null);
-              return (body && body.user) || null;
-            }, DROPSHOT_SESSION_API);
-            userName = u?.name || u?.email;
-          } catch {}
-          break;
-        }
+        if (!isDropshotBoardUrl(String(p?.url?.() || ''))) continue;
+        // v3.8.755: 보드 주소만으로는 로그인이 아니다. 로그아웃 상태에서도 보드가 열리고
+        //   세션 API 는 200 에 user 없음을 준다(실측 2026-10-08). 예전엔 주소만 보고 "로그인 완료"라 했다 —
+        //   고객 신고 "로그인 됐다는데 이미지 생성이 계속 실패"의 입구.
+        const probe = await probeDropshotAuthApi(p);
+        if (!probe.ok) continue;
+        loggedIn = true;
+        boardPage = p;
+        userName = probe.name || undefined;
+        break;
       } catch { continue; }
     }
     // v3.8.363: 이미 열린 board page로 즉시 generation ready 확인 → 별도 verify 왕복 제거
     if (loggedIn) {
-      const verified = await checkDropshotLogin({ force: true }).catch(() => null);
-      const result: any = withDropshotSubscriptionMeta(verified?.loggedIn
-        ? { ...verified, message: '로그인 완료' }
-        : userName
-        ? { loggedIn: true, userName, message: '로그인 완료', subscription: 'unknown' }
-        : { loggedIn: true, message: '로그인 완료', subscription: 'unknown' });
-      _loginCheckCache = { ts: Date.now(), result };
+      // v3.8.755: 예전엔 여기서 checkDropshotLogin 을 불렀다. 로그인 창이 같은 프로필을 쥐고 있어
+      //   배경 브라우저가 못 떠서 늘 실패했고, 실패하면 무조건 "로그인 완료" 로 떨어졌다.
+      //   배경 확인은 창을 닫은 뒤 아래에서 한다.
+      const result: any = withDropshotSubscriptionMeta({
+        loggedIn: true,
+        ...(userName ? { userName } : {}),
+        message: '로그인 완료',
+        subscription: 'unknown',
+      });
       try {
         if (boardPage) {
           const genSession = await verifyDropshotGenerationSession(boardPage);
@@ -1526,7 +1520,25 @@ export async function loginDropshot(): Promise<{
         result.ready = false;
         result.generationMessage = `생성 준비 확인 실패: ${verifyErr?.message || verifyErr}`;
       }
-      return result;
+
+      // v3.8.755: 이미지는 배경 브라우저가 만든다. 창을 닫고, 배경이 같은 로그인을 이어받는지 확인한다.
+      await closeDropshotContext(context);
+      context = null;
+      const background = await checkDropshotLogin({ force: true }).catch(() => null);
+      if (!background?.loggedIn) {
+        const failed = {
+          ...result,
+          loggedIn: false,
+          ready: false,
+          message: '로그인 창에서는 로그인됐지만, 이미지 생성용 배경 브라우저가 로그인을 이어받지 못했습니다. '
+            + `잠시 뒤 [Dropshot 로그인]을 한 번 더 눌러주세요.${background?.message ? ` (${background.message})` : ''}`,
+        };
+        _loginCheckCache = { ts: Date.now(), result: failed };
+        return failed;
+      }
+      const merged = withDropshotSubscriptionMeta({ ...result, ...background, message: '로그인 완료' });
+      _loginCheckCache = { ts: Date.now(), result: merged };
+      return merged;
     }
     const result = { loggedIn: false, message: '6분 내 로그인 미완료' };
     _loginCheckCache = { ts: Date.now(), result };

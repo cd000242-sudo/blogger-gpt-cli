@@ -35,9 +35,13 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CODEX_PORTABLE_DISPLAY = exports.CODEX_LATEST_DOWNLOAD = exports.CODEX_RELEASE_API = void 0;
 exports.codexAssetName = codexAssetName;
+exports.getToolsRoot = getToolsRoot;
 exports.getCodexToolsRoot = getCodexToolsRoot;
 exports.pickCodexRelease = pickCodexRelease;
 exports.readManagedCodex = readManagedCodex;
+exports.downloadTo = downloadTo;
+exports.removeQuietly = removeQuietly;
+exports.pruneOldVersions = pruneOldVersions;
 exports.installCodexPortable = installCodexPortable;
 exports.createDefaultPortableDeps = createDefaultPortableDeps;
 const crypto = __importStar(require("crypto"));
@@ -64,8 +68,12 @@ const STALL_MS = 90000;
 function codexAssetName(arch) {
     return arch === 'arm64' ? 'codex-aarch64-pc-windows-msvc.exe.zip' : 'codex-x86_64-pc-windows-msvc.exe.zip';
 }
+/** 앱이 직접 받아 두는 도구들의 자리 — 사용자 로컬 폴더라 관리자 권한이 필요 없다 */
+function getToolsRoot(env, fallbackDir) {
+    return path.join(env.LOCALAPPDATA || fallbackDir, 'LEADERNAM Orbit', 'tools');
+}
 function getCodexToolsRoot(env, fallbackDir) {
-    return path.join(env.LOCALAPPDATA || fallbackDir, 'LEADERNAM Orbit', 'tools', 'codex');
+    return path.join(getToolsRoot(env, fallbackDir), 'codex');
 }
 /** 릴리스 API 응답에서 이 PC 에 맞는 자산과 sha256 을 고른다 */
 function pickCodexRelease(json, arch) {
@@ -132,6 +140,7 @@ async function fetchRelease(deps, arch) {
         return null;
     }
 }
+/** 받으면서 sha256 을 같이 센다. 바이트가 멈추면 끊는다. 돌려주는 값은 받은 파일의 sha256 */
 async function downloadTo(deps, info, dest, onProgress) {
     const controller = new AbortController();
     let timer = setTimeout(() => controller.abort(), STALL_MS);
@@ -290,8 +299,8 @@ function createDefaultPortableDeps(fetchImpl) {
             if (!result.ok)
                 throw new Error('압축을 풀지 못했습니다. 디스크 여유 공간(1GB 이상)을 확인해주세요.');
         },
-        runVersion: async (exe) => {
-            const result = await run(exe, ['--version'], 60000);
+        runVersion: async (exe, args = ['--version']) => {
+            const result = await run(exe, args, 60000);
             return result.ok && result.stdout.trim() ? result.stdout.trim() : null;
         },
     };
