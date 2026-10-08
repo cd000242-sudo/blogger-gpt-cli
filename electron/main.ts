@@ -10,6 +10,14 @@ import {
   explainCodexInstallOutput,
   getWingetCodexCandidates,
 } from './agent-install';
+import {
+  CODEX_PORTABLE_DISPLAY,
+  createDefaultPortableDeps,
+  getCodexToolsRoot,
+  installCodexPortable,
+  readManagedCodex,
+  type CodexInstallProgress,
+} from './codex-portable';
 // Install before lazy browser imports capture child_process launch functions.
 installWindowsBrowserProcessGuard();
 /**
@@ -11002,7 +11010,8 @@ function parseAgentRunUsage(provider: AgentModeProvider, stdout: string): any {
 
 async function ensureLatestCodexCliForCompatibility(): Promise<{ ok: boolean; output?: string; error?: string }> {
   try {
-    const install = await runInlineAgentInstall('codex');
+    const install = await installAgentForThisPc('codex');
+    invalidateAgentBinaryCache();
     if ((install.exitCode ?? 1) === 0) {
       return { ok: true, output: install.output };
     }
@@ -11975,6 +11984,49 @@ function buildInlineAgentInstallProcess(provider: AgentModeProvider): { command:
   };
 }
 
+function codexToolsRoot(): string {
+  return getCodexToolsRoot(process.env, app.getPath('userData'));
+}
+
+/** Electron net.fetch 는 PC 의 프록시 설정을 따른다. 실패하면 Node fetch 로 한 번 더 */
+async function portableFetch(url: string, init?: Record<string, unknown>): Promise<Response> {
+  try {
+    const { net } = require('electron') as typeof import('electron');
+    return await net.fetch(url, init as any);
+  } catch (error) {
+    if ((init?.signal as AbortSignal | undefined)?.aborted) throw error;
+    return await fetch(url, init as any);
+  }
+}
+
+/**
+ * 📦 v3.8.755 — 이 PC 에 맞는 설치. 윈도우 Codex 는 공식 실행 파일을 직접 받는다(원클릭).
+ * 그게 실패하면(회사망 차단 등) 예전 길(npm → winget)로 한 번 더 시도한다.
+ */
+async function installAgentForThisPc(
+  provider: AgentModeProvider,
+  onProgress?: (progress: CodexInstallProgress) => void,
+): Promise<{ exitCode: number | null; command: string; output: string; timedOut: boolean }> {
+  if (process.platform !== 'win32' || provider !== 'codex') return runInlineAgentInstall(provider);
+
+  const portable = await installCodexPortable({
+    root: codexToolsRoot(),
+    arch: process.arch,
+    deps: createDefaultPortableDeps(portableFetch),
+    onProgress,
+  });
+  if (portable.ok) {
+    return { exitCode: 0, command: CODEX_PORTABLE_DISPLAY, output: portable.log.join('\n'), timedOut: false };
+  }
+
+  onProgress?.({ stage: 'check', message: '직접 내려받기가 실패해 다른 방법(npm/winget)으로 다시 시도합니다.' });
+  const fallback = await runInlineAgentInstall(provider);
+  return {
+    ...fallback,
+    output: [...portable.log, '· 다른 방법(npm/winget)으로 다시 시도했습니다.', '', fallback.output].join('\n').trim(),
+  };
+}
+
 function runInlineAgentInstall(provider: AgentModeProvider): Promise<{
   exitCode: number | null;
   command: string;
@@ -12141,6 +12193,8 @@ function getAgentBinaryCandidates(binaryName: string): string[] {
   const home = app.getPath('home');
 
   if (process.platform === 'win32') {
+    // v3.8.755: 앱이 직접 받아 둔 Codex 가 맨 앞 — 설치 버튼이 고른 최신판을 옛 npm 판이 가리지 않게
+    if (binaryName === 'codex') pushUniquePath(candidates, readManagedCodex(codexToolsRoot())?.exe);
     pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
     pushUniquePath(npmPrefixes, process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : '');
     pushUniquePath(npmPrefixes, process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm') : '');
@@ -12953,7 +13007,7 @@ ipcMain.handle('agent-mode:check-login', async (_evt, args: { id?: string; provi
   }
 });
 
-ipcMain.handle('agent-mode:install-tool', async (_evt, args: { provider?: string }) => {
+ipcMain.handle('agent-mode:install-tool', async (evt, args: { provider?: string }) => {
   // v3.8.722: 설치하면 감지 결과가 달라진다 — 기억해 둔 값을 버리고 다시 재게 한다
   invalidateAgentBinaryCache();
   try {
@@ -12970,7 +13024,11 @@ ipcMain.handle('agent-mode:install-tool', async (_evt, args: { provider?: string
     }
 
     const provider = normalizeAgentProvider(args?.provider);
-    const install = await runInlineAgentInstall(provider);
+    // v3.8.755: 내려받기 진행률을 설치 창으로 — 멈춘 줄 알고 끄지 않게
+    const install = await installAgentForThisPc(provider, (progress) => {
+      try { if (!evt.sender.isDestroyed()) evt.sender.send('agent-install-progress', { provider, ...progress }); } catch { /* ignore */ }
+    });
+    invalidateAgentBinaryCache();
     const tool = await detectAgentBinary(provider);
     const verified = tool.usable !== false && tool.installed;
 

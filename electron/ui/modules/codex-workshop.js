@@ -3761,11 +3761,25 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
   state.loginPollTimer = setInterval(tick, 8000);
 }
 
-async function installAgentTool(provider = state.activeAgentProvider, triggerButton = null) {
+async function installAgentTool(provider = state.activeAgentProvider, triggerButton = null, options = {}) {
   const normalizedProvider = normalizeAgentProviderId(provider);
   const label = agentProviderLabel(normalizedProvider);
   const api = getBridgeApi();
   const previousText = triggerButton?.textContent || '';
+  // v3.8.755: 설치 창에 단계·% 를 보여준다 — 시니어 고객이 멈춘 줄 알고 끄지 않게
+  const progressLines = [];
+  const stopProgress = typeof api?.onAgentInstallProgress === 'function'
+    ? api.onAgentInstallProgress((p) => {
+      if (normalizeAgentProviderId(p?.provider) !== normalizedProvider) return;
+      if (p.stage !== 'download') progressLines.push(`▶ ${p.message}`);
+      updateAgentInstallModal({
+        label,
+        status: typeof p.percent === 'number' ? `${p.message} (${p.percent}%)` : p.message,
+        output: progressLines.join('\n'),
+        type: 'info',
+      });
+    })
+    : null;
 
   try {
     state.installRunning = true;
@@ -3778,7 +3792,9 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
     updateAgentInstallModal({
       label,
       status: `${label} 설치 명령을 실행 중입니다.`,
-      output: normalizedProvider === 'codex' ? 'npm install -g @openai/codex' : '공식 설치 명령 실행 중...',
+      output: normalizedProvider === 'codex'
+        ? 'OpenAI 공식 Codex 를 내려받아 설치합니다(약 160MB · 인터넷 속도에 따라 1~5분).\n창을 닫지 말고 기다려주세요. 끝나면 로그인 창이 자동으로 열립니다.'
+        : '공식 설치 명령 실행 중...',
       type: 'info',
     });
     const result = typeof api?.installAgentTool === 'function'
@@ -3833,6 +3849,16 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
       finalVerified ? 'success' : 'error');
     addLog(`${label} 설치 명령이 완료되었습니다.`, finalVerified ? 'success' : 'warning');
     await loadAgentModeStatus(true);
+    // v3.8.755: 원클릭 — 설치가 확인되면 로그인 창까지 이어서 연다
+    if (finalVerified && options.thenLogin !== false) {
+      updateAgentInstallModal({
+        label,
+        status: `${label} 설치가 완료되었습니다. 이어서 로그인 창을 엽니다.`,
+        output: `${output}\n\n────────────────\n브라우저가 열리면 ChatGPT 계정으로 로그인만 해주세요. 나머지는 자동으로 확인됩니다.`,
+        type: 'success',
+      });
+      await startAgentLogin(normalizedProvider, '', { skipInstall: true });
+    }
     return result;
   } catch (error) {
     console.error('[CODEX-WORKSHOP] install agent tool failed:', error);
@@ -3846,6 +3872,7 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
     setSettingsStatus(`${label} 설치 실행 실패: ${error?.message || error}`, 'error');
     return null;
   } finally {
+    try { stopProgress?.(); } catch { /* ignore */ }
     state.installRunning = false;
     if (triggerButton) {
       triggerButton.disabled = false;
@@ -3854,7 +3881,7 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
   }
 }
 
-async function startAgentLogin(provider = state.activeAgentProvider, profileId = '') {
+async function startAgentLogin(provider = state.activeAgentProvider, profileId = '', options = {}) {
   const status = await loadAgentModeStatus(true);
   if (!isMaxAgentAllowed(status)) {
     alert(status?.message || 'Agent 모드는 3개월 이상 코드에서 사용할 수 있습니다.');
@@ -3864,6 +3891,13 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   const normalizedProvider = normalizeAgentProviderId(provider);
   const tool = status?.tools?.[normalizedProvider];
   const label = agentProviderLabel(normalizedProvider);
+  // v3.8.755: 원클릭 — 설치 전에 로그인부터 눌러도 설치를 먼저 하고 이어서 로그인한다(한 번만)
+  if ((!tool?.installed || tool.usable === false) && !options.skipInstall) {
+    setSettingsStatus(`${label} 가 아직 이 PC 에 없어 먼저 설치합니다. 끝나면 로그인 창이 열립니다.`);
+    const installed = await installAgentTool(normalizedProvider, null, { thenLogin: false });
+    if (installed?.ok) await startAgentLogin(normalizedProvider, profileId, { skipInstall: true });
+    return;
+  }
   if (!tool?.installed) {
     setSettingsStatus(`${label} 설치가 먼저 필요합니다. 설치 버튼으로 설치/확인을 끝낸 뒤 로그인 창을 열어주세요.`, 'error');
     return;
