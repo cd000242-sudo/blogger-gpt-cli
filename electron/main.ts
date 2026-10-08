@@ -2,6 +2,9 @@ import { ipcMain, app, globalShortcut, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { installWindowsBrowserProcessGuard } from './windows-browser-process';
+import { installPuppeteerBrowserPath } from './browser-paths';
+// v3.8.756: 퍼피티어를 처음 불러오기 전에 PC 의 Chrome·Edge 경로를 정한다(전용 크롬은 고객 PC 에 없다)
+installPuppeteerBrowserPath();
 import {
   buildCodexWindowsInstallScript,
   CODEX_INSTALL_DISPLAY_COMMAND,

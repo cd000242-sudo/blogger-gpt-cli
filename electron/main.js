@@ -37,6 +37,9 @@ const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const windows_browser_process_1 = require("./windows-browser-process");
+const browser_paths_1 = require("./browser-paths");
+// v3.8.756: 퍼피티어를 처음 불러오기 전에 PC 의 Chrome·Edge 경로를 정한다(전용 크롬은 고객 PC 에 없다)
+(0, browser_paths_1.installPuppeteerBrowserPath)();
 const agent_install_1 = require("./agent-install");
 const codex_portable_1 = require("./codex-portable");
 const gemini_portable_1 = require("./gemini-portable");

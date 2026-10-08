@@ -188,9 +188,16 @@ export async function openNaverLoginWindow(
   try {
     ctx = await chromium.launchPersistentContext(PROFILE_DIR, { ...launchOptions, channel: 'chrome' });
   } catch (chromeError: any) {
-    onLog?.('[NAVER-LOGIN] ⚠️ 크롬을 찾지 못해 기본 브라우저로 엽니다 — 네이버가 추가 확인(캡차)을 요구할 수 있습니다');
-    console.warn('[NAVER-LOGIN] channel:chrome 실패 → 번들 Chromium 폴백:', chromeError?.message);
-    ctx = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
+    console.warn('[NAVER-LOGIN] channel:chrome 실패 → Edge 로 다시 시도:', chromeError?.message);
+    // v3.8.756: 크롬이 없으면 윈도우 기본 Edge 부터 — 전용 Chromium 은 대개 없다(실측: 사장님 PC 에도 없음)
+    try {
+      ctx = await chromium.launchPersistentContext(PROFILE_DIR, { ...launchOptions, channel: 'msedge' });
+    } catch (edgeError: any) {
+      onLog?.('[NAVER-LOGIN] ⚠️ 크롬·엣지를 찾지 못해 기본 브라우저로 엽니다 — 네이버가 추가 확인(캡차)을 요구할 수 있습니다');
+      console.warn('[NAVER-LOGIN] channel:msedge 실패 → 번들 Chromium(없으면 설치):', edgeError?.message);
+      const { launchPersistentContextWithAutoInstall } = require('../../utils/playwright-browser-installer');
+      ctx = await launchPersistentContextWithAutoInstall(chromium, PROFILE_DIR, launchOptions, onLog);
+    }
   }
 
   try {

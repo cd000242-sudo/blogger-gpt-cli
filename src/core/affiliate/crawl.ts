@@ -424,11 +424,13 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
    */
   const headful = String(process.env['ORBIT_CRAWL_HEADFUL'] || '') === '1';
   const slowMo = Number(process.env['ORBIT_CRAWL_SLOWMO'] || 0) || 0;
-  const browser = await chromium.launch({
+  // v3.8.756: 전용 Chromium 이 없는 PC(대부분)에서도 뜨게 — PC 의 Edge·Chrome → 없으면 설치
+  const { launchChromiumWithSystemFallback } = require('../../utils/playwright-browser-installer');
+  const browser = await launchChromiumWithSystemFallback(chromium, {
     headless: !headful,
     args: [...CHROMIUM_GPU_SAFE_ARGS],
     ...(slowMo > 0 ? { slowMo } : {}),
-  });
+  }, opts.onLog ? (m: string) => opts.onLog?.(`   [제휴] ${m}`) : undefined);
   try {
     const ctx = await browser.newContext({
       userAgent: UA,
@@ -844,6 +846,19 @@ async function crawlNaver(url: string, opts: CrawlOptions): Promise<AffiliatePro
         '네이버가 로그인 화면을 돌려줬습니다. 상품 정보를 읽지 못했습니다.\n'
         + '· 링크를 브라우저에서 열어 정상 상품 페이지인지 확인해 주세요.\n'
         + '· 단축 링크(naver.me)가 만료됐다면 상품 페이지에서 다시 복사해 주세요.',
+      );
+    }
+
+    /**
+     * v3.8.756 — **오류 페이지도 상품으로 받지 않는다.**
+     * 실측(2026-10-08): 네이버가 "[에러] 에러페이지 - 시스템오류" 를 돌려줬는데 그게 상품명으로 실렸다.
+     * 그대로 두면 그 제목으로 글이 써진다 — 로그인 화면(v3.8.450)과 같은 사고라 같은 자리에서 멈춘다.
+     */
+    if (/^\s*\[\s*에러\s*\]|에러\s*페이지|시스템\s*오류|페이지를\s*찾을\s*수\s*없|요청하신\s*페이지|접근이\s*제한/i.test(title)) {
+      throw new Error(
+        `네이버가 오류 페이지를 돌려줬습니다("${title.slice(0, 40)}"). 상품 정보를 읽지 못했습니다.\n`
+        + '· 상품이 삭제·판매중지됐거나, 접속이 잠시 제한된 것일 수 있습니다.\n'
+        + '· 링크를 브라우저에서 열어 상품 페이지가 정상인지 확인해 주세요.',
       );
     }
 

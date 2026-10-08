@@ -205,6 +205,35 @@ export function launchChromiumWithAutoInstall(
   return retryWithPlaywrightChromiumInstall(() => chromium.launch(ensureGpuSafe(options)), onLog);
 }
 
+/**
+ * 🧭 v3.8.756 — 전용 Chromium 이 없으면 **PC 에 이미 있는 Edge → Chrome** 으로 띄운다.
+ *   그래도 안 되면 그때 전용 Chromium 을 받아 설치한다(첫 회 1~2분).
+ *
+ * 실측(2026-10-08): 쇼핑모드 상품 수집이 `chromium.launch()` 만 불러서, 전용 Chromium 이 없는 PC
+ *   (사장님 PC 포함)에서 "Executable doesn't exist" 로 바로 끝났다 → 상품 사진·가격 없이 "링크만 사용".
+ *   Edge 는 윈도우 10/11 에 기본으로 있다. 같은 수집을 Edge 로 돌리면 정상 실행됨을 확인했다.
+ * 호출자가 channel 을 직접 고른 경우엔 손대지 않는다.
+ */
+export async function launchChromiumWithSystemFallback(
+  chromium: any,
+  options: Record<string, unknown>,
+  onLog?: (message: string) => void,
+): Promise<any> {
+  try {
+    return await chromium.launch(ensureGpuSafe(options));
+  } catch (error) {
+    if (!isMissingPlaywrightBrowserError(error) || options['channel']) throw error;
+  }
+  for (const channel of ['msedge', 'chrome'] as const) {
+    try {
+      const browser = await chromium.launch(ensureGpuSafe({ ...options, channel }));
+      onLog?.(`[Browser] 전용 Chromium 이 없어 PC 의 ${channel === 'msedge' ? 'Edge' : 'Chrome'} 로 실행합니다.`);
+      return browser;
+    } catch { /* 다음 브라우저 */ }
+  }
+  return launchChromiumWithAutoInstall(chromium, options, onLog);
+}
+
 export function launchPersistentContextWithAutoInstall(
   chromium: any,
   userDataDir: string,

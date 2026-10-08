@@ -79,7 +79,8 @@ describe('③ 봇 탐지를 피한다', () => {
 
   it('⭐⭐ Chrome 이 없는 PC 에서도 창은 떠야 한다 (폴백)', () => {
     // channel:'chrome' 은 Chrome 이 없으면 실행 자체가 예외 → 창이 아예 안 뜬다
-    expect(session).toMatch(/catch \(chromeError[\s\S]{0,400}launchPersistentContext\(PROFILE_DIR, launchOptions\)/);
+    // v3.8.756: Chrome → Edge → 번들(없으면 설치). 전용 Chromium 은 대개 없어서 Edge 를 사이에 넣었다
+    expect(session).toMatch(/catch \(chromeError[\s\S]{0,500}channel: 'msedge'[\s\S]{0,700}launchPersistentContextWithAutoInstall\(chromium, PROFILE_DIR, launchOptions/);
   });
 
   it('⭐⭐ 로그인 창은 영구 프로필을 쓴다 (storageState 만으로는 튕겼다)', () => {
