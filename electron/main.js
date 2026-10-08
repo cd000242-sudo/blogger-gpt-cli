@@ -37,6 +37,7 @@ const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const windows_browser_process_1 = require("./windows-browser-process");
+const agent_install_1 = require("./agent-install");
 // Install before lazy browser imports capture child_process launch functions.
 (0, windows_browser_process_1.installWindowsBrowserProcessGuard)();
 let _puppeteer = null;
@@ -11433,10 +11434,11 @@ function buildInlineAgentInstallProcess(provider) {
     }
     const displayCommand = 'npm install -g @openai/codex';
     if (process.platform === 'win32') {
+        // v3.8.755: npm 이 없는 PC 는 winget 공식 패키지로 — electron/agent-install.ts 참고
         return {
-            command: process.env.ComSpec || 'cmd.exe',
-            args: ['/d', '/c', displayCommand],
-            displayCommand,
+            command: getPowerShellExecutable(),
+            args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', (0, agent_install_1.encodePowerShellCommand)((0, agent_install_1.buildCodexWindowsInstallScript)())],
+            displayCommand: agent_install_1.CODEX_INSTALL_DISPLAY_COMMAND,
         };
     }
     return {
@@ -11449,10 +11451,16 @@ function runInlineAgentInstall(provider) {
     return new Promise((resolve) => {
         const { spawn } = require('child_process');
         const spec = buildInlineAgentInstallProcess(provider);
-        let output = '';
+        let chunks = [];
         let timedOut = false;
+        // v3.8.755: 조각을 바이트로 모아 끝에 한 번 디코딩한다 — CP949 오류 문구가 깨지지 않게
         const append = (chunk) => {
-            output = (output + String(chunk || '')).slice(-60000);
+            const next = Buffer.concat([...chunks, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk || ''), 'utf8')]);
+            chunks = [next.length > 60000 ? next.subarray(next.length - 60000) : next];
+        };
+        const readOutput = () => {
+            const text = (0, agent_install_1.decodeInstallOutput)(Buffer.concat(chunks)).trim();
+            return provider === 'codex' ? (0, agent_install_1.explainCodexInstallOutput)(text) : text;
         };
         let child;
         try {
@@ -11489,7 +11497,7 @@ function runInlineAgentInstall(provider) {
             resolve({
                 exitCode,
                 command: spec.displayCommand,
-                output: output.trim(),
+                output: readOutput(),
                 timedOut,
             });
         });
@@ -11591,6 +11599,12 @@ function getAgentBinaryCandidates(binaryName) {
             pushUniquePath(candidates, path.join(prefix, `${binaryName}.cmd`));
             pushUniquePath(candidates, path.join(prefix, binaryName));
             pushUniquePath(candidates, path.join(prefix, `${binaryName}.ps1`));
+        }
+        // v3.8.755: winget 으로 설치한 Codex — 앱이 켜진 뒤 설치되면 PATH 에 아직 없다
+        if (binaryName === 'codex') {
+            for (const candidate of (0, agent_install_1.getWingetCodexCandidates)(process.env, process.arch, (dir) => fs.readdirSync(dir))) {
+                pushUniquePath(candidates, candidate);
+            }
         }
         // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin) — PATH 미등록 케이스
         if (binaryName === 'claude') {
@@ -12208,7 +12222,8 @@ electron_1.ipcMain.handle('agent-mode:import-system-login', async (_evt, args) =
         if (!fs.existsSync(primary)) {
             return {
                 ok: false,
-                error: `이 PC 의 ${agentProviderLabel(provider)} 로그인을 찾지 못했습니다 (${primary} 없음). 터미널에서 먼저 로그인한 뒤 다시 눌러주세요.`,
+                // v3.8.755: 고객은 터미널을 모른다 — 앱 안의 버튼으로 안내한다
+                error: `이 PC 에는 가져올 ${agentProviderLabel(provider)} 로그인이 없습니다 (${primary} 없음). [${agentProviderLabel(provider)} 설치하기] → [${agentProviderLabel(provider)} 로그인 창 열기] 순서로 진행해주세요.`,
             };
         }
         const id = createAgentProfileId(provider);
