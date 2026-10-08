@@ -21,6 +21,15 @@ import { launchPersistentContextWithAutoInstall } from '../utils/playwright-brow
 const BOARD_URL = 'https://aistudio.dropshot.io/ko/workspace/board?panel=image&imageModelName=google/nano-banana-pro';
 const DROPSHOT_AUTH_URL = `https://stock.dropshot.io/ko/logIn?redirectTo=${encodeURIComponent(BOARD_URL)}`;
 const PROFILE_NAME = 'dropshot-profile';
+/**
+ * v3.8.756 — 드롭샷이 보드 컨트롤 모양을 바꿨다(실측 2026-10-08, 보드 화면 DOM).
+ *   무제한 모드: input[role=switch] → button[role=switch] (aria-checked · data-state, 옆에 숨은 checkbox)
+ *   수량 줄이기: aria-label "decrease" → "생성 개수 줄이기"
+ * 옛 선택자만 찾아서 무제한 구독자도 "무제한 모드 토글을 찾지 못했습니다" 로 매번 실패했다
+ * (고객 신고: 무제한 플랜인데 썸네일이 무료 대체 엔진으로만 나옴). 옛 모양도 같이 받는다.
+ */
+const DROPSHOT_SWITCH_SELECTOR = '[role="switch"]';
+const DROPSHOT_DECREASE_SELECTOR = 'button[aria-label="decrease"], button[aria-label="생성 개수 줄이기"]';
 const PROMPT_SELECTORS = [
   'textarea[placeholder="어떤 장면을 만들고 싶나요?"]',
   'textarea[placeholder*="어떤"]',
@@ -304,8 +313,8 @@ type DropshotEditorControls = {
   imageCountDecreaseIndex: number;
 };
 
-async function inspectDropshotEditorControls(page: any): Promise<DropshotEditorControls> {
-  return await page.evaluate(() => {
+export async function inspectDropshotEditorControls(page: any): Promise<DropshotEditorControls> {
+  return await page.evaluate(({ switchSelector, decreaseSelector }: { switchSelector: string; decreaseSelector: string }) => {
     const isVisible = (node: Element | null): boolean => {
       if (!node) return false;
       const rect = (node as HTMLElement).getBoundingClientRect?.();
@@ -337,10 +346,11 @@ async function inspectDropshotEditorControls(page: any): Promise<DropshotEditorC
         && /무제한|unlimited/i.test(text)
         && !/모델\s*변경|change\s*model/i.test(text);
     });
-    const switches = Array.from(document.querySelectorAll('input[role="switch"]')) as HTMLInputElement[];
+    const switches = Array.from(document.querySelectorAll(switchSelector)) as HTMLElement[];
     const unlimitedSwitchIndex = switches.findIndex((sw) => ancestorsContain(sw, /무제한\s*모드|unlimited\s*mode/i, 7));
-    const decreaseButtons = Array.from(document.querySelectorAll('button[aria-label="decrease"]')) as HTMLButtonElement[];
-    const imageCountDecreaseIndex = decreaseButtons.findIndex((button) => ancestorsContain(button.parentElement, /무제한\s*모드|unlimited\s*mode/i, 5));
+    const decreaseButtons = Array.from(document.querySelectorAll(decreaseSelector)) as HTMLButtonElement[];
+    const imageCountDecreaseIndex = decreaseButtons.findIndex((button) => ancestorsContain(button.parentElement, /무제한\s*모드|unlimited\s*mode/i, 5)
+      || /\d+\s*장/.test(String(button.parentElement?.innerText || '')));
     return {
       selectedNanoBananaPro,
       modelPickerIndex,
@@ -348,7 +358,7 @@ async function inspectDropshotEditorControls(page: any): Promise<DropshotEditorC
       unlimitedSwitchIndex,
       imageCountDecreaseIndex,
     };
-  });
+  }, { switchSelector: DROPSHOT_SWITCH_SELECTOR, decreaseSelector: DROPSHOT_DECREASE_SELECTOR });
 }
 
 async function waitForDropshotEditorControls(page: any, timeoutMs = 18_000): Promise<DropshotEditorControls> {
@@ -414,7 +424,8 @@ async function ensureDropshotNanoBananaProModel(page: any, controls: DropshotEdi
   return selected;
 }
 
-async function ensureDropshotControls(page: any, onLog?: (m: string) => void): Promise<void> {
+/** v3.8.756: 실제 보드에 대고 확인할 수 있게 내보낸다(사이트가 모양을 또 바꾸면 바로 잴 수 있게) */
+export async function ensureDropshotControls(page: any, onLog?: (m: string) => void): Promise<void> {
   let lastError: any = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
@@ -424,8 +435,11 @@ async function ensureDropshotControls(page: any, onLog?: (m: string) => void): P
       if (controls.unlimitedSwitchIndex < 0) {
         throw new Error('Dropshot 무제한 모드 토글을 찾지 못했습니다. 사이트 UI 변경 여부를 확인해주세요.');
       }
-      const unlimitedSwitch = page.locator('input[role="switch"]').nth(controls.unlimitedSwitchIndex);
-      const readSwitchState = () => unlimitedSwitch.evaluate((el: any) => el.checked === true || el.getAttribute('aria-checked') === 'true');
+      const unlimitedSwitch = page.locator(DROPSHOT_SWITCH_SELECTOR).nth(controls.unlimitedSwitchIndex);
+      // v3.8.756: 버튼형 스위치는 checked 가 없다 — aria-checked · data-state 로 읽는다
+      const readSwitchState = () => unlimitedSwitch.evaluate((el: any) => el.checked === true
+        || el.getAttribute('aria-checked') === 'true'
+        || el.getAttribute('data-state') === 'checked');
       let unlimitedEnabled = await readSwitchState();
       if (!unlimitedEnabled) {
         // v3.8.376: sr-only input은 직접 클릭이 실제 토글로 이어지지 않는다 (연속발행 "인증오류"의 주범).
@@ -461,14 +475,14 @@ async function ensureDropshotControls(page: any, onLog?: (m: string) => void): P
       if (controls.imageCountDecreaseIndex < 0) {
         throw new Error('Dropshot 이미지 수량 컨트롤을 찾지 못했습니다. 사이트 UI 변경 여부를 확인해주세요.');
       }
-      const decreaseButton = page.locator('button[aria-label="decrease"]').nth(controls.imageCountDecreaseIndex);
-      const readCount = async (): Promise<number> => await page.evaluate((index: number) => {
-        const buttons = Array.from(document.querySelectorAll('button[aria-label="decrease"]')) as HTMLButtonElement[];
+      const decreaseButton = page.locator(DROPSHOT_DECREASE_SELECTOR).nth(controls.imageCountDecreaseIndex);
+      const readCount = async (): Promise<number> => await page.evaluate(({ index, selector }: { index: number; selector: string }) => {
+        const buttons = Array.from(document.querySelectorAll(selector)) as HTMLButtonElement[];
         const button = buttons[index];
         const text = String(button?.parentElement?.innerText || '');
         const match = text.match(/(\d+)\s*장/);
         return match ? Number(match[1]) : 0;
-      }, controls.imageCountDecreaseIndex);
+      }, { index: controls.imageCountDecreaseIndex, selector: DROPSHOT_DECREASE_SELECTOR });
       let count = await readCount();
       let safety = 8;
       while (count > 1 && safety-- > 0) {
@@ -1318,7 +1332,7 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
     const subscription: 'pro' | 'free' | 'unknown' = 'unknown';
     let subscriptionLabel = '';
     try {
-      const hasUnlimitedToggle = await page.evaluate(() => {
+      const hasUnlimitedToggle = await page.evaluate((switchSelector: string) => {
         const ancestorsContain = (node: Element | null, pattern: RegExp, limit: number): boolean => {
           let current = node;
           for (let depth = 0; depth < limit && current; depth += 1, current = current.parentElement) {
@@ -1327,9 +1341,9 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
           }
           return false;
         };
-        const switches = Array.from(document.querySelectorAll('input[role="switch"]'));
+        const switches = Array.from(document.querySelectorAll(switchSelector));
         return switches.some((sw) => ancestorsContain(sw, /무제한\s*모드|unlimited\s*mode/i, 7));
-      });
+      }, DROPSHOT_SWITCH_SELECTOR);
       if (hasUnlimitedToggle) subscriptionLabel = '무제한 모드 사용 가능';
     } catch { /* 토글 확인 실패해도 loggedIn 정보는 유효 */ }
 

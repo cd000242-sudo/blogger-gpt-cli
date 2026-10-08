@@ -100,7 +100,8 @@ describe('등급 판정 — 존재하지 않는 API 를 두드리지 않는다',
 
   it('보드의 "무제한 모드" 토글을 실측 신호로 쓴다', () => {
     expect(src).toContain("subscriptionLabel = '무제한 모드 사용 가능'");
-    expect(src).toContain('input[role="switch"]');
+    // v3.8.756: 사이트가 input → button 스위치로 바꿨다(실측). 쓰는 선택자는 둘 다 받는 [role="switch"]
+    expect(src).toContain(`const DROPSHOT_SWITCH_SELECTOR = '[role="switch"]';`);
   });
 
   it('토글 확인이 실패해도 로그인 상태를 깨지 않는다 — 발행을 막으면 안 된다', () => {

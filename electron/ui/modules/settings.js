@@ -120,6 +120,38 @@ function restoreBloggerAliases(settings = {}, env = {}) {
   return restored;
 }
 
+/**
+ * 🔑 v3.8.756 — 화면에만 있고 `.env` 에 없는 네이버 검색 키를 `.env` 로 옮긴다(한 번).
+ *
+ * 고객 실측(2026-10-08): API HUB 키가 환경설정 칸에 들어 있는데 글 생성 로그는
+ * "네이버 검색 API 키가 없습니다" — 근거 0건이라 "확인하는 방법" 같은 빈 글이 자동 발행됐다.
+ * 원인: 저장 버튼이 HUB 키를 localStorage 에만 넣고 `.env` 로는 안 보냈다(keyMap·envData 누락).
+ * 검색 창구는 payload 나 `.env` 만 본다. 이미 키를 넣어 둔 고객이 저장을 다시 안 눌러도 되게,
+ * 불러올 때 빠진 것만 채운다. `.env` 에 이미 있으면 건드리지 않는다(.env 가 정본).
+ */
+const SEARCH_KEY_ENV_NAMES = {
+  naverApiHubKeyId: ['NAVER_API_HUB_KEY_ID', 'naverApiHubKeyId'],
+  naverApiHubKey: ['NAVER_API_HUB_KEY', 'naverApiHubKey'],
+};
+
+export async function syncMissingSearchKeysToEnv(settings = {}, envSettings = {}, saveEnv = window.blogger?.saveEnv) {
+  const missing = {};
+  for (const [field, envNames] of Object.entries(SEARCH_KEY_ENV_NAMES)) {
+    const value = String(settings?.[field] || '').trim();
+    const inEnv = envNames.some((name) => String(envSettings?.[name] || '').trim());
+    if (value && !inEnv) missing[field] = value;
+  }
+  if (!Object.keys(missing).length || typeof saveEnv !== 'function') return false;
+  try {
+    const result = await saveEnv(missing);
+    if (result?.ok) console.log('[LOAD] 네이버 검색 키를 .env 로 옮겼습니다:', Object.keys(missing).join(', '));
+    return !!result?.ok;
+  } catch (e) {
+    console.warn('[LOAD] 네이버 검색 키 .env 동기화 실패:', e);
+    return false;
+  }
+}
+
 // 설정 로드 (비동기)
 export async function loadSettings() {
   const storage = getStorageManager();
@@ -164,6 +196,7 @@ export async function loadSettings() {
    * 빈 값은 덮지 않는다: 없는 것과 지운 것은 다르다(camelizeEnvKeys 가 걸러 준다).
    */
   settings = { ...settings, ...camelizeEnvKeys(envSettings) };
+  await syncMissingSearchKeysToEnv(settings, envSettings);
   /**
    * ⚠️ 플랫폼만은 예외다 — 저장값이 먼저다(v3.8.548 · resolvePlatformValue).
    * 위 병합이 `.env` 의 PLATFORM 으로 덮으면 사장님이 배지로 고른 선택이 되돌아간다
@@ -290,8 +323,13 @@ export async function saveSettings() {
         stabilityApiKey: settings.stabilityApiKey,
         deepInfraApiKey: settings.deepInfraApiKey,
         prodiaApiKey: settings.prodiaApiKey,
-        naverClientId: settings.naverCustomerId || settings.naverClientId || '',
-        naverClientSecret: settings.naverSecretKey || settings.naverClientSecret || '',
+        // v3.8.756: 검색 전용 칸(개발자센터 Client ID)이 먼저다. 예전엔 "키워드 분석" 카드의 Customer ID 가
+        //   먼저라, 둘 다 넣으면 검색 키가 광고 고객 ID 로 덮였다. Customer ID 는 옛 화면 호환용으로만 뒤에 둔다.
+        naverClientId: settings.naverClientId || settings.naverCustomerId || '',
+        naverClientSecret: settings.naverClientSecret || settings.naverSecretKey || '',
+        // v3.8.756: API HUB 키 — 칸은 v3.8.526 부터 있었지만 .env 로 안 보내 검색이 "키 없음" 이었다(고객 실측)
+        naverApiHubKeyId: settings.naverApiHubKeyId,
+        naverApiHubKey: settings.naverApiHubKey,
         openaiKey: settings.openaiKey,
         claudeKey: settings.claudeKey,
         perplexityKey: settings.perplexityKey,

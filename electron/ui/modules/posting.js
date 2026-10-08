@@ -1789,6 +1789,11 @@ function getApiKeys(savedSettings) {
     coupangSecretKey: savedSettings.coupangSecretKey || '',
     naverCustomerId: savedSettings.naverCustomerId || '',
     naverSecretKey: savedSettings.naverSecretKey || '',
+    // v3.8.756: 네이버 검색 키(HUB·개발자센터)를 payload 로도 보낸다 — 예전엔 안 실어 .env 에 없으면 "키 없음"
+    naverApiHubKeyId: savedSettings.naverApiHubKeyId || '',
+    naverApiHubKey: savedSettings.naverApiHubKey || '',
+    naverClientId: savedSettings.naverClientId || '',
+    naverClientSecret: savedSettings.naverClientSecret || '',
     blogId: savedSettings.blogId || '',
     googleClientId: savedSettings.googleClientId || '',
     googleClientSecret: savedSettings.googleClientSecret || '',

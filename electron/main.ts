@@ -6052,6 +6052,9 @@ ipcMain.handle('save-env', async (_evt, envData: Record<string, string>) => {
       'naverClientSecret': 'NAVER_CLIENT_SECRET',
       'naverCustomerId': 'NAVER_CLIENT_ID', // 하위 호환성: naverCustomerId도 지원
       'naverSecretKey': 'NAVER_CLIENT_SECRET', // 하위 호환성: naverSecretKey도 지원
+      // v3.8.756: API HUB 키가 이 표에 없어 .env 에 못 들어갔다 — 화면엔 보이는데 검색은 "키 없음"(고객 실측 2026-10-08)
+      'naverApiHubKeyId': 'NAVER_API_HUB_KEY_ID',
+      'naverApiHubKey': 'NAVER_API_HUB_KEY',
       'geminiKey': 'GEMINI_API_KEY',
       'geminiApiKey': 'GEMINI_API_KEY',
       'openaiKey': 'OPENAI_API_KEY',
