@@ -58,6 +58,19 @@ export interface AgentFinalResponse {
 const EMPTY: AgentFinalResponse = { title: '', summary: '', sources: [], articleHtml: '' };
 
 /**
+ * v3.8.758 — 본문 칸에 섞여 온 ARTICLE_HTML_BEGIN/END 표시를 벗긴다.
+ *   실측(2026-10-09, 실제 Codex 0.162): 지시서의 최후 수단 문구를 따라 본문 칸 안에 표시까지 넣어 보냈다.
+ *   그대로 쓰면 발행 글 맨 앞에 "ARTICLE_HTML_BEGIN" 이 보인다.
+ */
+export function unwrapArticleMarkers(html: string): string {
+  const text = String(html || '');
+  const pair = text.match(/ARTICLE_HTML_BEGIN\s*([\s\S]*?)\s*ARTICLE_HTML_END/i);
+  const inner = pair ? pair[1]! : text.replace(/^\s*ARTICLE_HTML_BEGIN\s*/i, '').replace(/\s*ARTICLE_HTML_END\s*$/i, '');
+  const fenced = inner.trim().match(/^```(?:html)?\s*([\s\S]*?)\s*```$/i);
+  return (fenced ? fenced[1]! : inner).trim();
+}
+
+/**
  * 마지막 응답에서 구조화된 값을 건져낸다.
  *
  * 스키마를 못 쓰는 실행(Claude Code 등)에서는 자유 텍스트가 오므로 빈 값을 돌려준다 —
@@ -81,7 +94,7 @@ export function parseAgentFinalResponse(text: string): AgentFinalResponse {
       sources: Array.isArray(parsed.sources)
         ? parsed.sources.filter((s: unknown) => typeof s === 'string' && /^https?:\/\//i.test(s))
         : [],
-      articleHtml: typeof parsed.articleHtml === 'string' ? parsed.articleHtml : '',
+      articleHtml: typeof parsed.articleHtml === 'string' ? unwrapArticleMarkers(parsed.articleHtml) : '',
     };
   } catch {
     return EMPTY;   // JSON 이 아니면 그냥 아닌 것이다 — 기존 경로로 넘어간다

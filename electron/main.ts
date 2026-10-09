@@ -11412,8 +11412,21 @@ function readAgentJobResult(jobDir: string, stdout: string, lastMessagePath: str
       content = foundHtml;
       contentSource = 'findAgentHtmlOutput(jobDir)';
     } else {
-      const fromFinal = extractHtmlFromAgentText(finalMessage);
-      if (fromFinal) {
+      /**
+       * v3.8.758 — 형식표(--output-schema)를 쓰면 마지막 답은 **JSON** 이다.
+       *   그 글자 그대로에서 HTML 을 찾으면 따옴표가 \" · 줄바꿈이 \n 기호인 채로 본문이 된다
+       *   (실측 2026-10-09, 실제 Codex 0.162 한 편: \n 117개 · \" 6개). JSON 을 먼저 풀어 본문 칸을 쓴다.
+       *   형식표가 그동안 늘 서버에서 거절돼(v3.8.757 에서 고침) 이 길이 한 번도 안 열렸던 탓에 숨어 있었다.
+       */
+      let fromStructured = '';
+      try {
+        fromStructured = require('../dist/core/final/agent-output-schema').parseAgentFinalResponse(finalMessage).articleHtml || '';
+      } catch { /* JSON 이 아니면 아래 기존 경로 */ }
+      const fromFinal = fromStructured ? '' : extractHtmlFromAgentText(finalMessage);
+      if (fromStructured) {
+        content = fromStructured;
+        contentSource = 'finalMessage.articleHtml';
+      } else if (fromFinal) {
         content = fromFinal;
         contentSource = 'finalMessage';
       } else {
