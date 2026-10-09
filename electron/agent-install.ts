@@ -86,6 +86,24 @@ export function explainCodexInstallOutput(output: string): string {
   return text;
 }
 
+/**
+ * 🛡️ v3.8.758 — 윈도우 Codex 실행 권한.
+ *
+ * 실측(2026-10-09, Codex 0.162): 윈도우에서 `--sandbox workspace-write` 가 **읽기 전용**으로 떨어진다.
+ *   Codex 가 instructions.md 를 읽는 명령(Get-Content)조차 "Rejected" 되고, result/article.html 도 못 쓴다
+ *   → 작성자 요청·품질 규칙이 담긴 지시서 없이 글을 쓰고, 이미지 지시(metadata.json)도 못 만든다.
+ *   `--approve-for-me`(자동 검토)로 띄우면 같은 조건에서 파일 쓰기가 됐다. 사장님이 이 방식을 골랐다.
+ *   (이 플래그는 --sandbox 와 같이 못 쓴다 — 실측 오류 "cannot be used with '--approve-for-me'")
+ * 예전 Codex 에 없는 플래그를 주면 실행 자체가 죽으므로, `exec --help` 에 있을 때만 쓴다.
+ */
+export function codexSandboxArgs(platform: string, supportsApproveForMe: boolean): string[] {
+  return platform === 'win32' && supportsApproveForMe ? ['--approve-for-me'] : ['--sandbox', 'workspace-write'];
+}
+
+export function helpMentionsApproveForMe(helpText: string): boolean {
+  return /(^|\s)--approve-for-me\b/m.test(String(helpText || ''));
+}
+
 type DirLister = (dir: string) => string[];
 
 /**

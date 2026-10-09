@@ -8,7 +8,9 @@ installPuppeteerBrowserPath();
 import {
   buildCodexWindowsInstallScript,
   CODEX_INSTALL_DISPLAY_COMMAND,
+  codexSandboxArgs,
   decodeInstallOutput,
+  helpMentionsApproveForMe,
   encodePowerShellCommand,
   explainCodexInstallOutput,
   getWingetCodexCandidates,
@@ -10888,6 +10890,25 @@ function buildAgentRunEnv(profile: AgentProfile): NodeJS.ProcessEnv {
   return env;
 }
 
+/** v3.8.758: 이 Codex 가 --approve-for-me 를 아는가(실행 파일마다 한 번만 `exec --help` 로 확인) */
+const codexApproveForMeCache = new Map<string, boolean>();
+function codexSupportsApproveForMe(command: string): boolean {
+  const cached = codexApproveForMeCache.get(command);
+  if (cached !== undefined) return cached;
+  let supported = false;
+  try {
+    const { spawnSync } = require('child_process') as typeof import('child_process');
+    const isScript = process.platform === 'win32' && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+    const r = isScript
+      ? spawnSync(buildShellCommandLine(command, ['exec', '--help']), [], { shell: true, encoding: 'utf8', windowsHide: true, timeout: 20_000 })
+      : spawnSync(command, ['exec', '--help'], { encoding: 'utf8', windowsHide: true, timeout: 20_000 });
+    supported = helpMentionsApproveForMe(`${r.stdout || ''}\n${r.stderr || ''}`);
+  } catch { supported = false; }
+  codexApproveForMeCache.set(command, supported);
+  console.log(`[AGENT-MODE] Codex --approve-for-me 지원: ${supported ? '예' : '아니오(예전 방식 workspace-write)'}`);
+  return supported;
+}
+
 function buildAgentRunCommand(
   profile: AgentProfile,
   jobDir: string,
@@ -10910,10 +10931,12 @@ function buildAgentRunCommand(
   ].join(' ');
 
   if (profile.provider === 'codex') {
+    const codexCommand = resolveAgentBinaryCommand(profile.provider);
     const finalArgs = [
       'exec',
       '--json',
-      '--sandbox', 'workspace-write',
+      // v3.8.758: 윈도우는 workspace-write 가 읽기 전용으로 떨어진다(실측) → 지원하면 자동 검토(--approve-for-me)
+      ...codexSandboxArgs(process.platform, process.platform === 'win32' && codexSupportsApproveForMe(codexCommand)),
       // v3.8.487: 웹 검색을 켠다. 에이전트가 스스로 최신 자료를 찾아 쓰게 하려면 필요하다.
       //   codex exec 에는 --search 플래그가 없어서 config 로 켠다(--strict-config 를 쓰지 않으므로
       //   이 키를 모르는 버전에서도 무시될 뿐 실행이 깨지지 않는다).
@@ -10931,7 +10954,7 @@ function buildAgentRunCommand(
       finalArgs.splice(2, 0, '-m', model);
     }
     return {
-      command: resolveAgentBinaryCommand(profile.provider),
+      command: codexCommand,
       args: finalArgs,
     };
   }
@@ -12812,6 +12835,7 @@ async function detectAgentBinariesCached(
 /** 설치·로그인처럼 상태가 실제로 바뀌는 일을 한 뒤에는 기억을 버린다 */
 function invalidateAgentBinaryCache(): void {
   agentBinaryCache = null;
+  codexApproveForMeCache.clear();
 }
 
 ipcMain.handle('agent-mode:get-status', async () => {

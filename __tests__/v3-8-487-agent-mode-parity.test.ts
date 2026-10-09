@@ -133,7 +133,8 @@ describe('④ 쓰기 전에 먼저 찾아보라고 시킨다', () => {
     // codex exec 에는 --search 플래그가 없다 (실측) — config 로 켜야 한다
     expect(mainTs).toContain("'tools.web_search=true'");
     // 인자 배열 자체를 본다 (주석에도 --strict-config 가 나오므로 텍스트 창으로 보면 오판한다)
-    expect(mainTs).toContain("'--sandbox', 'workspace-write'");
+    // v3.8.758: 샌드박스 인자는 codexSandboxArgs 가 정한다(윈도우는 지원 시 --approve-for-me, 그 외 workspace-write)
+    expect(mainTs).toContain('...codexSandboxArgs(process.platform,');
     // --strict-config 를 인자로 넘기면 모르는 키에서 실행이 통째로 깨진다
     expect(mainTs).not.toContain("'--strict-config'");
   });
