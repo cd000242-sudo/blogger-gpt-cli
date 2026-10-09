@@ -15,10 +15,18 @@
  * 그래서 같은 역할을 하는 선택 필드를 스키마 안에 둔다 — 최후 수단을 잃지 않는다.
  */
 
+/**
+ * v3.8.757 — required 에 **모든** 항목을 넣는다.
+ *   고객 실측(2026-10-09): Codex 가 "Invalid schema for response_format 'codex_output_schema':
+ *   'required' is required to be supplied and to be an array including every key in properties. Missing 'sources'."
+ *   로 글을 쓰기도 전에 400. OpenAI 엄격 모드(strict)는 properties 의 키가 전부 required 에 있어야 한다.
+ *   같은 형식표를 Responses API strict 로 직접 보내 같은 400 을 재현했다.
+ *   sources·articleHtml 은 원래도 "없으면 빈 배열·빈 문자열" 이라 항상 채우게 해도 뜻이 같다.
+ */
 export const AGENT_OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'summary'],
+  required: ['title', 'summary', 'sources', 'articleHtml'],
   properties: {
     title: {
       type: 'string',

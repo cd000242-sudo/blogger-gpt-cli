@@ -32,8 +32,16 @@ describe('① 스키마가 필요한 것을 요구한다', () => {
 
   it('⭐⭐ 최후 수단(본문 회수)을 잃지 않는다', () => {
     expect(AGENT_OUTPUT_SCHEMA.properties.articleHtml).toBeDefined();
-    // 필수가 되면 파일을 제대로 쓴 경우에도 본문을 두 번 만들게 된다
-    expect(AGENT_OUTPUT_SCHEMA.required).not.toContain('articleHtml');
+    // v3.8.757: OpenAI 엄격 모드는 모든 항목이 required 여야 한다(아니면 400 — 고객 실측).
+    //   본문을 두 번 만들지 않게 하는 것은 "파일을 썼으면 빈 문자열" 지시가 맡는다.
+    expect(AGENT_OUTPUT_SCHEMA.properties.articleHtml.description).toContain('파일을 썼으면 빈 문자열');
+  });
+
+  it('⭐⭐ OpenAI 엄격 모드와 맞는다 — properties 의 모든 키가 required · 추가 키 금지', () => {
+    // v3.8.757 고객 실측: required 에 sources 가 빠져 Codex 가 글을 쓰기 전에 400(invalid_json_schema)
+    const keys = Object.keys(AGENT_OUTPUT_SCHEMA.properties).sort();
+    expect([...AGENT_OUTPUT_SCHEMA.required].sort()).toEqual(keys);
+    expect(AGENT_OUTPUT_SCHEMA.additionalProperties).toBe(false);
   });
 
   it('⭐ 참고 주소를 담을 자리가 있다', () => {
