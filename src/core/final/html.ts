@@ -227,9 +227,12 @@ export function generateCSSFinal(platform?: string, contentMode?: string): strin
        :where() 는 점수를 더하지 않아 아래 「먹과 놋쇠」 층이 이기던 순서가 그대로다.
      · @import 는 반드시 맨 앞에 둔다. 규칙 뒤의 @import 는 브라우저가 버린다 —
        Gowun Batang 이 규칙 77개 뒤에 있어 승인한 제목 글꼴이 한 번도 안 나갔다.
+   v3.8.758 — 주석 밖은 ASCII 로만 쓴다. 블로그스팟은 저장할 때 & 와 특수기호를 &amp;·&#8594; 로 바꾸는데
+     스타일 블록 안은 브라우저가 되돌리지 않는다(CTA 화살표가 글자로 찍히고 IBM Plex Mono 가 안 불려왔다).
+     & 는 \\26 , 특수기호는 \\2192 처럼 CSS 이스케이프로 쓴다 — 역슬래시는 블로그스팟이 건드리지 않는다.
    ============================================ */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/static/pretendard.css");
-@import url("https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700\\26 family=IBM+Plex+Mono:wght@400;500\\26 display=swap");
 ${EEAT_META_CSS}
 /* === CSS Custom Properties === */
 .bgpt-content {
@@ -529,7 +532,7 @@ ${EEAT_META_CSS}
 }
 /* 우측 화살표 — hover 시 미세 슬라이드 */
 :where(.bgpt-content) .cta-btn::after {
-  content: "→" !important;
+  content: "\\2192" !important;
   font-size: 20px !important;
   font-weight: 900 !important;
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
