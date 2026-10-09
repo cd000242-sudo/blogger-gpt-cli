@@ -94,6 +94,21 @@ function overlaps(a: Set<string>, bFlat: string): { hit: string | null } {
   return { hit: null };
 }
 
+const DOC_FILE = /\.(pdf|hwpx?|docx?|xlsx?|pptx?|zip)$/i;
+
+/**
+ * v3.8.758 — 문서 주소에서 사람이 붙인 파일 이름을 읽는다. 없으면 ''.
+ * 실측: 통행료 글 CTA 가 국립국어원 「2009_신어(공개).pdf」 였는데, 이름이 %EC%8B%A0… 로 인코딩돼 있어
+ * 관문이 "목적지 정보 없음" 으로 통과시켰다. 한글이 든 이름만 쓴다 — UUID·번호 저장 이름은 내용을 말해 주지 않는다.
+ */
+export function documentNameOf(url: string): string {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return ''; }
+  const lastSegment = (() => { try { return decodeURIComponent(parsed.pathname.split('/').pop() || ''); } catch { return ''; } })();
+  const names = [lastSegment, ...parsed.searchParams.values()].map((v) => v.trim());
+  return names.find((v) => DOC_FILE.test(v) && /[가-힣]{2,}/.test(v)) || '';
+}
+
 /** 낱말 하나를 동의어까지 펼친다 */
 function expandSubject(token: string): string[] {
   const group = SUBJECT_SYNONYMS.find((g) => g.includes(token));
@@ -130,17 +145,20 @@ export function checkCtaMatch(input: {
   if (!url) return { ok: false, failed: 'CTA_DESTINATION_MATCH', reason: '목적지 주소가 없다' };
 
   // 목적지를 설명하는 글자 — 주소(호스트·경로) + 근거 장부의 제목·본문 앞부분
-  const destFlat = norm(`${url} ${dest.title || ''} ${String(dest.text || '').slice(0, 600)}`);
+  // v3.8.758: 장부에 없으면 문서 파일 이름을 제목으로 쓴다(장부가 있으면 장부가 먼저)
+  const docName = dest.title || dest.text ? '' : documentNameOf(url);
+  const destTitle = dest.title || docName;
+  const destFlat = norm(`${url} ${destTitle} ${String(dest.text || '').slice(0, 600)}`);
   const articleFlat = norm(`${input.keyword} ${input.title || ''}`);
   const article = subjectTokens(articleFlat);
-  const knowsDestination = !!(dest.title || dest.text);
+  const knowsDestination = !!(destTitle || dest.text);
 
   /* ① CTA_DESTINATION_MATCH — 다른 종류의 시설·기관인가 */
   if (knowsDestination) {
     const articleClass = classOf(articleFlat);
     const destClass = classOf(destFlat);
     if (articleClass && destClass && articleClass !== destClass) {
-      return { ok: false, failed: 'CTA_DESTINATION_MATCH', reason: `이 글은 ${articleClass}인데 목적지는 ${destClass} 페이지다 (${dest.title || url})` };
+      return { ok: false, failed: 'CTA_DESTINATION_MATCH', reason: `이 글은 ${articleClass}인데 목적지는 ${destClass} 페이지다 (${destTitle || url})` };
     }
   }
 
@@ -148,7 +166,7 @@ export function checkCtaMatch(input: {
   const expanded = new Set<string>([...article].flatMap(expandSubject));
   const ent = overlaps(expanded, destFlat);
   if (knowsDestination && !ent.hit) {
-    return { ok: false, failed: 'CTA_ENTITY_MATCH', reason: `목적지에 이 글의 주제 낱말이 없다 (${[...article].slice(0, 4).join('·')} ↔ ${dest.title || url})` };
+    return { ok: false, failed: 'CTA_ENTITY_MATCH', reason: `목적지에 이 글의 주제 낱말이 없다 (${[...article].slice(0, 4).join('·')} ↔ ${destTitle || url})` };
   }
 
   /* ③ CTA_ACTION_MATCH — 이 행동을 할 수 있는 곳인가 */
@@ -157,7 +175,7 @@ export function checkCtaMatch(input: {
     const words = ACTION_SYNONYMS[action] || [action];
     const canAct = words.some((w) => destFlat.includes(w));
     if (!canAct) {
-      return { ok: false, failed: 'CTA_ACTION_MATCH', reason: `"${action}" 을(를) 할 수 있는 화면이 아니다 (${dest.title || url})` };
+      return { ok: false, failed: 'CTA_ACTION_MATCH', reason: `"${action}" 을(를) 할 수 있는 화면이 아니다 (${destTitle || url})` };
     }
   }
 
