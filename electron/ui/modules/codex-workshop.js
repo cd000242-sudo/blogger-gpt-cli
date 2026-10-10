@@ -464,6 +464,22 @@ function toLegacyH2ImageMode(policy) {
   return normalized;
 }
 
+/** v3.8.759: 에이전트 패널에서 이미지 정책을 직접 고른 적이 있는가(기본값 'all' 과 구별) */
+function hasExplicitAgentImagePolicy() {
+  const saved = getStorage()?.getSync?.(AGENT_IMAGE_SETTINGS_KEY, true) || {};
+  return !!(saved.policy || saved.imagePolicy || saved.h2ImageMode);
+}
+
+/** v3.8.759: 에이전트 패널에서 고른 값을 화면의 "이미지 배치 모드"에도 반영한다 — 두 곳이 어긋나지 않게 */
+function syncMainImagePlacementSelect(policy) {
+  const select = document.getElementById('h2ImageMode');
+  const value = toLegacyH2ImageMode(policy);
+  if (!select || select.value === value) return;
+  if (!Array.from(select.options || []).some((option) => option.value === value)) return;
+  select.value = value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 function getAgentImageSettingsMode() {
   const prefs = loadExecutionPrefs();
   const settings = loadAgentImageSettings();
@@ -479,6 +495,7 @@ function getAgentImageSettingsMode() {
     claudeNeedsImageEngine: agentUsesImageApi,
     policy: settings.policy,
     imagePolicy: settings.policy,
+    policyExplicit: hasExplicitAgentImagePolicy(),
     h2ImageMode: toLegacyH2ImageMode(settings.policy),
     thumbnailTextMode: settings.thumbnailTextMode,
     thumbnailTextIncluded: settings.thumbnailTextMode !== 'none',
@@ -1707,7 +1724,9 @@ function renderAgentProviderPanel() {
   });
   detail.querySelectorAll('[data-agent-image-policy]').forEach((button) => {
     button.addEventListener('click', () => {
-      saveAgentImageSettings({ policy: button.getAttribute('data-agent-image-policy') || 'all' });
+      const policy = button.getAttribute('data-agent-image-policy') || 'all';
+      saveAgentImageSettings({ policy });
+      syncMainImagePlacementSelect(policy);
       renderAgentProviderPanel();
       refreshGlobalAiModelBadge();
     });
@@ -4687,6 +4706,12 @@ export function initCodexWorkshop() {
   startUsageTimer();
   applyExecutionModeToApp();
   loadAgentModeStatus(true);
+  // v3.8.759: 화면의 "이미지 배치 모드"를 바꾸면, 패널에서 예전에 고른 값도 따라 바꾼다(나중 선택이 이긴다)
+  document.getElementById('h2ImageMode')?.addEventListener('change', (event) => {
+    if (!hasExplicitAgentImagePolicy()) return;
+    const policy = normalizeAgentImagePolicy(event.target?.value);
+    if (loadAgentImageSettings().policy !== policy) saveAgentImageSettings({ policy });
+  });
 
   window.openCodexWorkshopPanel = openCodexWorkshopPanel;
   window.closeCodexWorkshopPanel = closeCodexWorkshopPanel;

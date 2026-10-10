@@ -1886,8 +1886,12 @@ function getH2ImageSettingsFromDOM() {
    *   그래서 홀수/짝수를 골라도 언제나 'all' 로 발행됐다.
    *
    * 에이전트 모드가 아니면 그 설정은 없는 것으로 본다 — 화면에 보이는 선택이 답이다.
+   *
+   * v3.8.759 — 에이전트 모드여도 **패널에서 직접 고른 값(policyExplicit)만** 이긴다.
+   *   사장님 실측: 화면은 "홀수 섹션만"인데 에이전트 글은 H2 11개 전부에 이미지를 만들었다(한 장 7분대).
+   *   패널을 한 번도 안 눌러 기본값 'all' 이었는데 그게 이겼다 — 위와 같은 모양의 덮어쓰기.
    */
-  const agentPolicy = agentImageMode?.isAgentMode
+  const agentPolicy = agentImageMode?.isAgentMode && agentImageMode?.policyExplicit
     ? (agentImageMode.imagePolicy || agentImageMode.policy || '')
     : '';
   const selectedPolicy = normalizeImagePolicy(

@@ -71,10 +71,20 @@ describe('① 사용자가 고른 값이 실제로 쓰인다', () => {
     expect(resolve(NON_AGENT, fakeDom({ h2ImageMode: 'none' })).legacy).toBe('none');
   });
 
-  it('⭐⭐ 에이전트 모드일 때는 에이전트 설정이 이긴다', () => {
-    const agent = { isAgentMode: true, imagePolicy: 'even-only', policy: 'even-only' };
+  it('⭐⭐ 에이전트 모드에서 에이전트 패널로 직접 고른 값은 이긴다', () => {
+    const agent = { isAgentMode: true, imagePolicy: 'even-only', policy: 'even-only', policyExplicit: true };
     const r = resolve(agent, fakeDom({ h2ImageMode: 'odd' }));
     expect(r.legacy).toBe('even');
+  });
+
+  /**
+   * v3.8.759 — 사장님 실측(2026-10-09): 화면에서 "홀수 섹션만"을 골랐는데 에이전트 글은 H2 전부에 이미지를 만들었다.
+   * 에이전트 패널을 한 번도 안 눌렀어도 기본값 'all' 이 "에이전트 설정"으로 이겼다 — 465 와 같은 모양의 조용한 덮어쓰기.
+   */
+  it('⭐⭐ 에이전트 패널에서 고른 적이 없으면(기본값) 화면의 선택이 이긴다', () => {
+    const agentDefault = { isAgentMode: true, imagePolicy: 'all', policy: 'all', policyExplicit: false };
+    const r = resolve(agentDefault, fakeDom({ h2ImageMode: 'odd' }));
+    expect(r.legacy).toBe('odd');
   });
 
   it('⭐ 아무것도 안 고르면 전체다', () => {
@@ -88,7 +98,23 @@ describe('① 사용자가 고른 값이 실제로 쓰인다', () => {
   });
 });
 
-describe('② 소스에 잘못된 사슬이 되살아나지 않는다', () => {
+describe('② 에이전트 패널 값이 "직접 고른 값"인지 알 수 있다 (v3.8.759)', () => {
+  const workshop = fs.readFileSync(path.join(root, 'electron/ui/modules/codex-workshop.js'), 'utf-8');
+
+  it('⭐⭐ 에이전트 설정 응답에 policyExplicit 가 있다', () => {
+    const from = workshop.indexOf('function getAgentImageSettingsMode(');
+    const body = workshop.slice(from, workshop.indexOf('\n}\n', from));
+    expect(body).toContain('policyExplicit');
+  });
+
+  it('⭐ 에이전트 패널에서 고르면 화면의 이미지 배치 모드도 같이 바뀐다(두 곳이 어긋나지 않게)', () => {
+    const from = workshop.indexOf("detail.querySelectorAll('[data-agent-image-policy]')");
+    const body = workshop.slice(from, workshop.indexOf("detail.querySelectorAll('[data-agent-thumb-text]')", from));
+    expect(body).toContain('syncMainImagePlacementSelect(');
+  });
+});
+
+describe('③ 소스에 잘못된 사슬이 되살아나지 않는다', () => {
   it('⭐⭐ 에이전트 설정은 isAgentMode 로 감싸져 있다', () => {
     expect(posting).toContain('const agentPolicy = agentImageMode?.isAgentMode');
     // 예전 사슬(무조건 에이전트 값 우선)이 남아 있으면 안 된다
