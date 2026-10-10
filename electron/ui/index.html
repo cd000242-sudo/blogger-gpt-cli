@@ -1542,6 +1542,23 @@
                   HUB 키를 넣으면 <b>바로 그 키로 동작</b>합니다. 옛 키는 2027-06-30까지만 살고, 막히면 HUB 키로 자동으로 넘어갑니다.
                   쇼핑·책·전문자료 검색은 2026-07-31 종료돼 대체가 없습니다.
                 </small>
+
+                <!-- 브라우저 정독 리서치 3단계: 꼼꼼 리서치 스위치(기본 꺼짐). 값은 .env 의 BROWSER_READ(1/0)로 저장되고 저장 즉시 적용된다 -->
+                <div style="display: flex; align-items: flex-start; gap: 12px; margin-top: 16px; padding: 14px 16px; background: rgba(15, 23, 42, 0.4); border-radius: 14px; border: 1px solid rgba(255,255,255,0.08);">
+                  <label class="toggle-switch"
+                    style="position: relative; display: inline-block; width: 50px; height: 26px; flex-shrink: 0;">
+                    <input type="checkbox" id="browserReadMode" style="opacity: 0; width: 0; height: 0;">
+                    <span class="toggle-slider"
+                      style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.3); transition: 0.3s; border-radius: 26px;"></span>
+                  </label>
+                  <div>
+                    <span style="color: white; font-weight: 700; font-size: 14px;">꼼꼼 리서치 (느림 · 편당 최대 +4분)</span>
+                    <small style="display: block; margin-top: 4px; color: rgba(255,255,255,0.6); font-size: 11.5px; line-height: 1.6;">
+                      일반 방식으로 못 읽은 관공서 페이지를 PC 의 브라우저(Edge·Chrome)로 다시 열어 끝까지 읽고, 공식기관 첨부 PDF(10MB 이하)도 읽어 근거로 씁니다.
+                      읽는 쪽수 6 → 12쪽. 저장하면 바로 적용됩니다.
+                    </small>
+                  </div>
+                </div>
               </div>
 
               <div

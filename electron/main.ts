@@ -6141,6 +6141,11 @@ ipcMain.handle('save-env', async (_evt, envData: Record<string, string>) => {
     const lines = Array.from(envMap.entries()).map(([key, value]) => `${key}=${value}`);
     fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');
 
+    // 🔎 꼼꼼 리서치(브라우저 정독) — 다시 켜지 않아도 바로 적용. 단일·대기열·예약·에이전트 모두 이 프로세스의 process.env 를 본다
+    if (Object.prototype.hasOwnProperty.call(envData, 'BROWSER_READ')) {
+      process.env['BROWSER_READ'] = String(envData['BROWSER_READ']) === '1' ? '1' : '0';
+    }
+
     console.log('[ENV] .env 파일 저장 완료:', {
       저장된키: Array.from(envMap.keys()),
       총개수: envMap.size
