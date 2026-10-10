@@ -3840,6 +3840,19 @@ safeRegisterHandler('generate-ai-image', async (_evt: any, payload: { prompt: st
         };
       }
 
+      // 🛡️ 선정성 검사(사장님 승인 2026-10-10) — 이 옛 창구(반자동·썸네일 화면)는 imageDispatcher 를 거치지 않는다.
+      //   이 창구의 DALL·E 키(OpenAI 키)로 검사한다. 검사를 못 하면 그림을 막지 않는다(image-moderation 이 기록).
+      try {
+        const { moderateGeneratedImage } = require('../dist/core/image-moderation');
+        const verdict = await moderateGeneratedImage(imageUrl, { env: { OPENAI_API_KEY: dalleApiKey } });
+        if (verdict.flagged) {
+          console.warn(`[AI-IMAGE] 🚫 이미지 안전 검사에 걸림: ${verdict.categories.join(', ') || 'flagged'}`);
+          return { success: false, error: `이미지 안전 검사에 걸려 넣지 않습니다(${verdict.categories.join(', ') || 'flagged'}). 다시 생성해 주세요.` };
+        }
+      } catch (modErr: any) {
+        console.warn('[AI-IMAGE] 이미지 안전 검사 건너뜀:', String(modErr?.message || modErr).slice(0, 120));
+      }
+
       console.log(`[AI-IMAGE] ✅ 이미지 생성 성공 (모델: ${usedModel})`);
       return {
         success: true,
