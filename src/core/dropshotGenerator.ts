@@ -79,13 +79,36 @@ export type DropshotGenerationReadiness = DropshotLoginStatus & {
   diagnostics?: string;
 };
 
-type DropshotImageCandidate = {
+/** 보드에서 읽은 이미지 후보 — width/height 는 원본, rendered* 는 화면에 실제로 그려진 크기 */
+export type DropshotRawImageCandidate = {
   src: string;
   width: number;
   height: number;
-  area: number;
+  renderedWidth: number;
+  renderedHeight: number;
   kind: string;
+  /** 왼쪽 "내 작업" 목록(a[href*="/workspace/board/"]) 안 */
+  inJobList: boolean;
+  /** 홍보 팝업 등 대화상자 안 */
+  inDialog: boolean;
 };
+
+/**
+ * v3.8.759 — 내 생성 결과만 고른다.
+ * 실측(2026-10-10): "내 작업" 목록 썸네일은 화면 32×32 · 원본 1280×698 이라 예전 규칙(원본 크기)을 통과했고,
+ * 목록에는 같은 계정의 다른 작업이 섞여 있었다. 로그인 직후 홍보 팝업 · 비로그인 배너도 큰 새 이미지였다.
+ * 그래서 화면에 크게 보이는 것 · 작업 결과 주소(/jobs/)만 받고, 목록·팝업 안은 버린다.
+ */
+export function isOwnDropshotResultCandidate(c: DropshotRawImageCandidate): boolean {
+  const src = String(c?.src || '').trim();
+  if (!src || c.inJobList || c.inDialog) return false;
+  if ((c.renderedWidth || 0) < 200 || (c.renderedHeight || 0) < 120) return false;
+  if (src.startsWith('data:image/')) return src.length > 20_000;
+  if (src.startsWith('blob:')) return true;
+  let url: URL;
+  try { url = new URL(src); } catch { return false; }
+  return /(^|\.)dropshot\.io$/i.test(url.hostname) && /\/jobs\//.test(url.pathname);
+}
 
 let _loginCheckCache: { ts: number; result: DropshotLoginStatus } | null = null;
 const LOGIN_CHECK_OK_TTL_MS = 10 * 60 * 1000;
@@ -1115,15 +1138,6 @@ async function getDropshotImageSnapshot(page: any): Promise<string[]> {
   });
 }
 
-function isLikelyDropshotResultUrl(src: string): boolean {
-  const raw = String(src || '').trim();
-  if (!raw) return false;
-  if (/\/icons?\/|\/sample\/|placeholder|avatar|logo|sprite|favicon|blank/i.test(raw)) return false;
-  if (raw.startsWith('data:image/')) return raw.length > 20_000;
-  if (raw.startsWith('blob:')) return true;
-  return /aistudio\.dropshot\.io|dropshot|cdn|cloudfront|r2\.dev|storage|supabase|googleusercontent|oaidalleapiprodscus/i.test(raw);
-}
-
 async function getDropshotGenerationDiagnostics(page: any): Promise<string> {
   return await page.evaluate(() => {
     const text = (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 360);
@@ -1142,9 +1156,9 @@ async function getDropshotGenerationDiagnostics(page: any): Promise<string> {
   }).catch((e: any) => `diagnostics failed: ${e?.message || e}`);
 }
 
-async function urlToDataUrlInPage(page: any, url: string): Promise<string | null> {
+export async function urlToDataUrlInPage(page: any, url: string): Promise<string | null> {
   if (url.startsWith('data:image/')) return url;
-  return await page.evaluate(async (imageUrl: string) => {
+  const inPage = await page.evaluate(async (imageUrl: string) => {
     const response = await fetch(imageUrl);
     if (!response.ok) throw new Error(`fetch failed ${response.status}`);
     const blob = await response.blob();
@@ -1156,53 +1170,70 @@ async function urlToDataUrlInPage(page: any, url: string): Promise<string | null
       reader.readAsDataURL(blob);
     });
   }, url).catch(() => null);
+  if (inPage) return inPage;
+  // v3.8.759: 결과 이미지는 img.aistudio.dropshot.io(다른 주소)라 페이지 안 fetch 가 CORS 로 막힌다(실측 "Failed to fetch").
+  //   같은 쿠키를 쓰는 브라우저 요청으로 받는다 — 실측 200 image/jpeg 55,874B. blob: 은 페이지 밖에서 못 받는다.
+  if (!/^https?:\/\//i.test(url)) return null;
+  try {
+    const res = await page.context().request.get(url, { timeout: 30_000 });
+    if (!res.ok()) return null;
+    const type = String(res.headers()['content-type'] || '').split(';')[0]!.trim();
+    if (!type.startsWith('image/')) return null;
+    const body: Buffer = await res.body();
+    return `data:${type};base64,${body.toString('base64')}`;
+  } catch {
+    return null;
+  }
 }
 
-async function findDropshotResultDataUrl(page: any, beforeSrcs: string[], onLog?: (m: string) => void): Promise<string | null> {
-  const candidates: DropshotImageCandidate[] = await page.evaluate((before: string[]) => {
+/** v3.8.759: 보드에서 다시 재 볼 수 있게 내보낸다 — 새 이미지 중 isOwnDropshotResultCandidate 를 통과한 것만 쓴다 */
+export async function findDropshotResultDataUrl(page: any, beforeSrcs: string[], onLog?: (m: string) => void): Promise<string | null> {
+  const raw: DropshotRawImageCandidate[] = await page.evaluate((before: string[]) => {
     const beforeSet = new Set(before);
-    const out: DropshotImageCandidate[] = [];
-    const add = (src: string | null | undefined, width: number, height: number, kind: string) => {
-      const raw = String(src || '').trim();
-      if (!raw || beforeSet.has(raw)) return;
-      if (/\/icons?\/|\/sample\/|placeholder|avatar|logo|sprite|favicon|blank/i.test(raw)) return;
-      if (!(raw.startsWith('data:image/') || raw.startsWith('blob:') || /^https?:\/\//i.test(raw))) return;
-      if (width < 256 || height < 180) return;
-      out.push({ src: raw, width, height, area: width * height, kind });
+    const out: DropshotRawImageCandidate[] = [];
+    const add = (src: string | null | undefined, width: number, height: number, node: Element, kind: string) => {
+      const value = String(src || '').trim();
+      if (!value || beforeSet.has(value)) return;
+      if (!(value.startsWith('data:image/') || value.startsWith('blob:') || /^https?:\/\//i.test(value))) return;
+      const rect = node.getBoundingClientRect();
+      out.push({
+        src: value,
+        width,
+        height,
+        renderedWidth: rect.width,
+        renderedHeight: rect.height,
+        kind,
+        inJobList: !!node.closest('a[href*="/workspace/board/"]'),
+        inDialog: !!node.closest('[role="dialog"],[role="alertdialog"]'),
+      });
     };
 
     for (const img of Array.from(document.querySelectorAll('img')) as HTMLImageElement[]) {
-      const width = img.naturalWidth || img.width || img.getBoundingClientRect().width || 0;
-      const height = img.naturalHeight || img.height || img.getBoundingClientRect().height || 0;
-      add(img.currentSrc || img.src, width, height, 'img');
-      add(img.getAttribute('src'), width, height, 'img-src');
+      const width = img.naturalWidth || img.width || 0;
+      const height = img.naturalHeight || img.height || 0;
+      add(img.currentSrc || img.src, width, height, img, 'img');
+      add(img.getAttribute('src'), width, height, img, 'img-src');
       const srcset = img.getAttribute('srcset') || '';
-      for (const part of srcset.split(',')) add(part.trim().split(/\s+/)[0], width, height, 'img-srcset');
+      for (const part of srcset.split(',')) add(part.trim().split(/\s+/)[0], width, height, img, 'img-srcset');
     }
 
     for (const node of Array.from(document.querySelectorAll('*')) as HTMLElement[]) {
-      const rect = node.getBoundingClientRect();
       const bg = window.getComputedStyle(node).backgroundImage || '';
       const match = bg.match(/url\(["']?([^"')]+)["']?\)/);
-      if (match?.[1]) add(match[1], rect.width, rect.height, 'background');
+      if (match?.[1]) add(match[1], 0, 0, node, 'background');
     }
-
-    return out
-      .filter(item => {
-        if (item.src.startsWith('data:image/')) return item.src.length > 20_000;
-        if (item.src.startsWith('blob:')) return true;
-        return /aistudio\.dropshot\.io|dropshot|cdn|cloudfront|r2\.dev|storage|supabase|googleusercontent|oaidalleapiprodscus/i.test(item.src);
-      })
-      .sort((a, b) => b.area - a.area);
+    return out;
   }, beforeSrcs).catch(() => []);
 
+  const candidates = raw
+    .filter(isOwnDropshotResultCandidate)
+    .sort((a, b) => (b.renderedWidth * b.renderedHeight) - (a.renderedWidth * a.renderedHeight));
   if (!candidates.length) return null;
   const firstCandidate = candidates[0];
   if (firstCandidate) {
-    onLog?.(`🔎 [Dropshot] 결과 후보 ${candidates.length}개 감지: ${firstCandidate.kind} ${firstCandidate.width}x${firstCandidate.height}`);
+    onLog?.(`🔎 [Dropshot] 결과 후보 ${candidates.length}개 감지(새 이미지 ${raw.length}개 중): ${firstCandidate.kind} ${Math.round(firstCandidate.renderedWidth)}x${Math.round(firstCandidate.renderedHeight)}`);
   }
   for (const candidate of candidates.slice(0, 4)) {
-    if (!isLikelyDropshotResultUrl(candidate.src)) continue;
     const dataUrl = await urlToDataUrlInPage(page, candidate.src);
     if (dataUrl && dataUrl.startsWith('data:image/') && dataUrl.length > 20_000) {
       return dataUrl;
