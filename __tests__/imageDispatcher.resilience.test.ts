@@ -7,6 +7,11 @@
  *   - 디스패처(1순위 재시도 → 신뢰성 폴백 → 로컬 placeholder)가 이미지를 반환한 비율 측정.
  *   - 임계치: = 100% (placeholder 최종 안전망으로 이미지는 항상 존재).
  *   - 부가: 원격 엔진만으로의 성공률(placeholder 제외)도 ≥ 95% 임을 확인 → 폴백 체인 자체가 강함.
+ *
+ * v3.8.761 — 사장님 결정(2026-10-10): **모든 엔진이 실패하면 이미지 없이 발행**한다.
+ *   Pollinations(키워드만 · 선정성 차단 없음)가 주제와 무관한 인물 사진을 넣었다(실측: "2026 실업급여 조건" → 젊은 여성 초상,
+ *   쿠팡 보상 글의 선정적 사진도 이 경로로 추정). 로컬 대체 그림도 쓰지 않는다.
+ *   그래서 "100% 보장" 은 "원격 엔진 ≥ 95% + 실패는 ok:false(ALL_ENGINES_FAILED)" 로 바뀐다.
  */
 
 function mulberry32(seed: number): () => number {
@@ -122,7 +127,7 @@ const SELECTABLE_ENGINES = [
 ];
 
 describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장형 폴백 + 로컬 안전망)', () => {
-  it('1000회 무작위 엔진 선택 → 이미지 100% 보장, 원격 성공률(placeholder 제외) ≥ 95%', async () => {
+  it('1000회 무작위 엔진 선택 → 원격 성공률 ≥ 95% · 실패는 이미지 없음(대체 그림 0장)', async () => {
     mockRng.next = mulberry32(0x1234abcd);
 
     const RUNS = 1000;
@@ -130,6 +135,7 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
     let remoteSuccess = 0; // placeholder 아닌 진짜 엔진 성공
     let placeholderUsed = 0;
     let rescuedByFallback = 0;
+    let noImage = 0;
 
     for (let i = 0; i < RUNS; i++) {
       const chosen = SELECTABLE_ENGINES[i % SELECTABLE_ENGINES.length]!;
@@ -141,6 +147,9 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
           remoteSuccess++;
           if (/폴백/.test(result.source)) rescuedByFallback++;
         }
+      } else {
+        expect(result.error).toMatch(/^ALL_ENGINES_FAILED/);
+        noImage++;
       }
     }
 
@@ -148,14 +157,15 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
     const remoteRate = remoteSuccess / RUNS;
     console.log(
       `[RESILIENCE] 전체 ${(rate * 100).toFixed(2)}% (${success}/${RUNS}), ` +
-        `원격 ${(remoteRate * 100).toFixed(2)}%, 폴백 회복 ${rescuedByFallback}, placeholder ${placeholderUsed}`,
+        `원격 ${(remoteRate * 100).toFixed(2)}%, 폴백 회복 ${rescuedByFallback}, placeholder ${placeholderUsed}, 이미지 없음 ${noImage}`,
     );
 
-    expect(rate).toBe(1); // 로컬 placeholder 최종 안전망 → 이미지 항상 존재
+    expect(placeholderUsed).toBe(0); // v3.8.761: 대체 그림을 넣지 않는다
+    expect(rate).toBe(remoteRate);
     expect(remoteRate).toBeGreaterThanOrEqual(0.95); // 폴백 체인 자체가 강함
   }, 60000);
 
-  it('1000회 — 가장 취약한 엔진(gptimage2, 인증 이슈 잦음)만 1순위로 골라도 100% 보장', async () => {
+  it('1000회 — 가장 취약한 엔진(gptimage2, 인증 이슈 잦음)만 1순위로 골라도 ≥ 95%', async () => {
     mockRng.next = mulberry32(0x55aa55aa);
 
     const RUNS = 1000;
@@ -166,10 +176,10 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
     }
     const rate = success / RUNS;
     console.log(`[RESILIENCE-WEAK] gptimage2 1순위 1000회 → ${(rate * 100).toFixed(2)}% 성공`);
-    expect(rate).toBe(1);
+    expect(rate).toBeGreaterThanOrEqual(0.95);
   }, 60000);
 
-  it('썸네일 1000회 무작위 선택 → 100% 보장', async () => {
+  it('썸네일 1000회 무작위 선택 → ≥ 95%', async () => {
     mockRng.next = mulberry32(0x0badf00d);
 
     const RUNS = 1000;
@@ -181,10 +191,10 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
     }
     const rate = success / RUNS;
     console.log(`[RESILIENCE-THUMB] 썸네일 1000회 → ${(rate * 100).toFixed(2)}% 성공`);
-    expect(rate).toBe(1);
+    expect(rate).toBeGreaterThanOrEqual(0.95);
   }, 60000);
 
-  it('최종 안전망: 모든 원격 엔진이 100% 다운이어도 로컬 placeholder 로 이미지 보장 (ok:true)', async () => {
+  it('⭐ v3.8.761: 모든 원격 엔진이 100% 다운이면 이미지 없음(ok:false) — 대체 그림도 넣지 않는다', async () => {
     const {
       makeNanoBananaProThumbnail,
       makeDeepInfraThumbnail,
@@ -198,18 +208,18 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
     (makeProdiaThumbnail as jest.Mock).mockImplementation(allFail);
 
     const h2 = await dispatchH2ImageGeneration('nanobanana2', 'test', 'kw');
-    expect(h2.ok).toBe(true);
-    expect(h2.source).toMatch(/placeholder/);
-    expect(h2.dataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(h2.ok).toBe(false);
+    expect(h2.dataUrl).toBe('');
+    expect(h2.error).toMatch(/^ALL_ENGINES_FAILED/);
 
     const thumb = await dispatchThumbnailGeneration('nanobanana2', '제목', 'kw');
-    expect(thumb.ok).toBe(true);
-    expect(thumb.source).toMatch(/placeholder/);
+    expect(thumb.ok).toBe(false);
+    expect(thumb.dataUrl).toBe('');
+    expect(thumb.error).toMatch(/^ALL_ENGINES_FAILED/);
   }, 30000);
 
-  // v3.8.104: placeholder 직전 단계 — 무료 pollinations가 살아 있으면 그 이미지를 쓴다.
-  //   회색 placeholder보다 실제 이미지가 낫기 때문. 순서가 뒤바뀌면 사용자가 보는 결과가 나빠진다.
-  it('모든 유료 엔진 실패 시 placeholder보다 pollinations 무료 이미지를 우선한다', async () => {
+  // v3.8.104 에 넣었던 pollinations 무료 폴백은 v3.8.761 에서 뺐다(사장님 결정) — 살아 있어도 부르지 않는다.
+  it('⭐ v3.8.761: 모든 유료 엔진이 실패해도 Pollinations 는 부르지 않는다(살아 있어도)', async () => {
     const {
       makeNanoBananaProThumbnail,
       makeDeepInfraThumbnail,
@@ -224,10 +234,12 @@ describe('이미지 디스패처 복원력 — 1000회 몬테카를로 (보장�
     setPollinationsReachable();
 
     const result = await dispatchH2ImageGeneration('nanobanana2', 'test', 'kw');
-    expect(result.ok).toBe(true);
-    expect(result.source).toMatch(/Pollinations/i);
-    expect(result.source).not.toMatch(/placeholder/);
-    expect(mockFetch).toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(String(result.source || '')).not.toMatch(/Pollinations/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+    const thumb = await dispatchThumbnailGeneration('nanobanana2', '제목', 'kw');
+    expect(thumb.ok).toBe(false);
+    expect(mockFetch).not.toHaveBeenCalled();
   }, 30000);
 
   it('엄격 모드(STRICT)에서는 placeholder 미적용 — 실패 시 throw (엔진 고정 의도 존중)', async () => {

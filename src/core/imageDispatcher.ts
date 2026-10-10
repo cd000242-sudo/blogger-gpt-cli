@@ -54,6 +54,7 @@ export const SUPPORTED_IMAGE_ENGINES = [
   'deepinfra',
   'leonardo',
   'dropshot-nanobanana-pro', // v3.6.0: Dropshot UI 자동화 (Pro 구독자 무제한)
+  'genspark-image', // v3.8.761: 젠스파크 AI 이미지 (본인 계정 · Nano Banana 2 Flash Lite 무료 모델) — 작업 번호로 결과 수신
   'flow',
   'crawled',
   'text',
@@ -123,6 +124,10 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'dropshot': 'dropshot-nanobanana-pro',
     'dropshot-nano-banana-pro': 'dropshot-nanobanana-pro',
     'dropshotnanobananapro': 'dropshot-nanobanana-pro',
+    // v3.8.761: 젠스파크 별칭
+    'genspark': 'genspark-image',
+    'genspark-ai-image': 'genspark-image',
+    'gensparkimage': 'genspark-image',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
@@ -435,6 +440,7 @@ const TEXT_CAPABLE_IMAGE_ENGINES = new Set<string>([
   'nanobananapro',
   'dropshot',
   'dropshot-nanobanana-pro',
+  'genspark-image',
   'gptimage2',
   'gptimage25flare',
   'gptimage25sunburst',
@@ -478,6 +484,7 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
     // v3.6.0: Dropshot (UI 자동화 — API 키 불필요, 계정 로그인 기반)
     case 'dropshot-nanobanana-pro':
     case 'dropshot':
+    case 'genspark-image':
     case 'flow':
       return true;
     default:
@@ -491,6 +498,8 @@ function buildFallbackChain(chosen: string, env: Record<string, string>): string
   //   사용자의 Gemini/OpenAI/Prodia/DeepInfra quota를 자동 소진하면 의도 위반이라
   //   유료 API 엔진으로 자동 폴백을 전부 차단한다. 실패 시엔 placeholder PNG로 직행.
   if (chosen === 'dropshot' || chosen === 'dropshot-nanobanana-pro') return [];
+  // v3.8.761 — 젠스파크도 본인 계정 엔진(무료 모델)이다. 같은 이유로 유료 API 자동 폴백을 막는다
+  if (chosen === 'genspark-image') return [];
   return RELIABILITY_FALLBACK_ORDER
     .filter(e => e !== chosen)
     .filter(e => engineKeyAvailable(e, env));
@@ -824,9 +833,8 @@ export async function dispatchH2ImageGeneration(
     }
   }
 
-  // 🛡️ 최종 안전망 (v3.6.0): 모든 원격 엔진 실패 → 네트워크 0 의존 로컬 placeholder 로 이미지 보장.
-  //   "이미지 항상 존재" — 글 발행이 이미지 부재로 깨지지 않도록 한다. (strict 모드는 위에서 throw)
-  return await buildPlaceholderResult(imageSource, keyword, false, onLog);
+  // v3.8.761: 모든 원격 엔진 실패 → 이미지 없이 진행(대체 그림·Pollinations 없음). 호출자가 그 칸을 비운다
+  return noImageResult(imageSource, false, onLog);
 }
 
 // ═══════════════════════════════════════════════════
@@ -968,73 +976,32 @@ export async function dispatchThumbnailGeneration(
     }
   }
 
-  // 🛡️ 최종 안전망 (v3.6.0): 모든 AI 엔진 실패 → 로컬 placeholder 썸네일로 이미지 보장.
-  return await buildPlaceholderResult(thumbnailSource, keyword || title, true, onLog);
+  // v3.8.761: 모든 AI 엔진 실패 → 썸네일 없이 진행(대체 그림·Pollinations 없음)
+  return noImageResult(thumbnailSource, true, onLog);
 }
 
-/** 모든 원격 엔진 실패 시 로컬 placeholder 이미지를 ImageResult 로 감싸 반환 (절대 실패 안 함). */
-// v3.8.104: 모든 유료 엔진 실패 시 무료 무인증 fallback (pollinations.ai/FLUX)
-//   사용자 보고: 그라데이션 placeholder만 나옴 → 사용자가 보는 진짜 이미지 없음.
-//   pollinations는 무료/무인증/CDN 안정적. 품질 중간이지만 placeholder보단 압도적.
-async function tryPollinationsFallback(
-  keyword: string,
-  isThumbnail: boolean,
-  onLog?: (msg: string) => void,
-): Promise<ImageResult | null> {
-  try {
-    const width = isThumbnail ? 1280 : 1024;
-    const height = isThumbnail ? 720 : 576;
-    const prompt = encodeURIComponent(`${keyword}, Korean blog editorial photo, realistic, clean composition, no text`);
-    const seed = Date.now() % 1000000;
-    const url = `https://image.pollinations.ai/prompt/${prompt}?width=${width}&height=${height}&model=flux&nologo=true&seed=${seed}`;
-    onLog?.(`🌱 pollinations.ai fallback 시도 (FLUX 무료)`);
-    console.log(`[DISPATCH] 🌱 pollinations fallback: ${url.slice(0, 100)}...`);
-    const fetchFn: any = (global as any).fetch || require('node-fetch');
-    const response = await fetchFn(url, { timeout: 30000 });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const buf = await response.arrayBuffer();
-    const base64 = Buffer.from(buf).toString('base64');
-    const contentType = response.headers.get?.('content-type') || 'image/jpeg';
-    const dataUrl = `data:${contentType};base64,${base64}`;
-    onLog?.(`✅ pollinations FLUX 이미지 생성 성공`);
-    console.log(`[DISPATCH] ✅ pollinations success: ${(buf.byteLength / 1024).toFixed(1)}KB`);
-    return { ok: true, dataUrl, source: 'Pollinations FLUX (무료 fallback)' };
-  } catch (e: any) {
-    onLog?.(`⚠️ pollinations fallback 실패: ${e?.message || e}`);
-    console.warn(`[DISPATCH] ⚠️ pollinations failed:`, e?.message || e);
-    return null;
-  }
-}
-
-async function buildPlaceholderResult(
+/**
+ * 🚫 v3.8.761 — 모든 엔진 실패 = **이미지 없이 진행**(사장님 결정 2026-10-10).
+ *
+ * v3.8.104 부터 여기서 Pollinations FLUX 로 채웠다. 키워드만 넣고 선정성 차단 없이 요청해서
+ * 주제와 무관한 인물 사진이 들어갔다(실측: "2026 실업급여 조건" → 젊은 여성 초상). 쿠팡 보상 글의 선정적 사진도
+ * 드롭샷 실패(무제한 아닌 계정, 7분 43초 간격) 뒤 이 경로로 들어간 것으로 본다. 그 전의 로컬 대체 그림도 쓰지 않는다.
+ * 호출자는 ok:false 를 받으면 그 칸을 비운다 — 썸네일은 "썸네일 없이 진행", 소제목은 "이미지 스킵", 에이전트는 건너뜀.
+ */
+function noImageResult(
   requested: string,
-  keyword: string,
   isThumbnail: boolean,
   onLog?: (msg: string) => void,
-): Promise<ImageResult> {
-  // 🛑 v3.8.458: 중지됐으면 안전망(pollinations·placeholder)도 돌리지 않는다
+): ImageResult {
+  // 🛑 v3.8.458: 중지됐으면 중지로 끝낸다
   try {
     if (require('./cancel-token').isCanceled()) {
       return { ok: false, dataUrl: '', source: '', error: 'CANCELED_BY_USER' };
     }
   } catch { /* noop */ }
-
-  // v3.8.104: placeholder 직전에 pollinations 무료 fallback 시도
-  const pol = await tryPollinationsFallback(keyword, isThumbnail, onLog);
-  if (pol) return pol;
-
-  onLog?.(`🛡️ pollinations까지 실패 — 로컬 placeholder 이미지로 대체`);
-  console.log(`[DISPATCH] 🛡️ 로컬 placeholder 생성 (요청: ${requested}, thumbnail=${isThumbnail})`);
-  const { generatePlaceholderImage } = require('./imagePlaceholder');
-  const dataUrl = generatePlaceholderImage(keyword, {
-    width: isThumbnail ? 1280 : 1024,
-    height: isThumbnail ? 720 : 576,
-  });
-  return {
-    ok: true,
-    dataUrl,
-    source: `로컬 placeholder (모든 엔진 실패 — ${requested})`,
-  };
+  onLog?.(`⬜ 모든 이미지 엔진 실패 — 이 ${isThumbnail ? '썸네일' : '이미지'}은 넣지 않고 진행합니다 (요청: ${requested})`);
+  console.log(`[DISPATCH] ⬜ 이미지 없이 진행 (요청: ${requested}, thumbnail=${isThumbnail})`);
+  return { ok: false, dataUrl: '', source: '', error: `ALL_ENGINES_FAILED: 모든 이미지 엔진 실패 — 이미지 없이 진행 (${requested})` };
 }
 
 // ═══════════════════════════════════════════════════
@@ -1439,6 +1406,35 @@ async function _tryEngineInternal(
         const detail = `예외: ${e?.message || e}`;
         console.log(`[DISPATCH] ⚠️ Dropshot 예외: ${detail}`);
         return { ok: false, dataUrl: '', source: '', error: `Dropshot ${detail}` };
+      }
+    }
+
+    /**
+     * ✨ v3.8.761 — 젠스파크 AI 이미지(본인 계정 · Nano Banana 2 Flash Lite). 실측 약 20초.
+     * 결과는 작업 번호로 서버 기록에서 받는다(화면에서 고르지 않음). 글자 규칙은 같은 나노바나나 계열인 Dropshot 과 같다.
+     */
+    case 'genspark-image': {
+      try {
+        const { makeGensparkImage } = await import('./genspark/genspark-image');
+        let gensparkPrompt = inferredPrompt;
+        if (userWantsNoText || !isThumbnail) {
+          gensparkPrompt = enforceNoTextPrompt(inferredPrompt);
+        } else if (isThumbnail && prompt) {
+          const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
+          if (titleSafe) {
+            gensparkPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;
+          }
+        }
+        const result = await makeGensparkImage(gensparkPrompt, { ...(onLog ? { onLog } : {}) });
+        if (result.ok) return { ok: true, dataUrl: result.dataUrl, source: 'Genspark AI 이미지' };
+        const detail = result.error || '사유 미상';
+        console.log(`[DISPATCH] ⚠️ 젠스파크 이미지 실패: ${detail}`);
+        onLog?.(`⚠️ 젠스파크 이미지 실패: ${String(detail).substring(0, 300)}`);
+        return { ok: false, dataUrl: '', source: '', error: `젠스파크 실패: ${detail}` };
+      } catch (e: any) {
+        const detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ 젠스파크 이미지 예외: ${detail}`);
+        return { ok: false, dataUrl: '', source: '', error: `젠스파크 ${detail}` };
       }
     }
 

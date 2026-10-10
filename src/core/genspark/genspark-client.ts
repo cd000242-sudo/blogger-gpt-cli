@@ -63,18 +63,34 @@ function freePort(): Promise<number> {
   });
 }
 
-async function fetchJsonInPage(page: any, url: string): Promise<any> {
+export async function fetchJsonInPage(page: any, url: string): Promise<any> {
   return await page.evaluate(async (u: string) => {
     const response = await fetch(u, { credentials: 'include' });
     return { status: response.status, json: await response.json().catch(() => null) };
   }, url);
 }
 
+let chain: Promise<unknown> = Promise.resolve();
+
+/**
+ * v3.8.761 — 리서치·이미지·로그인 확인·로그인 창이 **같은 로그인 폴더**를 쓴다. 브라우저는 한 폴더를 두 번 못 연다.
+ * 그래서 모든 젠스파크 일은 이 줄을 선다 — 앞의 일이 끝나야(실패해도) 다음 일이 시작한다.
+ */
+export function runGensparkExclusive<T>(task: () => Promise<T>): Promise<T> {
+  const next = chain.then(task);
+  chain = next.catch(() => undefined);
+  return next;
+}
+
 /**
  * 로그인 창 — 일반 브라우저를 띄우고, 로그인되면 닫는다.
  * 사장님 실측: 이 방식(디버그 포트만 연 일반 크롬)으로 구글 계정 로그인이 됐다.
  */
-export async function openGensparkLoginWindow(options: { onLog?: Log; timeoutMs?: number } = {}): Promise<{ ok: boolean; email?: string; error?: string }> {
+export function openGensparkLoginWindow(options: { onLog?: Log; timeoutMs?: number } = {}): Promise<{ ok: boolean; email?: string; error?: string }> {
+  return runGensparkExclusive(() => openLoginWindowOnce(options));
+}
+
+async function openLoginWindowOnce(options: { onLog?: Log; timeoutMs?: number }): Promise<{ ok: boolean; email?: string; error?: string }> {
   const exe = gensparkBrowserPath();
   if (!exe) return { ok: false, error: '크롬이나 엣지를 찾지 못했습니다. 크롬을 설치한 뒤 다시 눌러 주세요.' };
   const profile = gensparkProfileDir();
@@ -117,7 +133,8 @@ export function visibleUserAgent(userAgent: string): string {
   return String(userAgent || '').replace(/HeadlessChrome\//g, 'Chrome/');
 }
 
-async function openHeadless(onLog?: Log): Promise<{ context: any; page: any }> {
+/** 화면 없이 젠스파크 로그인 폴더를 연다 — 반드시 runGensparkExclusive 안에서 부를 것 */
+export async function openGensparkHeadless(onLog?: Log): Promise<{ context: any; page: any }> {
   const exe = gensparkBrowserPath();
   if (!exe) throw new Error('GENSPARK_NO_BROWSER: 크롬이나 엣지를 찾지 못했습니다.');
   const { chromium } = (await import('playwright')) as any;
@@ -144,10 +161,14 @@ async function openHeadless(onLog?: Log): Promise<{ context: any; page: any }> {
 }
 
 /** 설정 화면용 — 화면 없이 열어 로그인만 확인한다 */
-export async function checkGensparkLogin(onLog?: Log): Promise<{ loggedIn: boolean; email: string; error?: string }> {
+export function checkGensparkLogin(onLog?: Log): Promise<{ loggedIn: boolean; email: string; error?: string }> {
+  return runGensparkExclusive(() => checkLoginOnce(onLog));
+}
+
+async function checkLoginOnce(onLog?: Log): Promise<{ loggedIn: boolean; email: string; error?: string }> {
   let context: any = null;
   try {
-    const opened = await openHeadless(onLog);
+    const opened = await openGensparkHeadless(onLog);
     context = opened.context;
     const page = opened.page;
     await page.goto(GENSPARK_ORIGIN, { waitUntil: 'domcontentloaded', timeout: 45_000 });
@@ -168,13 +189,9 @@ export interface GensparkRunResult {
   error?: string;
 }
 
-let chain: Promise<unknown> = Promise.resolve();
-
 /** 딥 리서치 1회 — 한 번에 하나씩. 끝나지 않아도 그때까지 읽은 페이지는 돌려준다(finished=false) */
 export function runGensparkDeepResearch(keyword: string, options: { onLog?: Log; timeoutMs?: number; isCanceled?: () => boolean } = {}): Promise<GensparkRunResult> {
-  const next = chain.then(() => runOnce(keyword, options));
-  chain = next.catch(() => undefined);
-  return next;
+  return runGensparkExclusive(() => runOnce(keyword, options));
 }
 
 async function runOnce(keyword: string, options: { onLog?: Log; timeoutMs?: number; isCanceled?: () => boolean }): Promise<GensparkRunResult> {
@@ -184,7 +201,7 @@ async function runOnce(keyword: string, options: { onLog?: Log; timeoutMs?: numb
   const log = options.onLog;
   let context: any = null;
   try {
-    const opened = await openHeadless(log);
+    const opened = await openGensparkHeadless(log);
     context = opened.context;
     const page = opened.page;
     await page.goto(DEEP_RESEARCH_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });

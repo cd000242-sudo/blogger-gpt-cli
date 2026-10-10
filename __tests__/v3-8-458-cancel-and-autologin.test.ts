@@ -20,7 +20,8 @@ const session = read('src/core/affiliate/naver-session.ts');
 
 describe('① 중지가 이미지 폴백 전 구간에서 반응한다', () => {
   it('⭐⭐ H2 폴백 체인 — 엔진마다 중지를 본다', () => {
-    const h2Chain = blockBetween(dispatcher, '// 2순위: 신뢰성 우선 폴백 체인', '🛡️ 최종 안전망 (v3.6.0): 모든 원격');
+    // v3.8.761: 체인 끝 표식이 "최종 안전망" 주석에서 "이미지 없이 진행" 주석으로 바뀌었다
+    const h2Chain = blockBetween(dispatcher, '// 2순위: 신뢰성 우선 폴백 체인', '// v3.8.761: 모든 원격 엔진 실패 → 이미지 없이 진행');
     expect(h2Chain).toContain("isCanceled()");
     expect(h2Chain).toContain('CANCELED_BY_USER');
   });
@@ -38,9 +39,12 @@ describe('① 중지가 이미지 폴백 전 구간에서 반응한다', () => {
     expect(waitBlock).not.toContain('await sleep(delayMs);');
   });
 
-  it('⭐ 중지됐으면 안전망(pollinations·placeholder)도 돌리지 않는다', () => {
-    const fn = blockBetween(dispatcher, 'async function buildPlaceholderResult(', 'const pol = await tryPollinationsFallback');
+  it('⭐ 중지됐으면 마지막 단계도 중지로 끝난다', () => {
+    // v3.8.761: 안전망(pollinations·placeholder)은 없어졌다 — 모든 엔진 실패 = 이미지 없이 진행. 중지면 중지라고 돌려준다
+    const fn = blockBetween(dispatcher, 'function noImageResult(', 'ALL_ENGINES_FAILED');
     expect(fn).toContain('CANCELED_BY_USER');
+    expect(dispatcher).not.toContain('image.pollinations.ai');
+    expect(dispatcher).not.toContain('tryPollinationsFallback');
   });
 });
 

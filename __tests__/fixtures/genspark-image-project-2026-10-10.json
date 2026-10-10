@@ -1,0 +1,42 @@
+{
+ "_note": "2026-10-10 실측 젠스파크 AI 이미지(Nano Banana 2 Flash Lite) 1장 /api/project 응답을 줄인 것. 약 20초.",
+ "status": 0,
+ "data": {
+  "type": "image_generation_agent",
+  "status": "FINISHED",
+  "session_state": {
+   "stop_reason": "finished",
+   "messages": [
+    {
+     "role": "user"
+    },
+    {
+     "role": "assistant"
+    },
+    {
+     "role": "tool"
+    },
+    {
+     "role": "assistant"
+    },
+    {
+     "role": "tool",
+     "session_state": {
+      "media_task_results": {
+       "3c39fa81-fa10-4814-b878-0ebe3c555c25": {
+        "url": "https://www.genspark.ai/api/files/s/hmRbtJ2M?cache_control=3600",
+        "url_nowatermark": "https://www.genspark.ai/api/files/s/kFTOHw2Z?cache_control=3600",
+        "status": "SUCCESS",
+        "origin_client_surface": "web",
+        "id": "3c39fa81-fa10-4814-b878-0ebe3c555c25"
+       }
+      }
+     }
+    },
+    {
+     "role": "assistant"
+    }
+   ]
+  }
+ }
+}
