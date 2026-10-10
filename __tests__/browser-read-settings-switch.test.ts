@@ -52,6 +52,52 @@ describe('적용 — main 의 save-env 가 process.env 를 바로 바꾼다(다�
       expect(handler).toContain('// 기존 .env 파일 읽기');   // 다른 테스트(v3.8.756)가 쓰는 표식 — 지우지 않는다
     });
   }
+  test('실제 저장 코드(main.js save-env)를 그대로 돌려 본다 — 켜고 저장 → 켜짐, 끄고 저장 → 바로 꺼짐(.env 도 0)', async () => {
+    const os = require('os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'save-env-'));
+    const handlers: Record<string, (evt: unknown, data: Record<string, string>) => Promise<{ ok: boolean }>> = {};
+    const electron = { ipcMain: { handle: (ch: string, fn: any) => { handlers[ch] = fn; } }, app: { getPath: () => dir } };
+    const block = `${blockBetween(read('electron', 'main.js'), "electron_1.ipcMain.handle('save-env'", '\n});')}\n});`;
+    // eslint-disable-next-line no-new-func
+    new Function('electron_1', 'path', 'fs', 'console', block)(electron, path, fs, { log() {}, error() {} });
+    const before = process.env['BROWSER_READ'];
+    try {
+      fs.writeFileSync(path.join(dir, '.env'), 'OPENAI_API_KEY=keep-me', 'utf-8');
+      expect((await handlers['save-env']!(null, { BROWSER_READ: '1' })).ok).toBe(true);
+      expect(process.env['BROWSER_READ']).toBe('1');
+      expect(browserReadEnabled(process.env, {})).toBe(true);
+      expect((await handlers['save-env']!(null, { BROWSER_READ: '0' })).ok).toBe(true);
+      expect(process.env['BROWSER_READ']).toBe('0');
+      expect(browserReadEnabled(process.env, {})).toBe(false);
+      const saved = fs.readFileSync(path.join(dir, '.env'), 'utf-8');
+      expect(saved).toContain('BROWSER_READ=0');
+      expect(saved).toContain('OPENAI_API_KEY=keep-me');      // 다른 설정은 그대로
+    } finally {
+      if (before === undefined) delete process.env['BROWSER_READ']; else process.env['BROWSER_READ'] = before;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('실제 화면 코드(settings.js)의 저장 줄과 복원 줄을 돌려 본다 — 스위치 상태 ↔ 1/0', () => {
+    const envData = blockBetween(settingsJs, 'const envData = {', 'const maskEnvValue');
+    const saveLine = envData.split('\n').find((l: string) => l.includes('BROWSER_READ:'))!.trim().replace(/,$/, '');
+    const docWith = (checked: boolean | null) => ({ getElementById: (id: string) => (id === 'browserReadMode' && checked !== null ? { checked } : null) });
+    // eslint-disable-next-line no-new-func
+    const save = (doc: unknown) => new Function('document', `return ({ ${saveLine} });`)(doc).BROWSER_READ;
+    expect(save(docWith(true))).toBe('1');
+    expect(save(docWith(false))).toBe('0');
+    expect(save(docWith(null))).toBe('0');           // 스위치가 없어도 빈 값이 아니라 0
+
+    const load = blockBetween(settingsJs, "const browserReadEl = document.getElementById('browserReadMode');", '// 라디오 카드 복원');
+    const el = { checked: false };
+    // eslint-disable-next-line no-new-func
+    const restore = (merged: Record<string, unknown>) => new Function('document', 'mergedSettings', `const browserReadEl = document.getElementById('browserReadMode');${load.replace("const browserReadEl = document.getElementById('browserReadMode');", '')}`)({ getElementById: () => el }, merged);
+    restore({ BROWSER_READ: '1' }); expect(el.checked).toBe(true);
+    restore({ BROWSER_READ: '0' }); expect(el.checked).toBe(false);
+    restore({ browserRead: '1' }); expect(el.checked).toBe(true);   // .env 키를 camelCase 로 바꾼 값
+    restore({}); expect(el.checked).toBe(false);                   // 기본은 꺼짐
+  });
+
   test('1 이면 켜지고 0 이면 꺼진다 — 끄기가 실제로 꺼진다', () => {
     expect(browserReadEnabled({ BROWSER_READ: '1' }, {})).toBe(true);
     expect(browserReadEnabled({ BROWSER_READ: '0' }, {})).toBe(false);
