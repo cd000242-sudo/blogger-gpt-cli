@@ -136,7 +136,8 @@ describe('v3.8.758 배선·회귀·의미 보존', () => {
     const orch = read('src/core/final/orchestration.ts');
     expect(orch).toContain("require('./official-research-plan')");
     expect(orch).toContain("process.env['OFFICIAL_BOOST'] === '1'");
-    expect(orch).toContain('officialPlan, officialBoost });');
+    // 브라우저 정독 리서치 — 스위치 옵션이 뒤에 더해졌다(계획·보강 전달은 그대로)
+    expect(orch).toContain('officialPlan, officialBoost, ...(browserRead ? { browserRead } : {}) });');
     expect(orch).toContain("trace.event('grounding.official-plan'");
     expect(orch).toContain('핵심 공식자료 부족');
     expect(read('src/core/final/naver-grounding.ts')).toContain('const BODY_FETCH_MAX = 6;');

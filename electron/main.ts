@@ -13276,7 +13276,9 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         const { naverSearch } = require('../dist/core/naver-search-client');
         const agentSearch = (type: any, params: any) =>
           naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 });
-        const g = await fetchGrounding(agentKeyword, agentSearch);
+        // 브라우저 정독 리서치 — API 경로(orchestration)와 같은 스위치·같은 함수(1단계 숨김 스위치, 기본 꺼짐)
+        const { browserReadEnabled } = require('../dist/core/crawlers/browser-reader');
+        const g = await fetchGrounding(agentKeyword, agentSearch, browserReadEnabled(process.env, request?.payload) ? { browserRead: { enabled: true } } : {});
         /**
          * v3.8.665 — 리포트 출처 본문 + 제목 약속 근거를 에이전트에게도 넘긴다.
          * orchestration(API 경로)과 **같은 두 함수**를 쓴다 — 여기만 빠지면 또 "조용한 미배선" 이다.
@@ -13318,6 +13320,7 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         }
         if (agentEvidence) {
           console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
+          if (g?.browserRead) console.log(`[AGENT-GROUNDING] ${require('../dist/core/crawlers/browser-reader').describeBrowserRead(g.browserRead)}`);
           (request as any).payload = {
             ...(request?.payload || {}),
             agentEvidenceBlock: agentEvidence,

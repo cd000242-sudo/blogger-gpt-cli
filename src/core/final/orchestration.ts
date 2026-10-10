@@ -1574,8 +1574,18 @@ export async function generateUltimateMaxModeArticleFinal(
     const officialBoost = { enabled: process.env['OFFICIAL_BOOST'] === '1' || (payload as any).officialBoost === true, maxQueries: 1 };
     let groundingOfficialStatus: { candidates?: Array<{ url: string; roundRelevance?: string; status?: string }> } | null = null;
     trace.event('grounding.official-plan', { plan: officialPlan, boost: officialBoost });
+    /**
+     * 🔎 브라우저 정독 리서치(1단계, 기본 꺼짐) — BROWSER_READ=1 또는 payload.browserRead.
+     * HTTP 로 못 읽은 관공서 페이지만 실제 브라우저로 다시 열고, 본문을 최대 12쪽(공식 먼저) 읽는다. 편당 최대 4분.
+     * 첫 근거 수집에만 건다 — 재검색·약속 근거까지 걸면 시간 상한이 겹친다.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const browserReadMod = require('../crawlers/browser-reader');
+    const browserRead = browserReadMod.browserReadEnabled(process.env, payload) ? { enabled: true, ...(onLog ? { onLog } : {}) } : undefined;
+    if (browserRead) onLog?.('🔎 꼼꼼 리서치 켜짐 — 일반 방식으로 못 읽은 페이지를 브라우저로 다시 엽니다(최대 4분)');
     try {
-      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost });
+      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost, ...(browserRead ? { browserRead } : {}) });
+      if (g.browserRead) onLog?.(`🔎 ${browserReadMod.describeBrowserRead(g.browserRead)}`);
       groundingOfficialStatus = g.officialStatus ?? null;   // v3.8.765 — 현재 회차 공식 문서 판정(핵심 답 찾기에 쓴다)
       if (g.officialStatus && g.officialStatus.needed && !g.officialStatus.sufficient) {
         // v3.8.759 — 상태 이름표·못 답한 핵심 질문까지(describeOfficialShortfall). "공식 문서 1건 읽음" 이 "충분" 이 아니다
@@ -1588,7 +1598,7 @@ export async function generateUltimateMaxModeArticleFinal(
       if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
       groundingStats = g;
       // 🧾 v3.8.757 — 본문 수집 시도(예산 미시도·첨부·실패·성공)를 남긴다. 공식 페이지가 스니펫만 남은 이유를 저장자료로 가르기 위해
-      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], officialStatus: (g as any).officialStatus || null, scope: sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
+      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], officialStatus: (g as any).officialStatus || null, ...(g.browserRead ? { browserRead: g.browserRead } : {}), scope:sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
       const summary = describeGrounding(g);
       console.log(`[GROUNDING] ${summary}`);
       if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);

@@ -40,6 +40,7 @@ import { isOfficialDestination, isUserGeneratedUrl } from '../../cta/host-trust'
 import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOfficialSource, buildSourceScopeDirective, isComparisonTopic, comparisonSubjects, roundOf, type SourceScope } from './source-scope';
 import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceDraft } from './evidence';
 import { OFFICIAL_NEEDS, type OfficialNeed } from './official-research-plan';
+import type { BrowserReader, BrowserReadStats } from '../crawlers/browser-reader';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
 export type NaverSearchFn = (
@@ -79,6 +80,14 @@ const BODY_CHARS = 900;
 
 /** v3.8.757 — BODY_FETCH_MAX 안에서 이 주제의 공식 페이지에 먼저 주는 몫(총량은 늘지 않는다) */
 const OFFICIAL_RESERVE = 2;
+
+/**
+ * 브라우저 정독 리서치(1단계, 기본 꺼짐) — 켜면 본문을 더 많이, 공식 페이지를 더 먼저 읽는다.
+ * HTTP 로 못 읽은 주소만 브라우저로 다시 연다(`crawlers/browser-reader`). 계획서: docs/browser-read-research-plan.md
+ * 프롬프트로 가는 쪽당 발췌(BODY_CHARS)와 장부 상한(MAX_SNIPPET_CHARS)은 그대로다 — 늘어나는 것은 읽는 쪽수와 장부 보존 본문이다.
+ */
+const BROWSER_BODY_FETCH_MAX = 12;
+const BROWSER_OFFICIAL_RESERVE = 4;
 
 /**
  * ① 검색 결과에서 근거가 될 만한 글자를 모은다.
@@ -144,6 +153,8 @@ export interface GroundingResult {
   fetchLog?: FetchAttempt[];
   /** v3.8.758 — 공식자료 상태(기관 매핑 없는 주제 포함) */
   officialStatus?: OfficialStatus;
+  /** 브라우저 정독 리서치 — 켰을 때만 있다. rescued: HTTP 로 못 읽어 브라우저로 본문을 얻은 쪽 수 */
+  browserRead?: BrowserReadStats & { enabled: true; rescued: number };
 }
 
 /**
@@ -199,6 +210,8 @@ export interface FetchAttempt {
   failureDetail?: string;
   httpStatus?: number;
   attemptedAt?: string;
+  /** 브라우저 정독 리서치를 켰을 때만 — 본문을 어떻게 읽었나(http · browser) */
+  via?: 'http' | 'browser';
   /** 후보 제목(출처 ID 는 장부 단계에서 붙으므로 여기서는 제목·주소로 잇는다) */
   title?: string;
   retrievedChars?: number;
@@ -337,6 +350,11 @@ export async function fetchGrounding(
     officialPlan?: { queries: string[]; subjects: string[] };
     /** v3.8.758 — 조건부 보강 스위치. 기본 꺼짐 — 켜지 않으면 검색 수는 예전과 같고 '보강했다면' 만 기록한다 */
     officialBoost?: { enabled: boolean; maxQueries?: number };
+    /**
+     * 브라우저 정독 리서치. 기본 꺼짐 — 끄면 읽는 쪽수·방식·기록 모양이 예전과 같다.
+     * reader 를 주면 그걸 쓰고 닫는 것도 호출자 몫이다. 비우면 여기서 만들고(처음 필요할 때 띄움) 끝나면 닫는다.
+     */
+    browserRead?: { enabled: boolean; totalBudgetMs?: number; reader?: BrowserReader; onLog?: (message: string) => void };
   } = {},
 ): Promise<GroundingResult> {
   const empty: GroundingResult = {
@@ -373,10 +391,31 @@ export async function fetchGrounding(
    * 기관 검색 결과의 대부분은 첨부파일이라 애초에 못 긁는다(실측 18건 중 15건).
    * 그래서 앞쪽 몇 건만 채우고, 실패하면 조용히 스니펫을 남긴다 — 절대 나빠지지 않는다.
    */
+  /** 브라우저 정독 리서치 — 켜면 HTTP 로 못 읽은 주소만 브라우저로 다시 연다. 본문을 주입받은 경우(테스트)엔 쪽수만 바뀐다 */
+  const browserOn = !!options.browserRead?.enabled;
+  const bodyFetchMax = browserOn ? BROWSER_BODY_FETCH_MAX : BODY_FETCH_MAX;
+  const officialReserve = browserOn ? BROWSER_OFFICIAL_RESERVE : OFFICIAL_RESERVE;
+  const ownReader: BrowserReader | null = browserOn && !options.browserRead?.reader && !options.fetchBody
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    ? require('../crawlers/browser-reader').createBrowserReader({
+      ...(options.browserRead?.totalBudgetMs ? { totalBudgetMs: options.browserRead.totalBudgetMs } : {}),
+      ...(options.browserRead?.onLog ? { onLog: options.browserRead.onLog } : {}),
+    })
+    : null;
+  const reader: BrowserReader | null = browserOn ? (options.browserRead?.reader || ownReader) : null;
+  /** 주소별로 어떻게 읽었나(브라우저 정독을 켰을 때만 채운다) */
+  const fetchVia = new Map<string, 'http' | 'browser'>();
+  const viaOf = (url: string): { via?: 'http' | 'browser' } => { const v = fetchVia.get(url); return v ? { via: v } : {}; };
+
   const fetchBody: FetchBodyFn = options.fetchBody
     || (async (url) => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const outcome = await require('../crawlers/official-page-body').fetchPageDocumentDetailed(url, BODY_CHARS);
+      const pageBody = require('../crawlers/official-page-body');
+      const outcome = reader
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        ? await require('../crawlers/browser-reader').readWithBrowserFallback(url, BODY_CHARS, (u: string, m: number) => pageBody.fetchPageDocumentDetailed(u, m), reader)
+        : await pageBody.fetchPageDocumentDetailed(url, BODY_CHARS);
+      if (outcome.via) fetchVia.set(url, outcome.via);
       const doc = outcome.doc;
       // v3.8.761 — 실패 사유를 남긴다(fetchLog 가 읽는다). 성공도 시각을 남긴다
       fetchOutcomes.set(url, { attemptedAt: outcome.attemptedAt, ...(outcome.failure ? { failure: outcome.failure } : {}) });
@@ -420,7 +459,7 @@ export async function fetchGrounding(
    * 본문 2,017자짜리 서울시 보육포털 페이지가 **일반 웹문서 갈래로 들어왔는데**
    * 그 갈래엔 예산이 없어 120자 스니펫으로 남았다. 한 통이면 그런 구멍이 없다.
    */
-  let budgetLeft = BODY_FETCH_MAX;
+  let budgetLeft = bodyFetchMax;
   const fetchLog: FetchAttempt[] = [];
 
   const enrich = async (items: any[], tag: string, budget: number): Promise<string[]> => {
@@ -464,14 +503,19 @@ export async function fetchGrounding(
       const title = stripTags(it?.title || '');
       const outcome = fetchOutcomes.get(url);
       if (!spend.has(i)) fetchLog.push({ url, tag, title, attempted: false, ok: false, chars: 0, reason: url && looksLikeFileUrl(url) ? 'file-url' : 'budget', failureReason: url && looksLikeFileUrl(url) ? 'FILE_URL' : 'BUDGET_SKIPPED' });
-      else if (!body) fetchLog.push({ url, tag, title, attempted: true, ok: false, chars: 0, reason: 'fetch-failed', failureReason: outcome?.failure?.reason || 'UNKNOWN', ...(outcome?.failure?.detail ? { failureDetail: outcome.failure.detail } : {}), ...(outcome?.failure?.status ? { httpStatus: outcome.failure.status } : {}), attemptedAt: outcome?.attemptedAt || new Date().toISOString(), retrievedChars: 0 });
+      else if (!body) fetchLog.push({ url, tag, title, attempted: true, ok: false, chars: 0, reason: 'fetch-failed', failureReason: outcome?.failure?.reason || 'UNKNOWN', ...(outcome?.failure?.detail ? { failureDetail: outcome.failure.detail } : {}), ...(outcome?.failure?.status ? { httpStatus: outcome.failure.status } : {}), attemptedAt: outcome?.attemptedAt || new Date().toISOString(), retrievedChars: 0, ...viaOf(url) });
       if (!body) return keep(it, tag, snippet(it, tag), '');
       const at = outcome?.attemptedAt ? { attemptedAt: outcome.attemptedAt } : {};
-      if (!sourceMatchesScope({ url, title, content: body }, sourceScope)) { fetchLog.push({ url, tag, title, attempted: true, ok: true, chars: body.length, reason: 'scope-mismatch', failureReason: 'SCOPE_MISMATCH', ...at, retrievedChars: body.length }); return ''; }
-      fetchLog.push({ url, tag, title, attempted: true, ok: true, chars: body.length, reason: 'ok', ...at, retrievedChars: body.length });
+      if (!sourceMatchesScope({ url, title, content: body }, sourceScope)) { fetchLog.push({ url, tag, title, attempted: true, ok: true, chars: body.length, reason: 'scope-mismatch', failureReason: 'SCOPE_MISMATCH', ...at, retrievedChars: body.length, ...viaOf(url) }); return ''; }
+      fetchLog.push({ url, tag, title, attempted: true, ok: true, chars: body.length, reason: 'ok', ...at, retrievedChars: body.length, ...viaOf(url) });
       return keep(it, tag, `[${tag}] ${stripTags(it?.title)}${sourceScope ? `\n[출처 URL] ${url}\n[추출 원문]` : ''} ${body}`.trim(), body);
     }).filter(Boolean);
   };
+
+  /** 브라우저 정독을 켰을 때만 결과에 싣는다 — 꺼져 있으면 결과 모양이 예전과 같다 */
+  const browserStats = (): { browserRead?: NonNullable<GroundingResult['browserRead']> } => (reader
+    ? { browserRead: { ...reader.stats(), enabled: true, rescued: fetchLog.filter((f) => f.via === 'browser' && f.reason === 'ok').length } }
+    : {});
 
   const usable = (items: any[], filter?: (it: any) => boolean) =>
     (Array.isArray(items) ? items : [])
@@ -526,6 +570,7 @@ export async function fetchGrounding(
         newsCount: newsParts.length,
         skippedBlogs: blog?.ok ? blog.items.length : 0,
         items: accepted, rejected, query, fetchLog,
+        ...browserStats(),
       };
     }
 
@@ -600,7 +645,7 @@ export async function fetchGrounding(
       return anyTopicTerm && needHit ? 2 : 0;
     };
     const isOfficialOnTopic = (it: SearchItem) => officialScore(it) > 0;
-    let officialFirst = webUsableAll.filter(isOfficialOnTopic).sort((a, b) => officialScore(b) - officialScore(a)).slice(0, OFFICIAL_RESERVE);
+    let officialFirst = webUsableAll.filter(isOfficialOnTopic).sort((a, b) => officialScore(b) - officialScore(a)).slice(0, officialReserve);
 
     /**
      * 🧭 v3.8.758 — 현재 회차와 조건부 보강(기본 꺼짐).
@@ -653,7 +698,7 @@ export async function fetchGrounding(
     };
     const boostQueries = (options.officialPlan?.queries || []).slice(0, Math.max(0, options.officialBoost?.maxQueries ?? 1));
     // 보강 판단은 본문을 읽은 뒤(예산 안에서)에 한다 — 스니펫만으로 "충분" 을 말하지 않기 위해
-    let officialFirstParts = officialFirst.length > 0 ? await enrich(officialFirst, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft)) : [];
+    let officialFirstParts = officialFirst.length > 0 ? await enrich(officialFirst, '웹', Math.min(officialReserve, budgetLeft)) : [];
     let evalBefore = evaluateOfficial();
     const boost = { enabled: !!options.officialBoost?.enabled, wouldTrigger: officialNeeded && !evalBefore.sufficient && boostQueries.length > 0, triggered: false, queries: [] as string[], added: 0, reason: '' };
     if (boost.wouldTrigger && boost.enabled) {
@@ -671,8 +716,8 @@ export async function fetchGrounding(
       const already = new Set(officialFirst.map((it) => bodyUrlOf(it)));
       const fresh = webUsableAll.filter((it) => isOfficialOnTopic(it) && !already.has(bodyUrlOf(it)))
         .sort((a, b) => Number(roundOfItem(b) === currentRound) - Number(roundOfItem(a) === currentRound))   // 현재 회차 문서를 앞에
-        .slice(0, Math.max(1, OFFICIAL_RESERVE - officialFirst.length));
-      if (fresh.length > 0) officialFirstParts = [...officialFirstParts, ...await enrich(fresh, '웹', Math.min(OFFICIAL_RESERVE, budgetLeft))];
+        .slice(0, Math.max(1, officialReserve - officialFirst.length));
+      if (fresh.length > 0) officialFirstParts = [...officialFirstParts, ...await enrich(fresh, '웹', Math.min(officialReserve, budgetLeft))];
       officialFirst = [...officialFirst, ...fresh];
       evalBefore = evaluateOfficial();
       boost.reason = boost.added ? `보강 검색으로 공식 후보 ${boost.added}건 추가${evalBefore.sufficient ? ' — 현재 질문의 공식 근거 확보' : ' — 그래도 핵심 질문 미답'}` : '보강 검색에도 이 주제의 공식 후보 없음';
@@ -755,7 +800,7 @@ export async function fetchGrounding(
        * 나머지는 원래대로 최신순으로 채운다. 두 그룹 모두 최신 것이 먼저다.
        */
       const readable = ranked.filter((e) => !looksLikeFileUrl(bodyUrlOf(e.it)));
-      const reserved = readable.slice(0, BODY_FETCH_MAX);
+      const reserved = readable.slice(0, bodyFetchMax);
       const reservedSet = new Set(reserved.map((e) => e.order));
       const ordered = [...reserved, ...ranked.filter((e) => !reservedSet.has(e.order))]
         .slice(0, OFFICIAL_MAX)
@@ -823,9 +868,13 @@ export async function fetchGrounding(
       skippedBlogs: Math.max(0, blogSeen.length - blogTop.length),
       breakingEvent,
       items: accepted, rejected, query, fetchLog, officialStatus,
+      ...browserStats(),
     };
   } catch {
     return empty;
+  } finally {
+    // 여기서 만든 브라우저는 여기서 닫는다 — 실패·예외에도 남지 않게
+    if (ownReader) await ownReader.close();
   }
 }
 

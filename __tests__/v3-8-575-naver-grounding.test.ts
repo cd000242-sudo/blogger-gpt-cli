@@ -13,6 +13,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { blockBetween } from './helpers/source-block';
 import {
   fetchGrounding as fetchGroundingRaw,
   fetchGroundingSnippets as fetchGroundingSnippetsRaw,
@@ -177,10 +178,12 @@ describe('③ 배선 — 발행 경로에서 실제로 쓴다', () => {
   test('발행을 막지 않는다', () => {
     for (const marker of ['fetchGrounding(', 'checkFreshness({']) {
       const at = orch.indexOf(marker);
-      // v3.8.734: 근거 항목 수집 줄이 늘어 catch 가 뒤로 밀렸다 — 창을 넓힌다
-      const block = orch.slice(at - 300, at + 1500);
-      expect(block).toContain('try');
-      expect(block).toContain('catch');
+      expect(at).toBeGreaterThan(-1);
+      // 브라우저 정독 리서치: 고정 길이 창(v3.8.734 에 1500자로 넓힘)이 또 밀려 경계로 바꾼다 — 바로 앞 try { 부터 그 뒤 첫 } catch 까지
+      const tryAt = orch.lastIndexOf('try {', at);
+      expect(tryAt).toBeGreaterThan(-1);
+      const block = blockBetween(orch.slice(tryAt), 'try {', '} catch');
+      expect(block).toContain(marker);                 // 호출이 그 try 안에 있다
       expect(block).not.toContain('throw new Error');
     }
   });

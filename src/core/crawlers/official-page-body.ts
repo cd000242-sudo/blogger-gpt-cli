@@ -169,6 +169,23 @@ export type FetchFailureReason = 'INVALID_URL' | 'FILE_URL' | 'HTTP_STATUS' | 'T
 export interface FetchFailure { reason: FetchFailureReason; detail?: string; status?: number }
 export interface PageFetchOutcome { doc: PageDocument | null; failure?: FetchFailure; attemptedAt: string }
 
+/**
+ * HTML 한 장 → 본문. 기사 추출기 → 기관 페이지 추출기 순으로 시도한다.
+ * HTTP 로 받은 HTML 과 브라우저가 그린 HTML(`browser-reader`)이 **같은 문**을 지난다 — 읽는 방법만 다르고 고르는 기준은 같다.
+ */
+export function documentFromHtml(html: string, maxChars: number = DEFAULT_MAX_PAGE_CHARS): { doc: PageDocument | null; failure?: FetchFailure } {
+  if (!html || html.replace(/\s+/g, '').length === 0) return { doc: null, failure: { reason: 'EMPTY_BODY', detail: 'response text empty' } };
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { extractArticleBody, extractPublishedDate } = require('./article-body');
+  const article = extractArticleBody(html, maxChars);
+  if (article?.text) return { doc: { text: article.text, publishedAt: article.publishedAt ?? null, rawLength: article.rawLength, ...(article.fullText ? { fullText: article.fullText, truncatedAt: article.truncatedAt ?? null } : {}) } };
+
+  const page = extractOfficialPageBody(html, maxChars);
+  if (page) return { doc: { text: page.text, publishedAt: extractPublishedDate(html), rawLength: page.rawLength, ...(page.fullText ? { fullText: page.fullText, truncatedAt: page.truncatedAt ?? null } : {}) } };
+  return { doc: null, failure: { reason: 'EXTRACT_FAIL', detail: `html ${html.length}자에서 본문 추출 실패(기사·기관 추출기 모두)` } };
+}
+
 export async function fetchPageDocumentDetailed(
   url: string,
   maxChars: number = DEFAULT_MAX_PAGE_CHARS,
@@ -193,16 +210,7 @@ export async function fetchPageDocumentDetailed(
     if (!/text\/html/i.test(contentType)) return { doc: null, failure: { reason: 'UNSUPPORTED_CONTENT', detail: contentType.slice(0, 60) }, attemptedAt };
 
     const html = await response.text();
-    if (!html || html.replace(/\s+/g, '').length === 0) return { doc: null, failure: { reason: 'EMPTY_BODY', detail: 'response text empty' }, attemptedAt };
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { extractArticleBody, extractPublishedDate } = require('./article-body');
-    const article = extractArticleBody(html, maxChars);
-    if (article?.text) return { doc: { text: article.text, publishedAt: article.publishedAt ?? null, rawLength: article.rawLength, ...(article.fullText ? { fullText: article.fullText, truncatedAt: article.truncatedAt ?? null } : {}) }, attemptedAt };
-
-    const page = extractOfficialPageBody(html, maxChars);
-    if (page) return { doc: { text: page.text, publishedAt: extractPublishedDate(html), rawLength: page.rawLength, ...(page.fullText ? { fullText: page.fullText, truncatedAt: page.truncatedAt ?? null } : {}) }, attemptedAt };
-    return { doc: null, failure: { reason: 'EXTRACT_FAIL', detail: `html ${html.length}자에서 본문 추출 실패(기사·기관 추출기 모두)` }, attemptedAt };
+    return { ...documentFromHtml(html, maxChars), attemptedAt };
   } catch (e: unknown) {
     const err = e as { name?: string; code?: string; message?: string; cause?: { code?: string } };
     const name = String(err?.name || ''); const code = String(err?.code || err?.cause?.code || ''); const msg = String(err?.message || '').slice(0, 80);
