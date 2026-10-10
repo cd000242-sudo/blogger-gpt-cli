@@ -1898,6 +1898,7 @@ const BATCH_IMAGE_ENGINE_COST = {
   // v3.6.0: Dropshot은 "구독료별" — Pro 구독자 한정 한계비용 0원, 구독료(월 74,000~99,000원)는 별도.
   // 이미지 1장당 추가 비용은 없음. UI에서 "구독료별"로 표시.
   'dropshot-nanobanana-pro': 0,
+  'genspark-image': 0,
   'nanobanana': 52, 'nanobanana2': 90, 'nanobananapro': 178,
   'gptimage1-low': 15, 'gptimage1-medium': 56, 'gptimage1-high': 222,
   'gptimage2-low': 15, 'gptimage2-medium': 56, 'gptimage2-high': 222,
@@ -3309,6 +3310,7 @@ const IMAGE_ENGINE_COST_KRW_PER_IMAGE = {
   'imagefx': 0,                                  // 무료
   'flow': 0,                                     // Google AI Plus/Pro 구독 계정 기준 (월 구독료별)
   'dropshot-nanobanana-pro': 0,                  // v3.6.0: Dropshot Pro 구독자 한정 — 구독료(월 74,000~99,000원) 별도, 이미지당 한계비용 0원
+  'genspark-image': 0,                           // v3.8.761: 젠스파크 본인 계정 — 무료 모델(Nano Banana 2 Flash Lite)
   'nanobanana': 52,                              // $0.039
   'nanobanana2': 90,                             // $0.067 (사용자 현재 기본)
   'nanobananapro': 178,                          // $0.134

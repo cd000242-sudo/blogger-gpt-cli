@@ -619,6 +619,7 @@ const QUEUE_LABELS = {
     nanobanana2: '나노바나나 2',
     nanobananapro: '나노바나나 Pro',
     'dropshot-nanobanana-pro': '리더스 무제한',
+    'genspark-image': '젠스파크',
     gptimage1: 'GPT 이미지 1',
     gptimage2: '덕트테이프',
     gptimage25flare: 'GPT 이미지 2.5 플레어',
@@ -1493,6 +1494,7 @@ function buildModalHtml() {
               <select id="pq-bulk-thumb">
                 <option value="">변경 안 함</option>
                 <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
+                <option value="genspark-image">✨ 젠스파크 AI 이미지 (본인 젠스파크 계정 · 무료 모델)</option>
                 <option value="nanobanana2">🍌 Nano Banana 2 (권장)</option>
                 <option value="nanobanana">🍌 Nano Banana</option>
                 <option value="nanobananapro">🍌 Nano Banana Pro (Gemini 3)</option>
@@ -1514,6 +1516,7 @@ function buildModalHtml() {
                 <option value="">변경 안 함</option>
                 <option value="same">썸네일과 동일하게</option>
                 <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
+                <option value="genspark-image">✨ 젠스파크 AI 이미지 (본인 젠스파크 계정 · 무료 모델)</option>
                 <option value="nanobanana2">🍌 Nano Banana 2</option>
                 <option value="nanobanana">🍌 Nano Banana</option>
                 <option value="nanobananapro">🍌 Nano Banana Pro</option>
@@ -1763,6 +1766,7 @@ function buildItemRow(item, idx) {
       <label>썸네일</label>
       <select class="pq-item-thumb">
         <option value="dropshot-nanobanana-pro" ${item.thumb === 'dropshot-nanobanana-pro' ? 'selected' : ''}>리더스 무제한</option>
+        <option value="genspark-image" ${item.thumb === 'genspark-image' ? 'selected' : ''}>젠스파크 AI 이미지</option>
         <option value="nanobanana2" ${(!item.thumb || item.thumb === 'nanobanana2') ? 'selected' : ''}>Nano Banana 2</option>
         <option value="nanobanana" ${item.thumb === 'nanobanana' ? 'selected' : ''}>Nano Banana</option>
         <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
@@ -1782,6 +1786,7 @@ function buildItemRow(item, idx) {
       <label>소제목 이미지</label>
       <select class="pq-item-h2">
         <option value="dropshot-nanobanana-pro" ${item.h2ImageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>리더스 무제한</option>
+        <option value="genspark-image" ${item.h2ImageSource === 'genspark-image' ? 'selected' : ''}>젠스파크 AI 이미지</option>
         <option value="nanobanana2" ${(!item.h2ImageSource || item.h2ImageSource === 'nanobanana2') ? 'selected' : ''}>Nano Banana 2</option>
         <option value="nanobanana" ${item.h2ImageSource === 'nanobanana' ? 'selected' : ''}>Nano Banana</option>
         <option value="nanobananapro" ${item.h2ImageSource === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>

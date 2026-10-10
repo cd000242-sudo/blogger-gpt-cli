@@ -346,6 +346,7 @@ function imageEngineOptions(allowSame = false) {
   const options = [
     ['nanobanana2', 'Nano Banana 2'],
     ['dropshot-nanobanana-pro', 'Leaders Nano Banana Pro'],
+    ['genspark-image', 'Genspark AI Image'],
     ['gptimage2', 'GPT 이미지 2'],
     ['deepinfra', 'DeepInfra'],
     ['leonardo', 'Leonardo AI'],
