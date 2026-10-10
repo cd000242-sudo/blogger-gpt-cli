@@ -9,6 +9,8 @@ jest.mock('../src/utils/license-tier-manager', () => ({ checkImageGenAccess: jes
 jest.mock('../src/core/image-generation-queue', () => ({ runImageGenerationQueued: (_: unknown, task: () => unknown) => task() }));
 jest.mock('../src/core/imagePromptInference', () => ({ inferImagePrompt: jest.fn(async (prompt: string) => ({ prompt, cached: true })) }));
 jest.mock('../src/core/engine-stats', () => ({ recordSuccess: jest.fn(), recordFailure: jest.fn() }));
+// 이미지 선정성 검사는 가짜 키로 실제 OpenAI 에 접속하지 않게 막는다(검사 자체는 image-moderation*.test.ts)
+jest.mock('../src/core/image-moderation', () => ({ ...jest.requireActual('../src/core/image-moderation'), moderateGeneratedImage: jest.fn(async () => ({ checked: false, flagged: false, categories: [] })) }));
 jest.mock('../src/core/final/image-aspect', () => ({ PUBLISH_ASPECT_RATIO: 16 / 9, padDataUrlToAspect: async (data: string) => data }));
 
 import { generateEditorImage } from '../src/core/final/editor-image';

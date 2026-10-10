@@ -403,7 +403,8 @@ export function onPreferredHost(url: string, preferredHost: string | undefined):
 }
 
 /** 페이지를 받아오는 함수 — 테스트에서 갈아끼울 수 있게 밖에서 넣는다 */
-export type PageFetcher = (url: string) => Promise<{ ok: boolean; html: string; finalUrl?: string }>;
+/** errorCode: 'DOCUMENT_TOO_LARGE' 면 큰 문서(10MB 초과)라 본문을 받지 않은 것(page-fetcher) */
+export type PageFetcher = (url: string) => Promise<{ ok: boolean; html: string; finalUrl?: string; errorCode?: string }>;
 
 /**
  * ④ 연동 — 후보를 채점해 가장 좋은 것을 고른다.

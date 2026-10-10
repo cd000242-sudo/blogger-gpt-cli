@@ -1574,8 +1574,18 @@ export async function generateUltimateMaxModeArticleFinal(
     const officialBoost = { enabled: process.env['OFFICIAL_BOOST'] === '1' || (payload as any).officialBoost === true, maxQueries: 1 };
     let groundingOfficialStatus: { candidates?: Array<{ url: string; roundRelevance?: string; status?: string }> } | null = null;
     trace.event('grounding.official-plan', { plan: officialPlan, boost: officialBoost });
+    /**
+     * 🔎 브라우저 정독 리서치(1단계, 기본 꺼짐) — BROWSER_READ=1 또는 payload.browserRead.
+     * HTTP 로 못 읽은 관공서 페이지만 실제 브라우저로 다시 열고, 본문을 최대 12쪽(공식 먼저) 읽는다. 편당 최대 4분.
+     * 첫 근거 수집에만 건다 — 재검색·약속 근거까지 걸면 시간 상한이 겹친다.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const browserReadMod = require('../crawlers/browser-reader');
+    const browserRead = browserReadMod.browserReadEnabled(process.env, payload) ? { enabled: true, ...(onLog ? { onLog } : {}) } : undefined;
+    if (browserRead) onLog?.('🔎 꼼꼼 리서치 켜짐 — 일반 방식으로 못 읽은 페이지를 브라우저로 다시 엽니다(최대 4분)');
     try {
-      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost });
+      const g = await fetchGrounding(keyword, naverSearch as any, { mainKeyword: keyword, ...(sourceScope ? { sourceScope } : {}), officialPlan, officialBoost, ...(browserRead ? { browserRead } : {}) });
+      if (g.browserRead) onLog?.(`🔎 ${browserReadMod.describeBrowserRead(g.browserRead)}`);
       groundingOfficialStatus = g.officialStatus ?? null;   // v3.8.765 — 현재 회차 공식 문서 판정(핵심 답 찾기에 쓴다)
       if (g.officialStatus && g.officialStatus.needed && !g.officialStatus.sufficient) {
         // v3.8.759 — 상태 이름표·못 답한 핵심 질문까지(describeOfficialShortfall). "공식 문서 1건 읽음" 이 "충분" 이 아니다
@@ -1588,7 +1598,7 @@ export async function generateUltimateMaxModeArticleFinal(
       if ((g as any).breakingEvent) (globalThis as any).__lastBreakingEvent = (g as any).breakingEvent;
       groundingStats = g;
       // 🧾 v3.8.757 — 본문 수집 시도(예산 미시도·첨부·실패·성공)를 남긴다. 공식 페이지가 스니펫만 남은 이유를 저장자료로 가르기 위해
-      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], officialStatus: (g as any).officialStatus || null, scope: sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
+      trace.event('grounding.fetch', { attempts: (g as any).fetchLog || [], officialStatus: (g as any).officialStatus || null, ...(g.browserRead ? { browserRead: g.browserRead } : {}), scope:sourceScope ? { agency: sourceScope.agency, comparison: !!sourceScope.comparison, subjects: sourceScope.subjects || [] } : null });
       const summary = describeGrounding(g);
       console.log(`[GROUNDING] ${summary}`);
       if (g.newsCount + g.webCount === 0 || g.newsCount === 0) onLog?.(`⚠️ ${summary}`);
@@ -4659,7 +4669,8 @@ ${quoted}
             console.warn(`[CTA] ⚠️ 수동 CTA URL 형식 오류: ${ctaData.url} (${formatCheck.reason}) — 건너뜀`);
             continue;
           }
-          const urlCheck = await validateCtaUrl(ctaData.url, { timeout: 5000 });
+          // 사용자가 직접 고른 주소는 문서 크기로 막지 않는다(maxDocumentBytes: 0) — 자동 CTA 만 큰 문서를 거른다
+          const urlCheck = await validateCtaUrl(ctaData.url, { timeout: 5000, maxDocumentBytes: 0 });
           if (!urlCheck.isValid) {
             console.warn(`[CTA] ⚠️ 수동 CTA URL 접속 검증 실패: ${ctaData.url} (${urlCheck.reason}) — 건너뜀`);
             continue;
@@ -4750,6 +4761,31 @@ ${quoted}
       } catch (authorityErr) {
         console.warn('[CTA] 목적지 권위 확인 건너뜀:', String((authorityErr as Error)?.message || authorityErr).slice(0, 120));
       }
+    }
+
+    /**
+     * 🗂️ 큰 문서 CTA 최종 확인(사장님 승인 2026-10-10) — 위의 목적지 교체·홈 CTA 교체로 들어온 주소는 주소 검사(validateCtaUrl)를 안 거친다.
+     * 붙이기 직전에 한 번 더 본다. 이미 검사한 주소는 10분 캐시라 요청이 더 나가지 않는다.
+     * 10MB 넘는 문서일 때만 뺀다(다른 실패 이유로는 빼지 않는다). 사용자가 직접 넣은 CTA·내 블로그 글 CTA 는 묻지 않는다.
+     */
+    if (ctas.length > 0) {
+      const manualUrls = new Set(Object.values(((payload as any).manualCtas || {}) as Record<string, { url?: string }>).map((c) => String(c?.url || '')).filter(Boolean));
+      const kept: FinalCTAData[] = [];
+      for (const cta of ctas) {
+        const u = String(cta?.url || '');
+        const ownSite = (!!ctaBlogUrl && u.startsWith(ctaBlogUrl)) || /^https?:\/\/(?:www\.)?leadernam\.com(?:[/?#]|$)/i.test(u);
+        if (!/^https?:\/\//i.test(u) || manualUrls.has(u) || ownSite) { kept.push(cta); continue; }
+        try {
+          const check = await validateCtaUrl(u, { timeout: 5000 });
+          if (check.reason === 'document-too-large') {
+            onLog?.(`[PROGRESS] 70% - 🗂️ CTA 제외: 큰 문서 파일(10MB 초과) — ${u}`);
+            trace.event('cta.large-document', { url: u });
+            continue;
+          }
+        } catch { /* 확인 실패는 빼는 이유가 아니다 */ }
+        kept.push(cta);
+      }
+      ctas = kept;
     }
 
     // CTA 배치

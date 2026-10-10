@@ -57,6 +57,11 @@ jest.mock('../src/core/engine-stats', () => ({
   recordSuccess: jest.fn(),
   recordFailure: jest.fn(),
 }));
+// 이미지 선정성 검사(image-moderation)는 가짜 키로 실제 OpenAI 에 접속하지 않게 막는다 — 검사 자체는 image-moderation*.test.ts 가 본다
+jest.mock('../src/core/image-moderation', () => ({
+  ...jest.requireActual('../src/core/image-moderation'),
+  moderateGeneratedImage: jest.fn(async () => ({ checked: false, flagged: false, categories: [] })),
+}));
 
 import {
   dispatchH2ImageGeneration,

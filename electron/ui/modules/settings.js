@@ -347,7 +347,9 @@ export async function saveSettings() {
         executionMode: settings.executionMode,
         activeAgentProvider: settings.activeAgentProvider,
         activeApiTextProvider: settings.activeApiTextProvider,
-        activeApiImageProvider: settings.activeApiImageProvider
+        activeApiImageProvider: settings.activeApiImageProvider,
+        // 꼼꼼 리서치(브라우저 정독) — 대문자 키·1/0 으로 보낸다. 빈 값은 save-env 가 건너뛰어 끄기가 저장되지 않는다
+        BROWSER_READ: document.getElementById('browserReadMode')?.checked ? '1' : '0',
       };
 
       const maskEnvValue = (value) => {
@@ -904,6 +906,10 @@ export async function loadSettingsContent(options = {}) {
         'toneStyle': mergedSettings.toneStyle || 'professional',
         'wordpressCategories': mergedSettings.wordpressCategories || '',
       };
+
+      // 꼼꼼 리서치 스위치 복원 — 체크박스라 fieldMappings(.value) 가 아니라 .checked 로 되살린다
+      const browserReadEl = document.getElementById('browserReadMode');
+      if (browserReadEl) browserReadEl.checked = String(mergedSettings.BROWSER_READ ?? mergedSettings.browserRead ?? '0') === '1';
 
       // 라디오 카드 복원: primaryGeminiTextModel
       applyTextModelRadio(mergedSettings);

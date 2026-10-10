@@ -8,7 +8,7 @@
     "ultimate-blog": "ts-node src/core/ultimate-blog.ts",
     "test:ultimate": "ts-node test-ultimate-blog.ts",
     "test:blog-stats": "ts-node test-blog-stats-extraction.ts",
-    "build": "node --max-old-space-size=8192 node_modules/typescript/bin/tsc && node --max-old-space-size=8192 node_modules/typescript/bin/tsc -p tsconfig.electron.json && node -e \"const fs = require('fs'); const path = require('path'); if (!fs.existsSync('dist/core')) fs.mkdirSync('dist/core', { recursive: true }); fs.copyFileSync('src/core/blogger-publisher.js', 'dist/core/blogger-publisher.js'); if (fs.existsSync('dist/wordpress/wordpress-publisher.js')) { fs.copyFileSync('dist/wordpress/wordpress-publisher.js', 'src/wordpress/wordpress-publisher.js'); console.log('✅ wordpress-publisher.js synced from dist to src'); }\" && node copy-ui.js",
+    "build": "node scripts/ensure-deps.js && node --max-old-space-size=8192 node_modules/typescript/bin/tsc &&node --max-old-space-size=8192 node_modules/typescript/bin/tsc -p tsconfig.electron.json && node -e \"const fs = require('fs'); const path = require('path'); if (!fs.existsSync('dist/core')) fs.mkdirSync('dist/core', { recursive: true }); fs.copyFileSync('src/core/blogger-publisher.js', 'dist/core/blogger-publisher.js'); if (fs.existsSync('dist/wordpress/wordpress-publisher.js')) { fs.copyFileSync('dist/wordpress/wordpress-publisher.js', 'src/wordpress/wordpress-publisher.js'); console.log('✅ wordpress-publisher.js synced from dist to src'); }\" && node copy-ui.js",
     "start": "cross-env NODE_ENV=development electron .",
     "start:prod": "electron .",
     "dev": "ts-node src/core/index.ts",
@@ -80,6 +80,7 @@
     "p-limit": "^5.0.0",
     "p-queue": "^8.0.1",
     "patchright": "^1.60.0",
+    "pdfjs-dist": "6.3.289",
     "playwright": "^1.60.0",
     "postcss": "^8.5.6",
     "postcss-selector-parser": "^7.1.0",
@@ -143,7 +144,8 @@
       "**/node_modules/@img/sharp-*/**/*",
       "**/node_modules/sharp-win32-*/**/*",
       "**/node_modules/playwright/**/*",
-      "**/node_modules/playwright-core/**/*"
+      "**/node_modules/playwright-core/**/*",
+      "**/node_modules/pdfjs-dist/**/*"
     ],
     "win": {
       "target": [

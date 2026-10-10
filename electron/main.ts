@@ -3840,6 +3840,19 @@ safeRegisterHandler('generate-ai-image', async (_evt: any, payload: { prompt: st
         };
       }
 
+      // 🛡️ 선정성 검사(사장님 승인 2026-10-10) — 이 옛 창구(반자동·썸네일 화면)는 imageDispatcher 를 거치지 않는다.
+      //   이 창구의 DALL·E 키(OpenAI 키)로 검사한다. 검사를 못 하면 그림을 막지 않는다(image-moderation 이 기록).
+      try {
+        const { moderateGeneratedImage } = require('../dist/core/image-moderation');
+        const verdict = await moderateGeneratedImage(imageUrl, { env: { OPENAI_API_KEY: dalleApiKey } });
+        if (verdict.flagged) {
+          console.warn(`[AI-IMAGE] 🚫 이미지 안전 검사에 걸림: ${verdict.categories.join(', ') || 'flagged'}`);
+          return { success: false, error: `이미지 안전 검사에 걸려 넣지 않습니다(${verdict.categories.join(', ') || 'flagged'}). 다시 생성해 주세요.` };
+        }
+      } catch (modErr: any) {
+        console.warn('[AI-IMAGE] 이미지 안전 검사 건너뜀:', String(modErr?.message || modErr).slice(0, 120));
+      }
+
       console.log(`[AI-IMAGE] ✅ 이미지 생성 성공 (모델: ${usedModel})`);
       return {
         success: true,
@@ -6140,6 +6153,11 @@ ipcMain.handle('save-env', async (_evt, envData: Record<string, string>) => {
     // .env 파일로 저장
     const lines = Array.from(envMap.entries()).map(([key, value]) => `${key}=${value}`);
     fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');
+
+    // 🔎 꼼꼼 리서치(브라우저 정독) — 다시 켜지 않아도 바로 적용. 단일·대기열·예약·에이전트 모두 이 프로세스의 process.env 를 본다
+    if (Object.prototype.hasOwnProperty.call(envData, 'BROWSER_READ')) {
+      process.env['BROWSER_READ'] = String(envData['BROWSER_READ']) === '1' ? '1' : '0';
+    }
 
     console.log('[ENV] .env 파일 저장 완료:', {
       저장된키: Array.from(envMap.keys()),
@@ -13276,7 +13294,9 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         const { naverSearch } = require('../dist/core/naver-search-client');
         const agentSearch = (type: any, params: any) =>
           naverSearch(type, params, { payload: request?.payload || {}, timeoutMs: 10000 });
-        const g = await fetchGrounding(agentKeyword, agentSearch);
+        // 브라우저 정독 리서치 — API 경로(orchestration)와 같은 스위치·같은 함수(1단계 숨김 스위치, 기본 꺼짐)
+        const { browserReadEnabled } = require('../dist/core/crawlers/browser-reader');
+        const g = await fetchGrounding(agentKeyword, agentSearch, browserReadEnabled(process.env, request?.payload) ? { browserRead: { enabled: true } } : {});
         /**
          * v3.8.665 — 리포트 출처 본문 + 제목 약속 근거를 에이전트에게도 넘긴다.
          * orchestration(API 경로)과 **같은 두 함수**를 쓴다 — 여기만 빠지면 또 "조용한 미배선" 이다.
@@ -13318,6 +13338,7 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         }
         if (agentEvidence) {
           console.log(`[AGENT-GROUNDING] ${describeGrounding(g)}`);
+          if (g?.browserRead) console.log(`[AGENT-GROUNDING] ${require('../dist/core/crawlers/browser-reader').describeBrowserRead(g.browserRead)}`);
           (request as any).payload = {
             ...(request?.payload || {}),
             agentEvidenceBlock: agentEvidence,
@@ -13375,6 +13396,21 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       if (polished !== result.content) result.content = polished;
     } catch (polishErr: any) {
       console.warn('[AGENT-POLISH] 건너뜀:', String(polishErr?.message || polishErr).slice(0, 120));
+    }
+
+    /**
+     * 🗂️ 큰 문서 CTA 차단(사장님 승인 2026-10-10) — 에이전트가 고른 링크는 API 경로의 주소 검사를 안 거친다.
+     * 10MB 넘는 문서 내려받기 링크는 링크만 떼고 글자는 남긴다. 확인 실패·크기 모름은 그대로 둔다.
+     */
+    try {
+      const { dropLargeDocumentLinks } = require('../dist/cta/large-document-links');
+      const docCheck = await dropLargeDocumentLinks(String(result.content || ''));
+      if (docCheck.removed.length > 0) {
+        result.content = docCheck.html;
+        console.log(`[AGENT-POLISH] 🗂️ 큰 문서(10MB 초과) 링크 ${docCheck.removed.length}개를 뗐습니다: ${docCheck.removed.join(', ')}`);
+      }
+    } catch (docErr: any) {
+      console.warn('[AGENT-POLISH] 큰 문서 링크 확인 건너뜀:', String(docErr?.message || docErr).slice(0, 120));
     }
 
     /**

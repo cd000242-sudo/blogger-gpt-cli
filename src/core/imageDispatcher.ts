@@ -996,6 +996,14 @@ async function tryPollinationsFallback(
     const base64 = Buffer.from(buf).toString('base64');
     const contentType = response.headers.get?.('content-type') || 'image/jpeg';
     const dataUrl = `data:${contentType};base64,${base64}`;
+    // 🛡️ 선정성 검사 — 마지막 무료 대체도 AI 그림이다. 걸리면 로컬 기본 그림으로(검사를 못 하면 그대로 쓴다)
+    try {
+      const verdict = await require('./image-moderation').moderateGeneratedImage(dataUrl, { env: getCachedEnv(), ...(onLog ? { onLog } : {}) });
+      if (verdict.flagged) {
+        onLog?.(`🚫 pollinations 그림이 이미지 안전 검사에 걸려 넣지 않습니다(${verdict.categories.join(', ') || 'flagged'})`);
+        return null;
+      }
+    } catch { /* 검사 실패는 그림을 막지 않는다 */ }
     onLog?.(`✅ pollinations FLUX 이미지 생성 성공`);
     console.log(`[DISPATCH] ✅ pollinations success: ${(buf.byteLength / 1024).toFixed(1)}KB`);
     return { ok: true, dataUrl, source: 'Pollinations FLUX (무료 fallback)' };
@@ -1075,6 +1083,23 @@ async function tryEngine(
     }
   } catch (e: any) {
     console.warn('[DISPATCH] 통계 기록 실패 (무시):', e?.message);
+  }
+  /**
+   * 🛡️ 선정성 검사(사장님 승인 2026-10-10) — 모든 엔진이 지나는 이 한 곳에서 글에 넣기 전에 본다.
+   * 통계 기록 뒤에 둔다(통계는 "생성이 됐나"의 뜻 그대로). 대기열 밖이라 검사(~1초)가 다른 생성을 붙잡지 않는다.
+   * 걸리면 실패로 돌려 다른 엔진·대체 그림으로 넘어간다. 검사를 못 하면 그림을 그대로 쓴다(image-moderation 이 기록).
+   */
+  if (result.ok && result.dataUrl) {
+    try {
+      const { moderateGeneratedImage, moderationBlockedError } = require('./image-moderation');
+      const verdict = await moderateGeneratedImage(result.dataUrl, { env, ...(onLog ? { onLog } : {}) });
+      if (verdict.flagged) {
+        onLog?.(`🚫 이미지 안전 검사에 걸려 넣지 않습니다(${verdict.categories.join(', ') || 'flagged'}) — 다른 그림으로 바꿉니다`);
+        return { ok: false, dataUrl: '', source: '', error: moderationBlockedError(verdict.categories) };
+      }
+    } catch (e: any) {
+      console.warn('[DISPATCH] 이미지 안전 검사 건너뜀:', e?.message);
+    }
   }
   return result;
 }

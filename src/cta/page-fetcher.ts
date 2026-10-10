@@ -17,6 +17,7 @@
  *      인증서 체인은 여기서 못 고친다 — 스크립트가 알아서 정한다(시드 생성은 공개 HTML 제목만 읽으므로 검증을 끈다).
  */
 import type { PageFetcher } from './action-link-harness';
+import { CTA_MAX_DOCUMENT_BYTES } from './validate-cta-url';
 
 export interface FetchedPage { ok: boolean; html: string; finalUrl: string; status: number; errorCode?: string }
 
@@ -98,6 +99,14 @@ export async function fetchCtaPage(url: string, options: FetchPageOptions = {}):
       : await nodeFetchFollowing(url, ctl.signal);
     const finalUrl = res.url || url;
     if (!res.ok && !options.keepErrorBody) return { ok: false, html: '', finalUrl, status: res.status };
+    // 🗂️ 큰 문서(10MB 초과)는 본문을 받지 않는다 — 37MB PDF 를 끝까지 받던 것. 게이트·점검이 errorCode 로 거른다(사장님 승인 2026-10-10)
+    const type = String(res.headers?.get?.('content-type') || '').toLowerCase();
+    const disposition = String(res.headers?.get?.('content-disposition') || '').toLowerCase();
+    const declared = Number(res.headers?.get?.('content-length') || 0);
+    if ((disposition.includes('attachment') || (!!type && !type.includes('html'))) && declared > CTA_MAX_DOCUMENT_BYTES) {
+      await res.body?.cancel().catch(() => undefined);
+      return { ok: false, html: '', finalUrl, status: res.status, errorCode: 'DOCUMENT_TOO_LARGE' };
+    }
     const html = (await res.text().catch(() => '')).slice(0, maxChars);
     return { ok: res.ok, html, finalUrl, status: res.status };
   } catch (e: any) {
