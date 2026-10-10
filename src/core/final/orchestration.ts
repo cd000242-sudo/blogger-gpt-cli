@@ -1596,6 +1596,25 @@ export async function generateUltimateMaxModeArticleFinal(
       console.warn('[GROUNDING] 스킵:', String(groundErr?.message || groundErr).slice(0, 100));
     }
 
+    /**
+     * 🔎 v3.8.760 — 젠스파크 정밀 리서치(사장님 결정: 근거로만 · 고객 기능). 켰을 때만 돈다.
+     * 젠스파크가 실제로 읽은 페이지 원문만 후보로 넣고, 네이버 결과와 같은 관련도 심사를 거친다.
+     * 실측 2~6분 · 페이지 25~45곳. 실패·시간 초과면 읽은 만큼만 쓰고 그대로 진행한다(발행을 막지 않는다).
+     */
+    if ((payload as any).gensparkResearch === true) {
+      onLog?.('[PROGRESS] 20% - 🔎 젠스파크 딥 리서치로 자료를 꼼꼼히 찾는 중 (2~6분)');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { collectGensparkEvidence, describeGensparkEvidence } = require('../genspark/genspark-research');
+      const gs = await collectGensparkEvidence(keyword, {
+        onLog: (m: string) => onLog?.(`[PROGRESS] 20% - ${m}`),
+        isCanceled: () => { try { return require('../cancel-token').isCanceled(); } catch { return false; } },
+      });
+      evidenceCandidates.push(...gs.items);
+      evidenceRejected.push(...gs.rejected);
+      onLog?.(`[PROGRESS] 22% - 🔎 ${describeGensparkEvidence(gs)}`);
+      trace.event('grounding.genspark', { ok: gs.ok, projectId: gs.projectId, elapsedMs: gs.elapsedMs, pages: gs.pages, passed: gs.items.length, rejected: gs.rejected.length, error: gs.error || null });
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const evidenceMod = require('./evidence');
     // eslint-disable-next-line @typescript-eslint/no-var-requires

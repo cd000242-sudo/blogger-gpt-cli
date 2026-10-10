@@ -1003,6 +1003,8 @@ function getCurrentQueueSnapshot() {
     titleMode: (window.__getTitleOptions?.() || {}).titleMode || 'auto',
     toneStyle: getSelectValue('toneStyle') || 'professional',
     factCheckMode: getSelectValue('factCheckMode') || 'auto',
+    // v3.8.760: 젠스파크 정밀 리서치 — 대기열 추가 시점의 값을 항목에 고정
+    gensparkResearch: !!document.getElementById('gensparkResearch')?.checked,
     useKeywordAsTitle: !!(window.__getTitleOptions?.() || {}).useKeywordAsTitle,
     keywordFront: !!(window.__getTitleOptions?.() || {}).keywordFront,
     // 🚫 v3.8.336: 썸네일 텍스트 미포함 — 대기열 추가 시점의 값을 항목에 고정
@@ -1045,6 +1047,7 @@ function cloneQueueSnapshot(snapshot) {
     titleMode: snap.titleMode || 'auto',
     toneStyle: snap.toneStyle || 'professional',
     factCheckMode: snap.factCheckMode || 'auto',
+    gensparkResearch: !!snap.gensparkResearch,
     useKeywordAsTitle: !!snap.useKeywordAsTitle,
     keywordFront: !!snap.keywordFront,
     thumbnailNoText: !!snap.thumbnailNoText,
@@ -1074,6 +1077,7 @@ function snapshotFromItem(item) {
     titleMode: item.titleMode,
     toneStyle: item.toneStyle,
     factCheckMode: item.factCheckMode,
+    gensparkResearch: item.gensparkResearch,
     useKeywordAsTitle: item.useKeywordAsTitle,
     keywordFront: item.keywordFront,
     thumbnailNoText: item.thumbnailNoText,
@@ -1121,6 +1125,7 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   if (force || !item.titleMode) item.titleMode = snap.titleMode;
   if (force || !item.toneStyle) item.toneStyle = snap.toneStyle;
   if (force || !item.factCheckMode) item.factCheckMode = snap.factCheckMode;
+  if (force || item.gensparkResearch == null) item.gensparkResearch = snap.gensparkResearch;
   if (force || item.useKeywordAsTitle == null) item.useKeywordAsTitle = snap.useKeywordAsTitle;
   if (force || item.keywordFront == null) item.keywordFront = snap.keywordFront;
   if (force || item.thumbnailNoText == null) item.thumbnailNoText = snap.thumbnailNoText;
@@ -2419,6 +2424,8 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     titleMode: item.titleMode || 'auto',
     toneStyle: item.toneStyle || 'professional',
     factCheckMode: item.factCheckMode || 'auto',
+    // v3.8.760: 항목에 고정된 젠스파크 정밀 리서치 설정 — 즉시 순차발행·스케줄 둘 다 이 함수를 지난다
+    gensparkResearch: !!item.gensparkResearch,
     /**
      * 📝 v3.8.751 — 이 항목의 요청사항을 payload 에 싣는다.
      *
@@ -4044,6 +4051,7 @@ function addCurrent() {
       titleMode: snapshot.titleMode,
       toneStyle: snapshot.toneStyle,
       factCheckMode: snapshot.factCheckMode,
+      gensparkResearch: snapshot.gensparkResearch,
       useKeywordAsTitle: snapshot.useKeywordAsTitle,
       keywordFront: snapshot.keywordFront,
       // 📝 v3.8.751: 화면의 「이 글 요청사항」을 담는 순간 복사한다 (그 뒤엔 카드가 진실)
@@ -4107,6 +4115,7 @@ function open() {
       titleMode: snapshot.titleMode,
       toneStyle: snapshot.toneStyle,
       factCheckMode: snapshot.factCheckMode,
+      gensparkResearch: snapshot.gensparkResearch,
       useKeywordAsTitle: snapshot.useKeywordAsTitle,
       keywordFront: snapshot.keywordFront,
       userRequest: snapshot.userRequest || '',   // v3.8.751

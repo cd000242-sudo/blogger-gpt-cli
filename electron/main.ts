@@ -13303,6 +13303,21 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
           console.warn('[AGENT-GROUNDING] 출처·약속 근거 스킵:', String(extraErr?.message || extraErr).slice(0, 120));
         }
         /**
+         * 🔎 v3.8.760 — 젠스파크 정밀 리서치. 에이전트 경로는 orchestration 을 안 거치므로 여기서 **같은 함수**로 붙인다.
+         * 관련도 심사를 통과한 원문 발췌만 공식 자료 먼저 묶어 지시서 앞에 둔다. 실패하면 빈 묶음 — 기존 근거로 계속.
+         */
+        if ((request?.payload as any)?.gensparkResearch === true) {
+          try {
+            const { collectGensparkEvidence, describeGensparkEvidence, renderGensparkEvidenceBlock } = require('../dist/core/genspark/genspark-research');
+            const gs = await collectGensparkEvidence(agentKeyword, { onLog: (m: string) => console.log(`[AGENT-GROUNDING] ${m}`) });
+            const block = renderGensparkEvidenceBlock(gs.items, 9000);
+            if (block) agentEvidence = [block, agentEvidence].filter(Boolean).join('\n\n');
+            console.log(`[AGENT-GROUNDING] 🔎 ${describeGensparkEvidence(gs)}`);
+          } catch (gsErr: any) {
+            console.warn('[AGENT-GROUNDING] 젠스파크 스킵:', String(gsErr?.message || gsErr).slice(0, 120));
+          }
+        }
+        /**
          * v3.8.638 — 속보 판정을 지시서까지 들고 간다.
          *
          * v3.8.633 이 하네스 안에 못박음을 넣어 뒀는데, 정작 **아무도
@@ -15510,6 +15525,24 @@ try {
 } catch (e) {
   console.warn('[APP] ⚠️ Dropshot IPC 핸들러 등록 실패:', (e as any)?.message || e);
 }
+
+// 🔎 v3.8.760: 젠스파크 정밀 리서치 — 로그인(일반 브라우저 창, 로그인되면 자동으로 닫힘) · 상태 확인
+ipcMain.handle('genspark:login', async () => {
+  try {
+    const { openGensparkLoginWindow } = require('../dist/core/genspark/genspark-client');
+    return await openGensparkLoginWindow({ onLog: (m: string) => console.log(`[GENSPARK] ${m}`) });
+  } catch (e: any) {
+    return { ok: false, error: e?.message || '젠스파크 로그인 창을 열지 못했습니다' };
+  }
+});
+ipcMain.handle('genspark:check-login', async () => {
+  try {
+    const { checkGensparkLogin } = require('../dist/core/genspark/genspark-client');
+    return await checkGensparkLogin((m: string) => console.log(`[GENSPARK] ${m}`));
+  } catch (e: any) {
+    return { loggedIn: false, email: '', error: e?.message || '젠스파크 상태를 확인하지 못했습니다' };
+  }
+});
 
 // 🎨 v3.6.7: 대량 이미지 생성 IPC (이미지 생성 탭 → dispatcher 경유)
 //   payload: { engine, quality, aspectRatio, prompt, includeText, referenceImageList }

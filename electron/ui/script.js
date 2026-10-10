@@ -1677,6 +1677,47 @@ window.setBatchDropshotStatusIdle = function () {
   if (loginBtn) loginBtn.style.display = 'inline-block';
 };
 
+// v3.8.760: 젠스파크 정밀 리서치 — 로그인(일반 브라우저 창) · 확인 · 켜기 값 기억
+function setGensparkStatus(text, color) {
+  const status = document.getElementById('gensparkStatus');
+  if (status) { status.textContent = text; status.style.color = color || 'rgba(255,255,255,0.6)'; }
+}
+
+window.handleGensparkLogin = async function () {
+  const btn = document.getElementById('gensparkLoginBtn');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+  setGensparkStatus('⏳ 젠스파크 창이 열렸습니다. 그 창에서 로그인하면 자동으로 닫힙니다.');
+  try {
+    const r = await window.electronAPI?.invoke?.('genspark:login');
+    if (r?.ok) setGensparkStatus(`✅ 젠스파크 로그인 완료${r.email ? ' — ' + r.email : ''}`, '#86efac');
+    else setGensparkStatus('❌ ' + (r?.error || '로그인을 확인하지 못했습니다'), '#fca5a5');
+  } catch (e) {
+    setGensparkStatus('❌ ' + (e?.message || e), '#fca5a5');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  }
+};
+
+window.handleGensparkCheck = async function () {
+  setGensparkStatus('⏳ 젠스파크 로그인 상태를 확인하는 중...');
+  try {
+    const r = await window.electronAPI?.invoke?.('genspark:check-login');
+    if (r?.loggedIn) setGensparkStatus(`✅ 연결됨${r.email ? ' — ' + r.email : ''}`, '#86efac');
+    else setGensparkStatus('❌ ' + (r?.error || '로그인이 필요합니다. [젠스파크 로그인]을 눌러 주세요.'), '#fca5a5');
+  } catch (e) {
+    setGensparkStatus('❌ ' + (e?.message || e), '#fca5a5');
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const box = document.getElementById('gensparkResearch');
+  if (!box) return;
+  try { box.checked = localStorage.getItem('leadernamGensparkResearch') === '1'; } catch { /* 저장소 없음 */ }
+  box.addEventListener('change', () => {
+    try { localStorage.setItem('leadernamGensparkResearch', box.checked ? '1' : '0'); } catch { /* 저장소 없음 */ }
+  });
+});
+
 // v3.7.7: 환경설정의 리더스 나노바나나(dropshot) 로그인/확인 핸들러
 window.handleDropshotLogin = async function (options = {}) {
   const publishContext = options.publishContext === true;

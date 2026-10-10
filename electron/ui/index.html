@@ -5104,6 +5104,20 @@ https://toss.im/_m/XXXXXXX"
                       </select>
                       <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 글 생성 전 실시간 검색으로 팩트 검증</small>
                     </div>
+                    <!-- v3.8.760: 젠스파크 딥 리서치 — 젠스파크가 실제로 읽은 페이지 원문을 근거로 더한다(본인 젠스파크 계정 필요) -->
+                    <div class="acc-field">
+                      <label class="acc-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="gensparkResearch" style="width: 16px; height: 16px;">
+                        🔎 젠스파크 정밀 리서치 (글마다 2~6분 더 걸림)
+                      </label>
+                      <div style="display: flex; gap: 8px; margin-top: 6px;">
+                        <button type="button" id="gensparkLoginBtn" onclick="window.handleGensparkLogin && window.handleGensparkLogin()"
+                          style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(96,165,250,0.4); border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer;">🔑 젠스파크 로그인</button>
+                        <button type="button" id="gensparkCheckBtn" onclick="window.handleGensparkCheck && window.handleGensparkCheck()"
+                          style="padding: 10px 16px; background: rgba(255,255,255,0.1); color: white; border: 2px solid rgba(96,165,250,0.25); border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer;">확인</button>
+                      </div>
+                      <small id="gensparkStatus" style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">💡 켜면 글 쓰기 전에 젠스파크가 공식기관·뉴스 페이지를 수십 곳 읽고, 그 원문을 근거로 씁니다. 본인 젠스파크 계정으로 한 번 로그인해 두세요.</small>
+                    </div>
                   </div>
 
                   <!-- ③ 발행 설정 -->

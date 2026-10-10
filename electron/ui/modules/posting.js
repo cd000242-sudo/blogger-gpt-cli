@@ -2317,6 +2317,8 @@ export async function createPayload(options = {}) {
     toneStyle: toneStyleValue,
     sectionCount,
     factCheckMode: document.getElementById('factCheckMode')?.value || PAYLOAD_DEFAULTS.factCheckMode,
+    // v3.8.760: 젠스파크 정밀 리서치(본인 젠스파크 계정) — 켜면 글 쓰기 전에 젠스파크가 읽은 페이지 원문을 근거로 더한다
+    gensparkResearch: !!document.getElementById('gensparkResearch')?.checked,
 
     // E-E-A-T 저자 정보
     adsenseAuthorInfo: contentModeValue === 'adsense' && adsenseAuthorName ? {
