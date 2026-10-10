@@ -41,6 +41,7 @@ import { deriveSourceScope, sourceMatchesScope, selectScopedSources, isScopedOff
 import { judgeEvidence, type EvidenceItem, type RejectedEvidence, type EvidenceDraft } from './evidence';
 import { OFFICIAL_NEEDS, type OfficialNeed } from './official-research-plan';
 import type { BrowserReader, BrowserReadStats } from '../crawlers/browser-reader';
+import type { PageFetchOutcome } from '../crawlers/official-page-body';
 
 /** naverSearch 를 주입받는다 — 테스트에서 네트워크를 타지 않기 위해서다 */
 export type NaverSearchFn = (
@@ -88,6 +89,8 @@ const OFFICIAL_RESERVE = 2;
  */
 const BROWSER_BODY_FETCH_MAX = 12;
 const BROWSER_OFFICIAL_RESERVE = 4;
+/** 2단계 — 공식기관 첨부 PDF 를 본문 쪽수와 **따로** 최대 이만큼 읽는다(10MB 상한·HWP 제외, `crawlers/attachment-reader`) */
+const BROWSER_ATTACHMENT_MAX = 3;
 
 /**
  * ① 검색 결과에서 근거가 될 만한 글자를 모은다.
@@ -153,8 +156,8 @@ export interface GroundingResult {
   fetchLog?: FetchAttempt[];
   /** v3.8.758 — 공식자료 상태(기관 매핑 없는 주제 포함) */
   officialStatus?: OfficialStatus;
-  /** 브라우저 정독 리서치 — 켰을 때만 있다. rescued: HTTP 로 못 읽어 브라우저로 본문을 얻은 쪽 수 */
-  browserRead?: BrowserReadStats & { enabled: true; rescued: number };
+  /** 브라우저 정독 리서치 — 켰을 때만 있다. rescued: HTTP 로 못 읽어 브라우저로 본문을 얻은 쪽 수 · attachments: 본문을 얻은 첨부 PDF 수 */
+  browserRead?: BrowserReadStats & { enabled: true; rescued: number; attachments: number };
 }
 
 /**
@@ -210,8 +213,8 @@ export interface FetchAttempt {
   failureDetail?: string;
   httpStatus?: number;
   attemptedAt?: string;
-  /** 브라우저 정독 리서치를 켰을 때만 — 본문을 어떻게 읽었나(http · browser) */
-  via?: 'http' | 'browser';
+  /** 브라우저 정독 리서치를 켰을 때만 — 본문을 어떻게 읽었나(http · browser · pdf=첨부) */
+  via?: 'http' | 'browser' | 'pdf';
   /** 후보 제목(출처 ID 는 장부 단계에서 붙으므로 여기서는 제목·주소로 잇는다) */
   title?: string;
   retrievedChars?: number;
@@ -353,8 +356,12 @@ export async function fetchGrounding(
     /**
      * 브라우저 정독 리서치. 기본 꺼짐 — 끄면 읽는 쪽수·방식·기록 모양이 예전과 같다.
      * reader 를 주면 그걸 쓰고 닫는 것도 호출자 몫이다. 비우면 여기서 만들고(처음 필요할 때 띄움) 끝나면 닫는다.
+     * attachment: 첨부 PDF 읽기(테스트 주입용). 비우면 실제 수집기 — 단, 본문 수집기를 주입한 경우(테스트)엔 첨부도 안 읽는다.
      */
-    browserRead?: { enabled: boolean; totalBudgetMs?: number; reader?: BrowserReader; onLog?: (message: string) => void };
+    browserRead?: {
+      enabled: boolean; totalBudgetMs?: number; reader?: BrowserReader; onLog?: (message: string) => void;
+      attachment?: (url: string, maxChars: number) => Promise<PageFetchOutcome>;
+    };
   } = {},
 ): Promise<GroundingResult> {
   const empty: GroundingResult = {
@@ -404,8 +411,10 @@ export async function fetchGrounding(
     : null;
   const reader: BrowserReader | null = browserOn ? (options.browserRead?.reader || ownReader) : null;
   /** 주소별로 어떻게 읽었나(브라우저 정독을 켰을 때만 채운다) */
-  const fetchVia = new Map<string, 'http' | 'browser'>();
-  const viaOf = (url: string): { via?: 'http' | 'browser' } => { const v = fetchVia.get(url); return v ? { via: v } : {}; };
+  const fetchVia = new Map<string, 'http' | 'browser' | 'pdf'>();
+  const viaOf = (url: string): { via?: 'http' | 'browser' | 'pdf' } => { const v = fetchVia.get(url); return v ? { via: v } : {}; };
+  /** 2단계 — 첨부 PDF 예산(본문 쪽수와 따로). 본문 수집기를 주입한 테스트에서는 첨부 수집기도 주입했을 때만 켠다(실제 내려받기 방지) */
+  let attachmentBudgetLeft = browserOn && (!!options.browserRead?.attachment || !options.fetchBody) ? BROWSER_ATTACHMENT_MAX : 0;
 
   const fetchBody: FetchBodyFn = options.fetchBody
     || (async (url) => {
@@ -425,6 +434,19 @@ export async function fetchGrounding(
     });
   /** v3.8.761 — 주소별 수집 결과(실패 사유 포함). 주입된 fetchBody(테스트)는 여기 안 남기므로 그때는 UNKNOWN 이다 */
   const fetchOutcomes = new Map<string, { attemptedAt: string; failure?: { reason: FetchAttempt['failureReason']; detail?: string; status?: number } }>();
+  /** 2단계 — 첨부 PDF 본문. 웹 본문과 같은 자리(fetchOutcomes·pageFull)에 남겨 장부·기록이 같은 길을 탄다 */
+  const fetchAttachmentBody = async (url: string): Promise<string | null> => {
+    const outcome: PageFetchOutcome = options.browserRead?.attachment
+      ? await options.browserRead.attachment(url, BODY_CHARS)
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      : await require('../crawlers/attachment-reader').fetchAttachmentDocument(url, BODY_CHARS);
+    fetchVia.set(url, 'pdf');
+    fetchOutcomes.set(url, { attemptedAt: outcome.attemptedAt, ...(outcome.failure ? { failure: outcome.failure } : {}) });
+    const doc = outcome.doc;
+    if (doc) pageDates.set(url, doc.publishedAt ?? null);
+    if (doc?.fullText) pageFull.set(url, { text: doc.fullText, truncatedAt: doc.truncatedAt ?? null });
+    return doc ? doc.text : null;
+  };
 
   // 뉴스는 originallink 가 실제 언론사 주소다 — 네이버 중계 주소보다 본문이 잘 나온다
   const bodyUrlOf = (it: any) => String(it?.originallink || it?.link || '');
@@ -463,7 +485,7 @@ export async function fetchGrounding(
   const fetchLog: FetchAttempt[] = [];
 
   const enrich = async (items: any[], tag: string, budget: number): Promise<string[]> => {
-    if (budget <= 0) {
+    if (budget <= 0 && attachmentBudgetLeft <= 0) {
       for (const it of items) fetchLog.push({ url: bodyUrlOf(it), tag, attempted: false, ok: false, chars: 0, reason: 'budget' });
       return items.map((it) => keep(it, tag, snippet(it, tag), '')).filter(Boolean);
     }
@@ -486,8 +508,23 @@ export async function fetchGrounding(
     }
     budgetLeft -= spend.size;
 
+    /** 2단계 — 공식기관 첨부 PDF 는 따로 센다(본문 예산을 먹지 않는다). 공식기관이 아닌 곳의 첨부는 읽지 않는다 */
+    const spendFile = new Set<number>();
+    if (attachmentBudgetLeft > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { isReadableAttachmentUrl } = require('../crawlers/attachment-reader');
+      for (let i = 0; i < items.length && spendFile.size < attachmentBudgetLeft; i += 1) {
+        const url = bodyUrlOf(items[i]);
+        if (!spend.has(i) && url && looksLikeFileUrl(url) && isReadableAttachmentUrl(url) && isOfficialDestination(url)) spendFile.add(i);
+      }
+      attachmentBudgetLeft -= spendFile.size;
+    }
+
     const bodies = await Promise.all(
       items.map(async (it, i) => {
+        if (spendFile.has(i)) {
+          try { return await fetchAttachmentBody(bodyUrlOf(it)); } catch { return null; }
+        }
         if (!spend.has(i)) return null;
         try {
           return await fetchBody(bodyUrlOf(it));
@@ -502,7 +539,7 @@ export async function fetchGrounding(
       const url = bodyUrlOf(it);
       const title = stripTags(it?.title || '');
       const outcome = fetchOutcomes.get(url);
-      if (!spend.has(i)) fetchLog.push({ url, tag, title, attempted: false, ok: false, chars: 0, reason: url && looksLikeFileUrl(url) ? 'file-url' : 'budget', failureReason: url && looksLikeFileUrl(url) ? 'FILE_URL' : 'BUDGET_SKIPPED' });
+      if (!spend.has(i) && !spendFile.has(i)) fetchLog.push({ url, tag, title, attempted: false, ok: false, chars: 0, reason: url && looksLikeFileUrl(url) ? 'file-url' : 'budget', failureReason: url && looksLikeFileUrl(url) ? 'FILE_URL' : 'BUDGET_SKIPPED' });
       else if (!body) fetchLog.push({ url, tag, title, attempted: true, ok: false, chars: 0, reason: 'fetch-failed', failureReason: outcome?.failure?.reason || 'UNKNOWN', ...(outcome?.failure?.detail ? { failureDetail: outcome.failure.detail } : {}), ...(outcome?.failure?.status ? { httpStatus: outcome.failure.status } : {}), attemptedAt: outcome?.attemptedAt || new Date().toISOString(), retrievedChars: 0, ...viaOf(url) });
       if (!body) return keep(it, tag, snippet(it, tag), '');
       const at = outcome?.attemptedAt ? { attemptedAt: outcome.attemptedAt } : {};
@@ -514,7 +551,7 @@ export async function fetchGrounding(
 
   /** 브라우저 정독을 켰을 때만 결과에 싣는다 — 꺼져 있으면 결과 모양이 예전과 같다 */
   const browserStats = (): { browserRead?: NonNullable<GroundingResult['browserRead']> } => (reader
-    ? { browserRead: { ...reader.stats(), enabled: true, rescued: fetchLog.filter((f) => f.via === 'browser' && f.reason === 'ok').length } }
+    ? { browserRead: { ...reader.stats(), enabled: true, rescued: fetchLog.filter((f) => f.via === 'browser' && f.reason === 'ok').length, attachments: fetchLog.filter((f) => f.via === 'pdf' && f.reason === 'ok').length } }
     : {});
 
   const usable = (items: any[], filter?: (it: any) => boolean) =>

@@ -80,6 +80,7 @@
     "p-limit": "^5.0.0",
     "p-queue": "^8.0.1",
     "patchright": "^1.60.0",
+    "pdfjs-dist": "6.3.289",
     "playwright": "^1.60.0",
     "postcss": "^8.5.6",
     "postcss-selector-parser": "^7.1.0",
@@ -143,7 +144,8 @@
       "**/node_modules/@img/sharp-*/**/*",
       "**/node_modules/sharp-win32-*/**/*",
       "**/node_modules/playwright/**/*",
-      "**/node_modules/playwright-core/**/*"
+      "**/node_modules/playwright-core/**/*",
+      "**/node_modules/pdfjs-dist/**/*"
     ],
     "win": {
       "target": [

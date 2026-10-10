@@ -319,9 +319,11 @@ export async function readWithBrowserFallback(
 }
 
 /** 로그·보고용 한 줄 */
-export function describeBrowserRead(s: BrowserReadStats & { rescued?: number }): string {
-  if (!s.launched) return s.unavailable ? `브라우저 정독: 브라우저를 못 띄워 예전 방식으로 읽음(${s.unavailable})` : '브라우저 정독: HTTP 로 다 읽혀 브라우저를 안 띄움';
+export function describeBrowserRead(s: BrowserReadStats & { rescued?: number; attachments?: number }): string {
+  const pdf = s.attachments ? ` · 첨부 PDF ${s.attachments}건 읽음` : '';
+  if (!s.launched) return s.unavailable ? `브라우저 정독: 브라우저를 못 띄워 예전 방식으로 읽음(${s.unavailable})${pdf}` : `브라우저 정독: HTTP 로 다 읽혀 브라우저를 안 띄움${pdf}`;
   const parts = [`브라우저로 ${s.opened}쪽 열어 ${s.ok}쪽 본문 확보`];
+  if (s.attachments) parts.push(`첨부 PDF ${s.attachments}건 읽음`);
   if (typeof s.rescued === 'number') parts.push(`근거에 들어간 것 ${s.rescued}쪽`);
   if (s.skippedForBudget) parts.push(`시간 상한으로 안 연 것 ${s.skippedForBudget}쪽`);
   if (s.blocked) parts.push(`자기 사이트라 안 연 것 ${s.blocked}쪽`);
