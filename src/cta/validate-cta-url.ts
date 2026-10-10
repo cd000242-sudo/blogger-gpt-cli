@@ -103,6 +103,12 @@ const ERROR_CONTENT_SIGNATURES: string[] = [
     '홈으로 바로가기',
 ];
 
+/**
+ * 🗂️ 큰 문서 CTA 차단(사장님 승인 2026-10-10) — 문서(HTML 이 아닌 파일)가 이보다 크면 CTA 로 쓰지 않는다.
+ * 실측: 청년 월세지원 글 CTA 가 37MB PDF(easylaw FlDownload.laf) 내려받기였다. 크기를 모르면 막지 않는다.
+ */
+export const CTA_MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+
 /** GET 본문 검증이 필요한 호스트 접미사 — 200 OK 에러 페이지가 흔한 정부/공공 사이트 */
 const CONTENT_CHECK_SUFFIXES: string[] = [
     '.go.kr', '.or.kr',
@@ -136,12 +142,14 @@ function normalizeCacheKey(url: string): string {
  */
 export async function validateCtaUrl(
     url: string,
-    options: { timeout?: number; skipHttp?: boolean } = {}
+    /** maxDocumentBytes: 문서 크기 상한(기본 CTA_MAX_DOCUMENT_BYTES). 0 이면 크기로 막지 않는다 — 사용자가 직접 넣은 CTA 용 */
+    options: { timeout?: number; skipHttp?: boolean; maxDocumentBytes?: number } = {}
 ): Promise<CtaValidationResult> {
-    const { timeout = 5000, skipHttp = false } = options;
+    const { timeout = 5000, skipHttp = false, maxDocumentBytes = CTA_MAX_DOCUMENT_BYTES } = options;
 
     // 🗂️ 캐시 조회 — 같은 URL이 진행 중이면 해당 Promise 공유, 완료됐고 TTL 유효하면 재사용
-    const cacheKey = normalizeCacheKey(url);
+    //   문서 크기 상한이 기본과 다르면 따로 센다(같은 주소라도 수동 CTA 는 크기로 막지 않는다)
+    const cacheKey = normalizeCacheKey(url) + (maxDocumentBytes === CTA_MAX_DOCUMENT_BYTES ? '' : `|doc:${maxDocumentBytes}`);
     const now = Date.now();
     const cached = CTA_CACHE.get(cacheKey);
     if (cached && cached.expireAt > now) {
@@ -155,15 +163,57 @@ export async function validateCtaUrl(
         }
     }
 
-    const promise = performValidation(url, timeout, skipHttp);
+    const promise = performValidation(url, timeout, skipHttp, maxDocumentBytes);
     CTA_CACHE.set(cacheKey, { result: promise, expireAt: now + CTA_CACHE_TTL_MS });
     return promise;
+}
+
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+/**
+ * 🗂️ 응답이 문서(파일)인가, 그렇다면 상한보다 큰가. 문서면 본문은 받지 않는다(37MB 를 끝까지 받지 않게).
+ * 문서 판정: 내려받기(attachment) 응답이거나, 형식이 HTML 이 아니거나, 형식 표시가 없으면 주소 모양(isDocumentUrl).
+ * 크기 표시(Content-Length)가 없으면 앞 1바이트만 달라고 해서(Range) Content-Range 의 전체 크기를 읽는다. 끝내 모르면 막지 않는다.
+ */
+async function inspectDocument(
+    response: Response,
+    url: string,
+    finalUrl: string,
+    maxBytes: number,
+    signal: AbortSignal,
+): Promise<{ isDocument: boolean; tooLarge: boolean; size: number | null }> {
+    const type = (response.headers.get('content-type') || '').toLowerCase();
+    const disposition = (response.headers.get('content-disposition') || '').toLowerCase();
+    let isDocument = disposition.includes('attachment') || (!!type && !type.includes('html'));
+    if (!isDocument && !type) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { isDocumentUrl } = require('./destination-gate');
+            isDocument = isDocumentUrl(finalUrl) || isDocumentUrl(url);
+        } catch { /* 주소 판정 실패 — 문서로 보지 않는다 */ }
+    }
+    if (!isDocument) return { isDocument: false, tooLarge: false, size: null };
+    try { await response.body?.cancel(); } catch { /* 무시 */ }
+    if (!(maxBytes > 0)) return { isDocument: true, tooLarge: false, size: null };
+
+    let size: number | null = Number(response.headers.get('content-length') || 0) || null;
+    if (!size) {
+        try {
+            const ranged = await fetch(finalUrl, { method: 'GET', signal, redirect: 'follow', headers: { 'User-Agent': BROWSER_UA, 'Range': 'bytes=0-0' } });
+            const total = (ranged.headers.get('content-range') || '').match(/\/(\d+)\s*$/);
+            if (total) size = Number(total[1]) || null;
+            else if (ranged.status === 200) size = Number(ranged.headers.get('content-length') || 0) || null;
+            try { await ranged.body?.cancel(); } catch { /* 무시 */ }
+        } catch { /* 크기 확인 실패 — 모르는 채로 둔다 */ }
+    }
+    return { isDocument: true, tooLarge: !!size && size > maxBytes, size };
 }
 
 async function performValidation(
     url: string,
     timeout: number,
     skipHttp: boolean,
+    maxDocumentBytes: number = CTA_MAX_DOCUMENT_BYTES,
 ): Promise<CtaValidationResult> {
     const start = Date.now();
 
@@ -265,6 +315,18 @@ async function performValidation(
                     };
                 }
             }
+        }
+
+        // 🗂️ 큰 문서 CTA 차단 — 아래 "대형 응답 본문 스캔 생략(500KB)" 보다 먼저 본다(그쪽은 크면 통과시킨다)
+        const doc = await inspectDocument(response, url, finalUrl, maxDocumentBytes, controller.signal);
+        if (doc.isDocument) {
+            clearTimeout(timeoutId);
+            if (doc.tooLarge) {
+                console.warn(`[CTA-VALIDATE] 🚫 큰 문서(${Math.round((doc.size || 0) / (1024 * 1024))}MB) — CTA 로 쓰지 않음: ${url}`);
+                return { isValid: false, statusCode, reason: 'document-too-large', elapsedMs: Date.now() - start };
+            }
+            if (doc.size === null && maxDocumentBytes > 0) console.warn(`[CTA-VALIDATE] ⚠️ 문서 크기 확인 못 함 — 막지 않음: ${url}`);
+            return { isValid: true, statusCode, elapsedMs: Date.now() - start };
         }
 
         // 200 OK여도 본문에 에러 문구가 있으면 무효 처리 (정부/공공 사이트 대상)

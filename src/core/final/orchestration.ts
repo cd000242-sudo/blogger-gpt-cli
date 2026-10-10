@@ -4669,7 +4669,8 @@ ${quoted}
             console.warn(`[CTA] ⚠️ 수동 CTA URL 형식 오류: ${ctaData.url} (${formatCheck.reason}) — 건너뜀`);
             continue;
           }
-          const urlCheck = await validateCtaUrl(ctaData.url, { timeout: 5000 });
+          // 사용자가 직접 고른 주소는 문서 크기로 막지 않는다(maxDocumentBytes: 0) — 자동 CTA 만 큰 문서를 거른다
+          const urlCheck = await validateCtaUrl(ctaData.url, { timeout: 5000, maxDocumentBytes: 0 });
           if (!urlCheck.isValid) {
             console.warn(`[CTA] ⚠️ 수동 CTA URL 접속 검증 실패: ${ctaData.url} (${urlCheck.reason}) — 건너뜀`);
             continue;
