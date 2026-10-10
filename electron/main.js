@@ -12745,6 +12745,21 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
             console.warn('[AGENT-POLISH] 건너뜀:', String(polishErr?.message || polishErr).slice(0, 120));
         }
         /**
+         * 🗂️ 큰 문서 CTA 차단(사장님 승인 2026-10-10) — 에이전트가 고른 링크는 API 경로의 주소 검사를 안 거친다.
+         * 10MB 넘는 문서 내려받기 링크는 링크만 떼고 글자는 남긴다. 확인 실패·크기 모름은 그대로 둔다.
+         */
+        try {
+            const { dropLargeDocumentLinks } = require('../dist/cta/large-document-links');
+            const docCheck = await dropLargeDocumentLinks(String(result.content || ''));
+            if (docCheck.removed.length > 0) {
+                result.content = docCheck.html;
+                console.log(`[AGENT-POLISH] 🗂️ 큰 문서(10MB 초과) 링크 ${docCheck.removed.length}개를 뗐습니다: ${docCheck.removed.join(', ')}`);
+            }
+        }
+        catch (docErr) {
+            console.warn('[AGENT-POLISH] 큰 문서 링크 확인 건너뜀:', String(docErr?.message || docErr).slice(0, 120));
+        }
+        /**
          * 🩺 v3.8.630 — 에이전트 글도 발행 전에 자가 수정한다.
          *
          * 사장님: "api와 에이전트 둘다 LLM보다 훨씬 양질의 글을 줘야되"

@@ -4763,6 +4763,31 @@ ${quoted}
       }
     }
 
+    /**
+     * 🗂️ 큰 문서 CTA 최종 확인(사장님 승인 2026-10-10) — 위의 목적지 교체·홈 CTA 교체로 들어온 주소는 주소 검사(validateCtaUrl)를 안 거친다.
+     * 붙이기 직전에 한 번 더 본다. 이미 검사한 주소는 10분 캐시라 요청이 더 나가지 않는다.
+     * 10MB 넘는 문서일 때만 뺀다(다른 실패 이유로는 빼지 않는다). 사용자가 직접 넣은 CTA·내 블로그 글 CTA 는 묻지 않는다.
+     */
+    if (ctas.length > 0) {
+      const manualUrls = new Set(Object.values(((payload as any).manualCtas || {}) as Record<string, { url?: string }>).map((c) => String(c?.url || '')).filter(Boolean));
+      const kept: FinalCTAData[] = [];
+      for (const cta of ctas) {
+        const u = String(cta?.url || '');
+        const ownSite = (!!ctaBlogUrl && u.startsWith(ctaBlogUrl)) || /^https?:\/\/(?:www\.)?leadernam\.com(?:[/?#]|$)/i.test(u);
+        if (!/^https?:\/\//i.test(u) || manualUrls.has(u) || ownSite) { kept.push(cta); continue; }
+        try {
+          const check = await validateCtaUrl(u, { timeout: 5000 });
+          if (check.reason === 'document-too-large') {
+            onLog?.(`[PROGRESS] 70% - 🗂️ CTA 제외: 큰 문서 파일(10MB 초과) — ${u}`);
+            trace.event('cta.large-document', { url: u });
+            continue;
+          }
+        } catch { /* 확인 실패는 빼는 이유가 아니다 */ }
+        kept.push(cta);
+      }
+      ctas = kept;
+    }
+
     // CTA 배치
     ctas.forEach(cta => {
       const rawPosition = cta.position ?? 0;

@@ -116,6 +116,10 @@ export function classifyCtaLink(url: string, page: FetchedPage | null): CtaLinkC
   if (isDocumentUrl(url)) {
     return { url, verdict: 'document', reason: '문서 파일 — 읽을 수는 있어도 그 자리에서 할 수 없다' };
   }
+  // 🗂️ 큰 문서(10MB 초과) — 받지 않았을 뿐 "못 받아옴" 이 아니다. 문서로 분류해 고칠 대상으로 보인다
+  if (page?.errorCode === 'DOCUMENT_TOO_LARGE') {
+    return { url, verdict: 'document', reason: '큰 문서 파일(10MB 초과) — 누르면 통째로 내려받아진다' };
+  }
   if (!page || !page.ok) {
     // 이름을 못 찾았다 = 도메인이 사라졌다. 이것만 확실한 죽음이다.
     if (isNameNotFound(page?.errorCode)) {

@@ -223,11 +223,16 @@ export async function gateCtaDestination(input: {
     };
   }
 
-  let page: { ok: boolean; html: string; finalUrl?: string } | null = null;
+  let page: { ok: boolean; html: string; finalUrl?: string; errorCode?: string } | null = null;
   try {
     page = await input.fetchPage(url);
   } catch {
     page = null;
+  }
+
+  // 🗂️ 큰 문서(10MB 초과) — "못 읽었으니 통과" 로 보내지 않는다. 독자가 누르면 그 크기를 통째로 받는다(사장님 승인 2026-10-10)
+  if (page?.errorCode === 'DOCUMENT_TOO_LARGE') {
+    return { ok: false, severity: 'reject', score: 0, reasons: ['큰 문서 파일(10MB 초과) — CTA 로 쓰지 않는다'] };
   }
 
   const finalUrl = String(page?.finalUrl || url);
