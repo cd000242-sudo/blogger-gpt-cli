@@ -8,10 +8,8 @@
  * 화면(설정 카드·시작 게이트·비서 패널)과 메인(실행 인자)이 같은 표를 읽어야
  * "화면엔 있는데 안 먹는 모델" 이 안 생긴다.
  *
- * ## 실측으로만 넣는다 (2026-09-10)
- * 목록에 있는 값은 전부 그 CLI 에 실제로 넣어 돌려 본 것이다. 추측으로 넣으면
- * 사장님이 고른 순간 "그런 모델 없다" 로 죽는다.
- *   claude  `--model claude-fable-5` / `claude-opus-5` 실행 성공 · 별칭 fable/opus/sonnet 은 --help 명시
+ * Claude IDs: https://platform.claude.com/docs/en/models/overview (2026-10-14).
+ * 모델 추가를 검증하려고 사용자 비용이 드는 실행을 자동으로 하지 않는다.
  *   codex   `-m gpt-6-astra`(사장님 config 기본값) · `gpt-5.6-terra` · `gpt-5.6-sol` · `gpt-5.6-luna` 전부 수용
  *   gemini  모델 이름을 확인하지 못했다 → 목록을 비우고 **에이전트 설정 그대로** 만 쓴다
  */
@@ -35,9 +33,9 @@ export const AGENT_MODEL_DEFAULT: AgentModelChoice = {
 export const AGENT_MODELS: Record<string, AgentModelChoice[]> = {
   claude: [
     AGENT_MODEL_DEFAULT,
-    { value: 'claude-fable-5', label: 'Fable 5', note: '가장 똑똑함 · 한도 소모 큼' },
-    { value: 'claude-opus-5', label: 'Opus 5', note: '균형 · 페이블 한도 찼을 때' },
-    { value: 'claude-sonnet-5', label: 'Sonnet 5', note: '빠르고 가벼움' },
+    { value: 'claude-haiku-5-5', label: 'Haiku 5.5', note: '빠르고 가벼움 · 저비용' },
+    { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5', note: '품질과 속도의 균형' },
+    { value: 'claude-opus-5-5', label: 'Opus 5.5', note: '고급 추론 · 복잡한 작업' },
   ],
   codex: [
     AGENT_MODEL_DEFAULT,
@@ -60,8 +58,14 @@ export function agentModelsFor(provider: string): AgentModelChoice[] {
  * 없는 모델을 그대로 넘기면 실행이 죽는다.
  */
 export function normalizeAgentModel(provider: string, value: unknown): string {
-  const wanted = String(value ?? '').trim();
+  let wanted = String(value ?? '').trim();
   if (!wanted) return '';
+  if (String(provider || '').toLowerCase() === 'claude') {
+    // An old removed model must not fall back to CLI defaults that may still be expensive.
+    if (/^(?:claude-)?fable(?:-|$)/i.test(wanted)) return 'claude-sonnet-5-5';
+    const alias = wanted.match(/^(?:claude-)?(haiku|sonnet|opus)(?:$|-\d)/i)?.[1]?.toLowerCase();
+    if (alias) wanted = `claude-${alias}-5-5`;
+  }
   return agentModelsFor(provider).some((m) => m.value === wanted) ? wanted : '';
 }
 

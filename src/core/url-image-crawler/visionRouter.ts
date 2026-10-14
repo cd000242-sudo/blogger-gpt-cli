@@ -7,7 +7,7 @@ export const VISION_MODELS = {
   GEMINI_FLASH: 'gemini-3.6-flash',
   // v3.8.483: 3.1 Pro 는 Preview 라 선불 티어에서 막힌다 → Stable 인 3.5 Flash 로
   GEMINI_PRO: 'gemini-3.5-flash',
-  CLAUDE_SONNET: 'claude-sonnet-5',
+  CLAUDE_SONNET: 'claude-sonnet-5-5',
   OPENAI_41: 'gpt-5.6-terra',
   OPENAI_41_MINI: 'gpt-5.6-luna',
 } as const;
@@ -51,7 +51,13 @@ export function routeTextToVision(textKey: string): VisionRouting {
     case 'claude-haiku':
     case 'claude-opus':
     case 'claude-sonnet-5':
+    case 'claude-sonnet-5-5':
+    case 'claude-haiku-5-5':
+    case 'claude-haiku-4-5-20251001':
+    case 'claude-opus-5':
+    case 'claude-opus-5-5':
     case 'claude-fable-5':
+    case 'claude-fable-5-1':
     case 'claude':
       return { provider: 'claude-sonnet', model: VISION_MODELS.CLAUDE_SONNET, vendor: 'claude', fellBack: false };
     case 'openai-gpt41':

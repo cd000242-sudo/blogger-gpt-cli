@@ -6242,6 +6242,10 @@ async function loadSettingsContent() {
       console.log('🔧 환경설정 값 로드 시작:', mergedSettings);
 
       // API 키들
+      const claudeWorkspaceEl = document.getElementById('claudeWorkspaceId');
+      if (claudeWorkspaceEl) {
+        claudeWorkspaceEl.value = mergedSettings.ANTHROPIC_WORKSPACE_ID ?? mergedSettings.claudeWorkspaceId ?? mergedSettings.anthropicWorkspaceId ?? '';
+      }
       const openaiKeyEl = document.getElementById('openaiKey');
       if (openaiKeyEl) {
         openaiKeyEl.value = mergedSettings.openaiKey || mergedSettings.openaiApiKey || '';
@@ -6457,6 +6461,7 @@ async function saveSettings() {
     openaiKey: document.getElementById('openaiKey')?.value || '',
     geminiKey: document.getElementById('geminiKey')?.value || '',
     claudeKey: document.getElementById('claudeKey')?.value || '',
+    claudeWorkspaceId: document.getElementById('claudeWorkspaceId')?.value?.trim() || '',
     perplexityKey: document.getElementById('perplexityKey')?.value || '',
     leonardoKey: document.getElementById('leonardoKey')?.value || '',
     dalleApiKey: document.getElementById('dalleApiKey')?.value || '',
@@ -6483,10 +6488,12 @@ async function saveSettings() {
 
   // 🔧 StorageManager 사용 - 비동기 저장
   const storage = getStorageManager();
-  await storage.set('bloggerSettings', settings, true);
-
-  // .env 파일도 함께 업데이트
+  let envSaved = false;
+  // 실행 설정 파일을 먼저 저장한다. 거부된 입력을 로컬 저장값으로 확정하지 않는다.
   try {
+    if (typeof window.blogger?.saveEnv !== 'function') {
+      throw new Error('설정 저장 연결을 사용할 수 없습니다. 앱을 다시 열고 시도해 주세요.');
+    }
     if (window.blogger && window.blogger.saveEnv) {
       // env.ts의 MAP에 맞춰 camelCase 키로 전달
       // 네이버 설정은 naverClientId/naverClientSecret로 변환 (unified-env-manager에서 사용하는 키)
@@ -6505,6 +6512,8 @@ async function saveSettings() {
         naverClientId: settings.naverCustomerId || settings.naverClientId || '',
         naverClientSecret: settings.naverSecretKey || settings.naverClientSecret || '',
         openaiKey: settings.openaiKey,
+        claudeKey: settings.claudeKey,
+        claudeWorkspaceId: settings.claudeWorkspaceId,
         dalleApiKey: settings.dalleApiKey,
         // v3.5.90 — DeepInfra/Prodia 키 .env 동기화
         deepInfraApiKey: settings.deepInfraApiKey,
@@ -6521,19 +6530,16 @@ async function saveSettings() {
       const result = await window.blogger.saveEnv(envData);
       console.log('✅ 환경 설정 저장 결과:', result);
 
-      // 네이버 데이터랩 저장 확인
-      if (result && result.ok) {
-        console.log('✅ 네이버 데이터랩 설정이 .env 파일에 저장되었습니다');
-      } else {
-        console.warn('⚠️ 네이버 데이터랩 설정 저장 실패:', result);
+      if (result?.ok !== true) {
+        throw new Error(result?.error || result?.message || '설정 파일 저장에 실패했습니다.');
       }
+      envSaved = true;
     }
+    await storage.set('bloggerSettings', settings, true);
   } catch (error) {
-    // 🔧 ErrorHandler 사용
-    getErrorHandler().handle(error, {
-      function: 'saveSettings',
-      step: '환경 설정 저장'
-    });
+    const reason = error?.message || String(error);
+    alert(`${envSaved ? '설정 파일은 저장했지만 화면 설정을 저장하지 못했습니다.' : '설정을 저장하지 못했습니다.'}\n${reason}\n입력 내용은 유지됩니다. 확인 후 다시 저장해 주세요.`);
+    return { ok: false, error: reason };
   }
 
   updatePlatformStatus(); // 플랫폼 상태 업데이트
@@ -6550,6 +6556,7 @@ async function saveSettings() {
   setTimeout(() => {
     closeSettingsModal();
   }, 100);
+  return { ok: true };
 }
 
 // API 키 상태 표시 업데이트
@@ -7473,7 +7480,8 @@ async function updateAiModelStatus() {
       savedModel = settings.primaryGeminiTextModel || '';
     } catch (e) { /* ignore */ }
 
-    const tierValue = tierRadio?.value || savedModel || '';
+    const rawTierValue = tierRadio?.value || savedModel || '';
+    const tierValue = window.normalizeClaudeModelChoice?.(rawTierValue) || rawTierValue;
     const deriveEngine = (v) => {
       if (!v) return '';
       if (v.startsWith('gemini-')) return 'gemini';
@@ -7486,7 +7494,7 @@ async function updateAiModelStatus() {
 
     // v3.8.324: pricing.js title과 동기화 — 사용자 보고 "글 생성 엔진 업데이트 안 됨" (배지가 옛날 라벨로 표시).
     // legacy value(gemini-2.5-*, openai-gpt4*, claude-opus/sonnet/haiku)는 사용자 저장 설정 호환용이며,
-    // 실제 API는 pricing.js의 modelId(gemini-3.5-flash / gpt-5.6-sol / claude-fable-5 등)로 호출됨.
+    // 실제 API는 pricing.js의 modelId로 호출됨.
     /**
      * ⚠️ v3.8.489 - 이 표는 src/core/llm/pricing.ts 의 TIER_MODELS 를 손으로 베낀 것이다.
      *   v3.8.483 에서 백엔드만 3.6 으로 고쳐지고 여기는 3.5 로 남아,
@@ -7514,15 +7522,10 @@ async function updateAiModelStatus() {
       // v3.8.686 — GPT-6 Astra (2026-09-03 출시)
       'openai-gpt6-astra': { label: 'OpenAI GPT-6 Astra', short: 'GPT-6 Astra', emoji: '🌌', color: '#a855f7' },
       'gpt-6-astra': { label: 'OpenAI GPT-6 Astra', short: 'GPT-6 Astra', emoji: '🌌', color: '#a855f7' },
-      // Claude (Fable 5 / Sonnet 5 / Haiku 4.5)
-      'claude-haiku': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
-      'claude-sonnet': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
-      'claude-opus': { label: 'Claude Fable 5.1', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
-      'claude-haiku-4-5-20251001': { label: 'Claude Haiku 4.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
-      'claude-sonnet-5': { label: 'Claude Sonnet 5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
-      'claude-fable-5': { label: 'Claude Fable 5', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
-      'claude-fable-5-1': { label: 'Claude Fable 5.1', short: 'Claude Fable', emoji: '💎', color: '#f97316' },
-      'claude-opus-4-8': { label: 'Claude Opus 4.8', short: 'Claude Opus', emoji: '💎', color: '#f97316' },
+      // Claude — persisted direct IDs are normalized to the stable UI values above.
+      'claude-haiku': { label: 'Claude Haiku 5.5', short: 'Claude Haiku', emoji: '⚡', color: '#f97316' },
+      'claude-sonnet': { label: 'Claude Sonnet 5.5', short: 'Claude Sonnet', emoji: '🟠', color: '#f97316' },
+      'claude-opus': { label: 'Claude Opus 5.5', short: 'Claude Opus', emoji: '💎', color: '#f97316' },
       // Perplexity
       'perplexity-sonar': { label: 'Perplexity Sonar Pro', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },
       'sonar-pro': { label: 'Perplexity Sonar Pro', short: 'Perplexity', emoji: '🔮', color: '#3b82f6' },

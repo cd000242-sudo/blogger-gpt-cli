@@ -1,6 +1,45 @@
 // 🔧 설정 관리 관련 함수들
 import { getErrorHandler, getStorageManager, addLog, debugLog } from './core.js';
 
+// Stable UI values survive catalog upgrades; retired direct IDs keep their provider.
+export function normalizeClaudeModelChoice(value) {
+  const model = String(value || '').trim();
+  if (/^claude-fable(?:-|$)/i.test(model)) return 'claude-sonnet';
+  if (/^claude-haiku(?:-|$)/i.test(model)) return 'claude-haiku';
+  if (/^claude-sonnet(?:-|$)/i.test(model)) return 'claude-sonnet';
+  if (/^claude-opus(?:-|$)/i.test(model)) return 'claude-opus';
+  return model;
+}
+window.normalizeClaudeModelChoice = normalizeClaudeModelChoice;
+
+// This checks model-list access; it does not generate content or save credentials.
+export async function testClaudeApiKey() {
+  const button = document.getElementById('claudeApiTestBtn');
+  const status = document.getElementById('claudeApiTestStatus');
+  if (button?.disabled) return;
+  const apiKey = document.getElementById('claudeKey')?.value?.trim() || '';
+  const claudeWorkspaceId = document.getElementById('claudeWorkspaceId')?.value?.trim() || '';
+  if (!apiKey) {
+    if (status) status.textContent = 'Claude API 키를 먼저 입력해 주세요.';
+    return;
+  }
+  if (button) button.disabled = true;
+  if (status) status.textContent = '키와 작업공간 접근 권한을 확인하고 있습니다…';
+  try {
+    const result = await window.electronAPI.invoke('validate-api-key', {
+      provider: 'claude', apiKey, claudeWorkspaceId,
+    });
+    if (status) status.textContent = `${result?.success ? '✅' : '❌'} ${result?.message || '연결 상태를 확인하지 못했습니다.'}`;
+    return result;
+  } catch {
+    if (status) status.textContent = '연결 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+    return { success: false };
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+window.testClaudeApiKey = testClaudeApiKey;
+
 // v3.8.548: 알 수 없는 값일 때의 기본값도 WordPress (사장님 지시)
 function normalizePlatformValue(value, fallback = 'wordpress') {
   const platform = String(value || '').toLowerCase().trim();
@@ -103,6 +142,9 @@ async function loadEnvSettingsForRecovery() {
 function camelizeEnvKeys(env = {}) {
   const out = {};
   for (const [key, value] of Object.entries(env || {})) {
+    if (key === 'ANTHROPIC_WORKSPACE_ID') {
+      out.claudeWorkspaceId = String(value || '').trim();
+    }
     // 빈 값으로 멀쩡한 저장값을 덮지 않는다 — 없는 것과 지운 것은 다르다
     if (value === undefined || value === null || String(value).trim() === '') continue;
     // 이미 카멜인 키는 건드리지 않는다 (대문자_스네이크만 별칭을 만든다)
@@ -196,6 +238,9 @@ export async function loadSettings() {
    * 빈 값은 덮지 않는다: 없는 것과 지운 것은 다르다(camelizeEnvKeys 가 걸러 준다).
    */
   settings = { ...settings, ...camelizeEnvKeys(envSettings) };
+  if (settings.primaryGeminiTextModel) {
+    settings.primaryGeminiTextModel = normalizeClaudeModelChoice(settings.primaryGeminiTextModel);
+  }
   await syncMissingSearchKeysToEnv(settings, envSettings);
   /**
    * ⚠️ 플랫폼만은 예외다 — 저장값이 먼저다(v3.8.548 · resolvePlatformValue).
@@ -228,6 +273,7 @@ export async function saveSettings() {
     openaiKey: document.getElementById('openaiKey')?.value || '',
     geminiKey: document.getElementById('geminiKey')?.value || '',
     claudeKey: document.getElementById('claudeKey')?.value || '',
+    claudeWorkspaceId: document.getElementById('claudeWorkspaceId')?.value?.trim() || '',
     perplexityKey: document.getElementById('perplexityKey')?.value || '',
     leonardoKey: document.getElementById('leonardoKey')?.value || '',
     dalleApiKey: document.getElementById('dalleApiKey')?.value || '',
@@ -303,10 +349,12 @@ export async function saveSettings() {
   };
 
   const storage = getStorageManager();
-  await storage.set('bloggerSettings', settings, true);
-
-  // .env 파일도 함께 업데이트
+  let envSaved = false;
+  // 실제 실행 설정(.env)이 저장된 뒤에만 화면의 저장값을 갱신한다.
   try {
+    if (typeof window.blogger?.saveEnv !== 'function') {
+      throw new Error('설정 저장 연결을 사용할 수 없습니다. 앱을 다시 열고 시도해 주세요.');
+    }
     if (window.blogger && window.blogger.saveEnv) {
       const envData = {
         blogId: settings.blogId,
@@ -332,6 +380,7 @@ export async function saveSettings() {
         naverApiHubKey: settings.naverApiHubKey,
         openaiKey: settings.openaiKey,
         claudeKey: settings.claudeKey,
+        claudeWorkspaceId: settings.claudeWorkspaceId,
         perplexityKey: settings.perplexityKey,
         leonardoKey: settings.leonardoKey,
         dalleApiKey: settings.dalleApiKey,
@@ -370,17 +419,16 @@ export async function saveSettings() {
       const result = await window.blogger.saveEnv(envData);
       console.log('✅ 환경 설정 저장 결과:', result);
 
-      if (result && result.ok) {
-        console.log('✅ 네이버 데이터랩 설정이 .env 파일에 저장되었습니다');
-      } else {
-        console.warn('⚠️ 네이버 데이터랩 설정 저장 실패:', result);
+      if (result?.ok !== true) {
+        throw new Error(result?.error || result?.message || '설정 파일 저장에 실패했습니다.');
       }
+      envSaved = true;
     }
+    await storage.set('bloggerSettings', settings, true);
   } catch (error) {
-    getErrorHandler().handle(error, {
-      function: 'saveSettings',
-      step: '환경 설정 저장'
-    });
+    const reason = error?.message || String(error);
+    alert(`${envSaved ? '설정 파일은 저장했지만 화면 설정을 저장하지 못했습니다.' : '설정을 저장하지 못했습니다.'}\n${reason}\n입력 내용은 유지됩니다. 확인 후 다시 저장해 주세요.`);
+    return { ok: false, error: reason };
   }
 
   // 저장된 플랫폼으로 라디오 버튼 명시적으로 업데이트
@@ -425,6 +473,7 @@ export async function saveSettings() {
   setTimeout(() => {
     closeSettingsModal();
   }, 100);
+  return { ok: true };
 }
 
 // API 키 상태 표시 업데이트
@@ -781,7 +830,7 @@ export async function persistTextModelChoice(tierValue) {
 window.persistTextModelChoice = persistTextModelChoice;
 
 export function applyTextModelRadio(settings) {
-  const savedTier = settings?.primaryGeminiTextModel || 'gemini-2.5-flash';
+  const savedTier = normalizeClaudeModelChoice(settings?.primaryGeminiTextModel) || 'gemini-2.5-flash';
   const radios = document.querySelectorAll('input[name="primaryGeminiTextModel"]');
   if (!radios.length) return false;
 
@@ -870,6 +919,7 @@ export async function loadSettingsContent(options = {}) {
         'openaiKey': mergedSettings.openaiKey || mergedSettings.openaiApiKey || '',
         'geminiKey': mergedSettings.geminiKey || mergedSettings.geminiApiKey || '',
         'claudeKey': mergedSettings.claudeKey || mergedSettings.claudeApiKey || '',
+        'claudeWorkspaceId': mergedSettings.claudeWorkspaceId ?? mergedSettings.anthropicWorkspaceId ?? mergedSettings.ANTHROPIC_WORKSPACE_ID ?? '',
         'perplexityKey': mergedSettings.perplexityKey || mergedSettings.perplexityApiKey || '',
         'leonardoKey': mergedSettings.leonardoKey || mergedSettings.leonardoApiKey || '',
         'dalleApiKey': mergedSettings.dalleApiKey || mergedSettings.dalleKey || mergedSettings.openaiKey || mergedSettings.openaiApiKey || '',

@@ -17,6 +17,9 @@
  */
 
 const postMock = jest.fn();
+// Claude auth also resolves workspace settings; keep this transport test isolated
+// from persisted user settings and credentials on the machine running Jest.
+jest.mock('../src/env', () => ({ loadEnvFromFile: () => ({ ANTHROPIC_WORKSPACE_ID: '' }) }));
 const savedNoLive = process.env['NO_LIVE_LLM'];
 beforeEach(() => { delete process.env['NO_LIVE_LLM']; }); // All provider HTTP requests below use postMock.
 afterAll(() => {

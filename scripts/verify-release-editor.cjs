@@ -31,6 +31,13 @@ const yaml = require('js-yaml');
     'electron/ui/modules/editor-image-plan.js', 'electron/ui/modules/editor-workspace.js',
     'dist/core/final/editor-image.js', 'dist/core/imageDispatcher.js',
     'dist/core/final/post-critique.js', 'dist/thumbnail.js',
+    'dist/core/llm/claude-auth.js', 'dist/core/llm/claude-connection.js',
+    'dist/core/llm/llm-caller.js', 'dist/core/llm/pricing.js', 'dist/env.js',
+    'dist/core/affiliate/detail-image-vision.js', 'dist/core/url-image-crawler/imageRelevanceScorer.js',
+    'src/core/llm/claude-auth.js', 'src/core/llm/llm-caller.js',
+    'src/core/llm/pricing.js', 'src/env.js',
+    'src/core/external-traffic/_shared/llm-fallback.js',
+    'electron/ui/modules/settings.js', 'electron/ui/modules/codex-workshop.js',
   ];
   for (const module of modules) {
     assert(asar.extractFile(archive, path.normalize(module)).equals(fs.readFileSync(path.join(root, module))), `${module} differs from the verified workspace`);

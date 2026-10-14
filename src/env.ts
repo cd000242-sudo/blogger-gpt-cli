@@ -144,7 +144,7 @@ function parseDotEnv(str: string): Record<string, string> {
 function stringifyDotEnv(obj: Record<string, any>) {
   const lines: string[] = [];
   for (const [k, v] of Object.entries(obj)) {
-    if (v === undefined || v === null || v === '') continue; // 빈값은 저장 생략
+    if (v === undefined || v === null || (v === '' && k !== 'ANTHROPIC_WORKSPACE_ID')) continue;
     const s = String(v);
     const needsQuote = /[\s#"'=]/.test(s);
     lines.push(`${k}=${needsQuote ? JSON.stringify(s) : s}`);
@@ -162,6 +162,8 @@ const MAP: Record<string, string> = {
   DALLE_API_KEY: 'dalleApiKey',
   GEMINI_API_KEY: 'geminiKey',
   CLAUDE_API_KEY: 'claudeKey',
+  ANTHROPIC_WORKSPACE_ID: 'claudeWorkspaceId',
+  CLAUDE_WORKSPACE_ID: 'claudeWorkspaceId',
   ANTHROPIC_API_KEY: 'claudeKey',     // Anthropic 키도 claudeKey로 매핑
   PERPLEXITY_API_KEY: 'perplexityKey', // Perplexity 키 추가
   LEONARDO_API_KEY: 'leonardoKey',      // Leonardo.ai 키 추가
@@ -376,6 +378,26 @@ export function loadEnvFromFile(): Record<string, any> {
     }
   }
 
+  // The key saved in this app must win over an older ANTHROPIC_API_KEY alias.
+  // Otherwise the settings connection check and actual generation use different keys.
+  const claudeKeyNames = ['CLAUDE_API_KEY', 'claudeKey', 'claudeApiKey', 'ANTHROPIC_API_KEY'];
+  const savedClaudeKey = claudeKeyNames.map(key => fileEnv[key]).find(value => typeof value === 'string' && value.trim());
+  if (savedClaudeKey) {
+    out['claudeKey'] = savedClaudeKey;
+    out['CLAUDE_API_KEY'] = savedClaudeKey;
+    out['ANTHROPIC_API_KEY'] = savedClaudeKey;
+  }
+
+  // An explicit empty value clears a previously inherited workspace selection.
+  const workspaceKeys = ['ANTHROPIC_WORKSPACE_ID', 'CLAUDE_WORKSPACE_ID', 'claudeWorkspaceId'];
+  const workspaceField = workspaceKeys.find(key => Object.prototype.hasOwnProperty.call(fileEnv, key));
+  if (workspaceField) {
+    const workspaceId = String(fileEnv[workspaceField] || '').trim();
+    out['claudeWorkspaceId'] = workspaceId;
+    out['ANTHROPIC_WORKSPACE_ID'] = workspaceId;
+    delete out['CLAUDE_WORKSPACE_ID'];
+  }
+
   // 4) 기본값 보정
   if (!out['provider']) out['provider'] = 'openai';
   if (!out['redirectUri']) out['redirectUri'] = 'http://localhost:8765/';
@@ -484,6 +506,16 @@ export async function saveEnv(data: Partial<Record<string, any>>): Promise<{ ok:
           }
         }
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data || {}, 'claudeWorkspaceId')) {
+      const workspaceId = String(data['claudeWorkspaceId'] || '').trim();
+      if (workspaceId && !/^wrkspc_[A-Za-z0-9]{8,128}$/.test(workspaceId)) {
+        throw new Error('Claude 작업공간 ID 형식이 올바르지 않습니다.');
+      }
+      delete nextUpper['claudeWorkspaceId'];
+      delete nextUpper['CLAUDE_WORKSPACE_ID'];
+      nextUpper['ANTHROPIC_WORKSPACE_ID'] = workspaceId;
     }
 
     // 기본값이 필요한 필드 보정(없으면 추가)

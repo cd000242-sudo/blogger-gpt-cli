@@ -148,14 +148,15 @@ describe('v3.8.713 AI 비서', () => {
    * v3.8.714 — 사장님: "에이전트 내에 모델선택이 가능하자나 페이블이나 오푸스 소넷 등등 …
    *            코덱스도 이번에 아스트라나온것처럼" / "홈에도 배찌로 선택가능하자나"
    * 목록은 한 곳(src/core/agent-models)에만 두고, 화면 셋(홈 배지·시작 게이트·비서)이 그걸 읽는다.
-   * 값은 전부 실제 CLI 에 넣어 돌려 본 것만 담는다 — 없는 모델을 고르게 하면 그 자리에서 죽는다.
+   * Claude 5.5 목록은 공식 모델 ID를 따른다. 테스트는 CLI/API를 호출하지 않는다.
    */
   describe('v3.8.714 에이전트 안 모델 선택', () => {
     const { AGENT_MODELS, agentModelsFor, normalizeAgentModel, agentModelLabel } = require('../src/core/agent-models');
 
-    test('실측으로 확인한 모델만 담는다', () => {
+    test('Claude 5.5 세 모델을 제공하고 제거된 Fable은 선택 목록에 없다', () => {
       expect(agentModelsFor('claude').map((m: any) => m.value))
-        .toEqual(['', 'claude-fable-5', 'claude-opus-5', 'claude-sonnet-5']);
+        .toEqual(['', 'claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);
+      expect(agentModelsFor('claude').some((m: any) => /fable/i.test(m.value + m.label))).toBe(false);
       expect(agentModelsFor('codex').map((m: any) => m.value))
         .toEqual(['', 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
       // gemini 는 모델 이름을 확인하지 못했다 — 기본값만 둔다
@@ -163,11 +164,18 @@ describe('v3.8.713 AI 비서', () => {
     });
 
     test('목록에 없는 값은 기본값으로 되돌린다 — 없는 모델을 넘기면 실행이 죽는다', () => {
-      expect(normalizeAgentModel('claude', 'claude-fable-5')).toBe('claude-fable-5');
       expect(normalizeAgentModel('claude', 'gpt-6-astra')).toBe('');   // 남의 집 모델
+      expect(normalizeAgentModel('claude', '없는모델')).toBe('');
       expect(normalizeAgentModel('codex', '없는모델')).toBe('');
       expect(agentModelLabel('codex', 'gpt-6-astra')).toBe('GPT-6 Astra');
       expect(AGENT_MODELS.claude[0].value).toBe('');                   // 첫 줄은 "설정 그대로"
+    });
+
+    test.each(['claude-fable-5', 'claude-fable-5-1', 'claude-fable', 'fable'])('이전 Fable 저장값 %s는 Sonnet 5.5로 명시적으로 이전한다', (oldModel) => {
+      const normalized = normalizeAgentModel('claude', oldModel);
+      expect(normalized).toBe('claude-sonnet-5-5');
+      expect(agentModelsFor('claude').some((m: any) => m.value === normalized)).toBe(true);
+      expect(agentModelLabel('claude', oldModel)).toBe('Sonnet 5.5');
     });
 
     test('메인이 목록을 주고, 실행 인자로 모델을 넘긴다', () => {
@@ -327,9 +335,10 @@ describe('v3.8.713 AI 비서', () => {
       expect(task).toContain("'--system-prompt'");
     });
 
-    test('모델은 페이블, 막히면 오푸스 5 (사장님 지정)', () => {
-      expect(main).toContain("ASSISTANT_MODEL = 'claude-fable-5'");
-      expect(main).toContain("ASSISTANT_FALLBACK_MODEL = 'claude-opus-5'");
+    test('비서 기본 모델은 Sonnet 5.5, 대체 모델은 Haiku 5.5이며 Fable을 쓰지 않는다', () => {
+      expect(main).toContain("ASSISTANT_MODEL = 'claude-sonnet-5-5'");
+      expect(main).toContain("ASSISTANT_FALLBACK_MODEL = 'claude-haiku-5-5'");
+      expect(main).not.toMatch(/ASSISTANT_(?:FALLBACK_)?MODEL\s*=\s*['"]claude-fable/);
       const task = braceBlock(main, 'async function runAgentTextTask');
       expect(task).toContain("'--model'");
       expect(task).toContain("'--fallback-model'");
@@ -340,13 +349,13 @@ describe('v3.8.713 AI 비서', () => {
      * 자동으로 안 넘어갔다. 종료코드 1 + "You've reached your Fable 5 limit."
      * 그래서 폴백을 우리가 직접 돌린다. 이게 없으면 한도 찬 날 비서가 통째로 죽는다.
      */
-    test('한도가 차면 우리가 직접 오푸스 5 로 넘긴다 — CLI 플래그만 믿지 않는다', () => {
+    test('한도가 차면 Haiku 5.5까지 직접 전환하며 저장된 선택도 정규화한다', () => {
       expect(main).toContain('function askAssistantViaClaude');
       // braceBlock 은 반환 타입 Promise<{…}> 의 중괄호를 먼저 잡는다 — 다음 절까지로 자른다
       const fn = blockBetween(main, 'async function askAssistantViaClaude', "ipcMain.handle('assistant:ask'");
-      // 고른 모델 → 페이블 → 오푸스 5 순으로 후보를 만든다 (v3.8.714: 화면 선택이 1순위)
+      // 고른 모델(이전 Fable은 Sonnet으로 이전) → Sonnet → Haiku 순으로 후보를 만든다.
       expect(fn).toContain('ASSISTANT_MODEL, ASSISTANT_FALLBACK_MODEL');
-      expect(fn).toContain('chosenModel');
+      expect(fn).toContain("normalizeAgentModel('claude', chosenModel)");
       expect(fn).toContain('isModelUnavailableError');
       // 한도가 아닌 진짜 오류까지 두 번 부르면 안 된다
       expect(fn).toContain('throw error');

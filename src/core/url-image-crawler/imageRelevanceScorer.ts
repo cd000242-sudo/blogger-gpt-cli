@@ -10,6 +10,7 @@
 //   - 비용 가드 (₩500/₩1500 임계)
 
 import * as https from 'https';
+import { buildClaudeHeaders, isClaudeWorkspaceError, CLAUDE_WORKSPACE_GUIDE } from '../llm/claude-auth';
 import { VISION_MODELS, routeTextToVision, type VisionRouting } from './visionRouter';
 import { chargeAndCheck, getVisionBudget } from './visionBudgetGuard';
 
@@ -209,6 +210,9 @@ function claudeStrategy(model: string, apiKey: string): VisionStrategy {
       const body = {
         model,
         max_tokens: 100,
+        // Sonnet 5.5: disabled is rejected; no tools means between_tools
+        // produces the answer without spending this small budget on thinking.
+        ...(model === 'claude-sonnet-5-5' ? { thinking: { type: 'between_tools' } } : {}),
         messages: [{
           role: 'user',
           content: [
@@ -217,11 +221,11 @@ function claudeStrategy(model: string, apiKey: string): VisionStrategy {
           ],
         }],
       };
-      const res = await httpsPost('https://api.anthropic.com/v1/messages', body, {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      }, TIMEOUTS.VL_INFERENCE_STANDARD);
-      const text = res?.content?.[0]?.text || '';
+      const res = await httpsPost('https://api.anthropic.com/v1/messages', body, buildClaudeHeaders(apiKey), TIMEOUTS.VL_INFERENCE_STANDARD);
+      if (isClaudeWorkspaceError(res)) throw new Error(`CLAUDE_WORKSPACE_ERROR: ${CLAUDE_WORKSPACE_GUIDE}`);
+      const text = (Array.isArray(res?.content) ? res.content : [])
+        .filter((block: any) => block?.type === 'text' && typeof block.text === 'string')
+        .map((block: any) => block.text).join('');
       const cleaned = text.replace(/```json\s*|\s*```/g, '').trim();
       return parseScoreJson(cleaned);
     },
@@ -307,6 +311,7 @@ async function scoreOne(
     ]);
     return { url: imageUrl, score: result.score, reason: result.reason };
   } catch (e: any) {
+    if (isClaudeWorkspaceError(e)) throw e;
     return { url: imageUrl, score: 50, reason: `오류 → 중립: ${(e.message || '?').slice(0, 50)}` };
   }
 }

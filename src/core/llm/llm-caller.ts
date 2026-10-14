@@ -8,6 +8,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getApiKey } from './api-keys';
 import { findTier } from './pricing';
 import { applyOpenAiTokenParams } from './openai-params';
+import { buildClaudeHeaders, isClaudeWorkspaceError, CLAUDE_WORKSPACE_GUIDE } from './claude-auth';
 // v3.8.565 (E2): 출력 언어는 language-rules 가 단독으로 정한다.
 //   본문 프롬프트(generation.ts)와 여기가 서로 다른 언어를 지시하면 모델이 흔들린다.
 import { systemLanguageLine } from '../final/language-rules';
@@ -102,7 +103,7 @@ export function resolveLlmMaxTokens(): number {
  * 안 보내면 provider 기본값으로 동작하지만, 보내면 이렇게 호출 자체가 막힌다.
  */
 export function claudeAcceptsTemperature(model: string): boolean {
-  return /haiku|claude-(?:2|3)[.-]/i.test(String(model || ''));
+  return /^claude-(?:haiku-4-5(?:-|$)|(?:2|3)[.-])/i.test(String(model || ''));
 }
 
 /**
@@ -193,15 +194,11 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     name: 'Claude',
     provider: 'claude',
     endpoint: 'https://api.anthropic.com/v1/messages',
-    models: ['claude-sonnet-5', 'claude-fable-5-1', 'claude-fable-5', 'claude-haiku-4-5-20251001'],
+    models: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-haiku-4-5-20251001'],
     timeout: 90_000,
     rateLimitPattern: /429|rate.*limit|overloaded/i,
     authErrorPattern: /401|403|unauthorized|forbidden|invalid.*key|authentication/i,
-    buildHeaders: (key) => ({
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    }),
+    buildHeaders: (key) => buildClaudeHeaders(key),
     buildBody: (model, prompt) => ({
       model,
       // v3.8.748 — 추론 모델은 thinking 이 같은 예산을 쓴다(위 resolveClaudeMaxTokens 주석: 본문 1편 실측 16,141 토큰)
@@ -225,6 +222,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
 };
 
 type ProviderFailureKind =
+  | 'workspace'
   | 'auth'
   | 'billing'
   | 'quota'
@@ -274,7 +272,7 @@ function resolveModelChain(provider: keyof typeof PROVIDERS): string[] {
  * 90초 안에 못 끝내면 아래 규칙대로 luna 로 내려가 **본문을 저가 모델이 쓴다.** 제한시간이 모델을 바꾸고 있던 셈이다.
  * 빠른 모델(luna·haiku·sonar·flash)만 짧게 둔다.
  */
-const SLOW_REASONING_MODEL = /astra|sol\b|terra|^o\d|fable|opus|sonnet/i;
+const SLOW_REASONING_MODEL = /astra|sol\b|terra|^o\d|opus|sonnet/i;
 const SLOW_MODEL_TIMEOUT_MS = 240_000;
 
 function resolveCallTimeout(config: LLMProviderConfig, model: string): number {
@@ -303,9 +301,8 @@ const FASTER_SIBLING: Record<string, Record<string, string>> = {
     'gpt-5.6-terra': 'gpt-5.6-luna',
   },
   claude: {
-    'claude-fable-5': 'claude-sonnet-5',
-    'claude-fable-5-1': 'claude-sonnet-5',
-    'claude-opus-5': 'claude-sonnet-5',
+    'claude-opus-5': 'claude-sonnet-5-5',
+    'claude-opus-5-5': 'claude-sonnet-5-5',
   },
   perplexity: {
     'sonar-pro': 'sonar',
@@ -361,6 +358,7 @@ function extractErrorMessage(error: unknown): string {
 function classifyProviderFailure(config: LLMProviderConfig, error: unknown): ProviderFailureKind {
   const msg = extractErrorMessage(error).toLowerCase();
   const status = error instanceof AxiosError ? error.response?.status : undefined;
+  if (config.provider === 'claude' && isClaudeWorkspaceError(error)) return 'workspace';
 
   // v3.8.528 — 잔액 소진을 HTTP 401 로 돌려주는 provider 가 있다 (Perplexity 실측 2026-08-19:
   //   401 + "You exceeded your current quota, please check your plan and billing details").
@@ -379,7 +377,7 @@ function classifyProviderFailure(config: LLMProviderConfig, error: unknown): Pro
 }
 
 function shouldStopModelChain(kind: ProviderFailureKind): boolean {
-  return kind === 'auth' ||
+  return kind === 'workspace' || kind === 'auth' ||
     kind === 'billing' ||
     kind === 'quota' ||
     kind === 'rate_limit';
@@ -394,6 +392,7 @@ function buildProviderError(
 ): Error {
   const detail = rawMessage.replace(/\s+/g, ' ').slice(0, 260);
   const guide: Record<ProviderFailureKind, string> = {
+    workspace: CLAUDE_WORKSPACE_GUIDE,
     auth: 'API 키가 만료되었거나 해당 프로젝트/조직에서 사용할 권한이 없습니다.',
     billing: '결제 연결 또는 유료 플랜/프로젝트 연결 상태를 확인해야 합니다.',
     quota: '결제 잔액이 있어도 분당/일일/토큰 한도 또는 프로젝트 쿼터에 걸릴 수 있습니다.',
@@ -406,7 +405,7 @@ function buildProviderError(
   };
 
   return new Error(
-    `${config.name} 엔진 호출 실패 (${attempts}회 시도, model=${model})\n` +
+    `${kind === 'workspace' ? 'CLAUDE_WORKSPACE_ERROR: ' : ''}${config.name} 엔진 호출 실패 (${attempts}회 시도, model=${model})\n` +
     `원인: ${guide[kind]}\n` +
     `세부: ${detail}`
   );

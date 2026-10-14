@@ -37,7 +37,7 @@ function agentProviderLabel(value) {
 
 const EXECUTION_MODE_KEY = 'leadernamExecutionMode';
 const ACTIVE_AGENT_PROVIDER_KEY = 'leadernamActiveAgentProvider';
-/** v3.8.714: 에이전트별로 고른 모델 { claude: 'claude-fable-5', codex: 'gpt-6-astra' } */
+/** 에이전트별로 고른 모델 { claude: 'claude-sonnet-5-5', codex: 'gpt-6-astra' } */
 const AGENT_MODELS_KEY = 'leadernamAgentModels';
 const ACTIVE_AGENT_PROFILE_IDS_KEY = 'leadernamActiveAgentProfileIds';
 const ACTIVE_API_TEXT_PROVIDER_KEY = 'leadernamActiveApiTextProvider';
@@ -290,10 +290,10 @@ function loadExecutionPrefs() {
   state.activeApiTextProvider = API_TEXT_PROVIDERS.some((item) => item.id === apiTextProvider) ? apiTextProvider : 'gemini';
   state.activeApiImageProvider = API_IMAGE_PROVIDERS.some((item) => item.id === apiImageProvider) ? apiImageProvider : 'stability';
   state.activeAgentProfileIds = normalizeAgentProfileSelectionMap(savedProfileIds);
-  // v3.8.714: 에이전트 안에서 고른 모델 (예: claude→Fable 5, codex→GPT-6 Astra)
+  // 에이전트 안에서 고른 모델. 폐지된 모델 선택도 같은 제공자 안에서 복원한다.
   state.agentModels = (() => {
     const saved = storage?.getSync?.(AGENT_MODELS_KEY, true) || {};
-    return (saved && typeof saved === 'object') ? saved : {};
+    return normalizeAgentModelSelections(saved);
   })();
   return {
     mode: state.executionMode,
@@ -314,6 +314,17 @@ function loadExecutionPrefs() {
  * 목록은 메인(dist/core/agent-models)이 준다 — 화면이 따로 적으면 한쪽만 늙는다.
  * 저장은 여기 한 곳(prefs)에서만 하고, 발행 payload·비서가 이 값을 읽어 간다.
  */
+export function normalizeAgentModelSelections(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+  const models = { ...saved };
+  const claude = String(models.claude || '');
+  if (/^claude-fable(?:-|$)/i.test(claude)) models.claude = 'claude-sonnet-5-5';
+  else if (/^claude-(haiku|sonnet|opus)(?:-|$)/i.test(claude)) {
+    models.claude = `claude-${claude.split('-')[1].toLowerCase()}-5-5`;
+  }
+  return models;
+}
+
 function getAgentModel(provider) {
   const id = normalizeAgentProviderId(provider || state.activeAgentProvider);
   return String(state.agentModels?.[id] || '');

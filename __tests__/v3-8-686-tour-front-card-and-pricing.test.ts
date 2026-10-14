@@ -206,17 +206,25 @@ describe('⑤ 가격표 — GPT-6 Astra · 루나 인하 · 화면 라벨 일치
     expect(by('openai-gpt4o')).toBe(153);
   });
 
-  it('⭐ 화면의 정적 라벨·data-cost 가 단일 출처와 같다 (IPC 가 실패하면 이 값이 그대로 보인다)', () => {
+  it('⭐ 숫자를 표시하면 단일 출처와 같고, 동적 비용 슬롯은 추정 금액을 표시하지 않는다', () => {
     const table = getPricingTable();
     const picker = blockBetween(html, 'id="textEnginePicker"', '에이전트 (구독 · API 요금 없음)');
-    const re = /<label[^>]*class="tier-card"[^>]*data-cost="(\d+)"[\s\S]*?value="([^"]+)"[\s\S]*?~₩([\d,]+)\/글/g;
+    const re = /<label[^>]*class="tier-card"[^>]*data-cost="(\d*)"[\s\S]*?value="([^"]+)"([\s\S]*?)<\/label>/g;
     const seen: string[] = [];
     let m: RegExpExecArray | null;
     while ((m = re.exec(picker))) {
       const tier = table.find((t) => t.value === m![2]);
       expect(`${m[2]} 가 pricing.ts 에 있다`).toBe(tier ? `${m[2]} 가 pricing.ts 에 있다` : `${m[2]} 없음`);
-      expect(Number(m[1])).toBe(tier!.costKrw);
-      expect(Number(m[3].replace(/,/g, ''))).toBe(tier!.costKrw);
+      if (m[1] === '') {
+        expect(m[3]).toContain('data-pricing-cost');
+        expect(m[3]).toContain('비용 확인 중');
+        expect(m[3]).not.toContain('₩');
+      } else {
+        const displayedCost = m[3].match(/~₩([\d,]+)\/글/);
+        expect(displayedCost).not.toBeNull();
+        expect(Number(m[1])).toBe(tier!.costKrw);
+        expect(Number(displayedCost![1].replace(/,/g, ''))).toBe(tier!.costKrw);
+      }
       seen.push(m[2]);
     }
     // 748 — 화면에 **보이는** 티어는 전부 여기 있어야 한다. hiddenFromUi 티어(라우팅 전용)는 제외한다

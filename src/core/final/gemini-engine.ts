@@ -491,6 +491,7 @@ export async function callGeminiWithRetry(prompt: string, maxRetries: number = 1
     } catch (error: any) {
     if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 즉시 위로
       if (error?.canceled === true) throw error; // v3.8.536: 사용자 중지는 실패 분류·재시도 없이 즉시 위로
+      if (primaryProvider === 'claude' && require('../llm/claude-auth').isClaudeWorkspaceError(error)) throw error;
       throw buildUserError(primaryProvider, classifyFailure(error), 1);
     }
 

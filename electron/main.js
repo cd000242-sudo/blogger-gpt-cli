@@ -3501,21 +3501,18 @@ Output only the image prompt (no explanations, no quotes, no markdown):`;
                         console.log(`[IMAGE-PROMPT] 🔄 Claude로 폴백 시도: 섹션 ${section.index}`);
                         const response = await fetch('https://api.anthropic.com/v1/messages', {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-api-key': claudeKey,
-                                'anthropic-version': '2023-06-01'
-                            },
+                            headers: require('../dist/core/llm/claude-auth').buildClaudeHeaders(claudeKey),
                             body: JSON.stringify({
-                                model: 'claude-3-5-sonnet-20241022',
-                                max_tokens: 150,
+                                model: 'claude-haiku-5-5',
+                                max_tokens: 2048,
+                                output_config: { effort: 'low' },
                                 messages: [{ role: 'user', content: prompt }]
                             })
                         });
                         if (response.ok) {
                             const data = await response.json();
                             console.log(`[IMAGE-PROMPT] Claude 응답 수신:`, JSON.stringify(data).substring(0, 200));
-                            const generatedPrompt = data.content?.[0]?.text?.trim() || '';
+                            const generatedPrompt = (data.content || []).filter((block) => block.type === 'text').map((block) => block.text || '').join('\n').trim();
                             if (generatedPrompt) {
                                 console.log(`[IMAGE-PROMPT] ✅ Claude 성공: 섹션 ${section.index} - 프롬프트 길이: ${generatedPrompt.length}자`);
                                 return {
@@ -4455,9 +4452,9 @@ const ASSISTANT_SYSTEM_PROMPT = [
     '그 밖의 일(글감·제목 제안, 문장 다듬기, 발행 계획, 블로그 운영 상담)은 비서답게 아는 대로 도와주세요.',
     '항상 한국어로, 결론부터, 간결하게 답합니다. 여러 단계가 필요한 일은 한 번에 하나씩 물어보며 진행하세요.',
 ].join(' ');
-/** 사장님 지정 (v3.8.714): 비서는 페이블로, 막히면 오푸스 5 로 */
-const ASSISTANT_MODEL = 'claude-fable-5';
-const ASSISTANT_FALLBACK_MODEL = 'claude-opus-5';
+/** 비용을 제한하는 비서 기본 모델과 대체 모델. */
+const ASSISTANT_MODEL = 'claude-sonnet-5-5';
+const ASSISTANT_FALLBACK_MODEL = 'claude-haiku-5-5';
 /**
  * 그 모델이 지금 못 쓰는 상태인가.
  *
@@ -4473,13 +4470,13 @@ function isModelUnavailableError(message) {
 /**
  * 비서용 claude 호출 — 고른 모델로 시도하고, 못 쓰면 다음 모델로 (v3.8.714).
  *
- * 사장님이 화면에서 모델을 골랐으면 그것부터 쓴다. 안 골랐으면 지정값(페이블 → 오푸스 5).
+ * 사장님이 화면에서 모델을 골랐으면 그것부터 쓴다. 안 골랐으면 Sonnet 5.5 → Haiku 5.5 순서로 시도한다.
  * 고른 모델이 한도에 막혔을 때도 손 놓지 않고 다음 후보로 넘어간다 — 실측으로 확인한
  * 그 상황(페이블 한도)에서 비서가 통째로 죽으면 안 된다.
  */
 async function askAssistantViaClaude(prompt, chosenModel) {
     let lastError;
-    const candidates = [...new Set([String(chosenModel || '').trim(), ASSISTANT_MODEL, ASSISTANT_FALLBACK_MODEL].filter(Boolean))];
+    const candidates = [...new Set([chosenModel ? require('../dist/core/agent-models').normalizeAgentModel('claude', chosenModel) : '', ASSISTANT_MODEL, ASSISTANT_FALLBACK_MODEL].filter(Boolean))];
     for (const model of candidates) {
         try {
             const text = await runAgentTextTask('claude', prompt, () => { }, {
@@ -5720,6 +5717,12 @@ electron_1.ipcMain.handle('get-env', async () => {
         return { ok: false, error: error instanceof Error ? error.message : '읽기 실패', data: {} };
     }
 });
+electron_1.ipcMain.handle('validate-api-key', async (_evt, args) => {
+    if (args?.provider !== 'claude')
+        return { success: false, message: '지원하지 않는 연결 검사입니다.' };
+    const { validateClaudeConnection } = require('../dist/core/llm/claude-connection');
+    return validateClaudeConnection(String(args.apiKey || ''), String(args.claudeWorkspaceId || ''));
+});
 // .env 파일 저장
 electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
     try {
@@ -5761,6 +5764,7 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
             'claudeKey': 'CLAUDE_API_KEY',
             'claudeApiKey': 'CLAUDE_API_KEY',
             'anthropicApiKey': 'CLAUDE_API_KEY',
+            'claudeWorkspaceId': 'ANTHROPIC_WORKSPACE_ID',
             'perplexityKey': 'PERPLEXITY_API_KEY',
             'perplexityApiKey': 'PERPLEXITY_API_KEY',
             'leonardoKey': 'LEONARDO_API_KEY',
@@ -5800,8 +5804,24 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
                 }
             });
         }
+        // 빈 작업공간 ID도 저장해야 이전 조직 설정이 계속 적용되지 않는다.
+        const workspaceKeys = ['ANTHROPIC_WORKSPACE_ID', 'CLAUDE_WORKSPACE_ID', 'claudeWorkspaceId', 'CLAUDEWORKSPACEID'];
+        const workspaceField = workspaceKeys.find(key => Object.prototype.hasOwnProperty.call(envData, key));
+        if (workspaceField) {
+            const workspaceId = String(envData[workspaceField] || '').trim();
+            if (workspaceId && !/^wrkspc_[A-Za-z0-9]{8,128}$/.test(workspaceId)) {
+                return { ok: false, error: 'Claude 작업공간 ID는 wrkspc_로 시작하는 ID여야 합니다.' };
+            }
+            for (const key of workspaceKeys) {
+                envMap.delete(key);
+                delete process.env[key];
+            }
+            envMap.set('ANTHROPIC_WORKSPACE_ID', workspaceId);
+        }
         // 새 값 업데이트 (표준 키 이름으로 변환)
         Object.entries(envData).forEach(([key, value]) => {
+            if (workspaceKeys.includes(key))
+                return;
             if (value !== undefined && value !== null && value !== '') {
                 const envKey = keyMap[key] || key.toUpperCase();
                 envMap.set(envKey, String(value));

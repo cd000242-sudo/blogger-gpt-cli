@@ -99,11 +99,18 @@ try {
     console.log('blogger-publisher.js 파일이 존재하지 않습니다. 건너뜁니다.');
   }
 
+  // Legacy JavaScript entry points (external traffic) load these from src.
+  // Keep their runtime dependencies identical to the TypeScript build.
+  for (const module of ['env.js', 'core/llm/pricing.js', 'core/llm/llm-caller.js', 'core/llm/claude-auth.js']) {
+    const compiled = path.join('dist', module);
+    if (!fs.existsSync(compiled)) throw new Error(`빌드 결과 누락: ${compiled}`);
+    copyFile(compiled, path.join('src', module));
+  }
+
   console.log('UI 파일 복사 완료!');
 } catch (error) {
   console.error('UI 파일 복사 중 오류 발생:', error.message);
   process.exit(1);
 }
-
 
 

@@ -170,11 +170,13 @@ describe('글 생성 엔진이 시작할 때 복원된다', () => {
   const run = (saved: string, options: string[]) => {
     const body = braceBlock(settingsSrc, 'export function applyTextModelRadio')
       .replace('export function', 'function');
+    const normalize = braceBlock(settingsSrc, 'export function normalizeClaudeModelChoice')
+      .replace('export function', 'function');
     const radios = options.map((value) => ({ value, checked: false }));
     const doc = { querySelectorAll: () => radios };
     // eslint-disable-next-line no-new-func
     const fn = new Function('document', 'window', 'console',
-      `${body}; return applyTextModelRadio;`)(doc, {}, { log() {} });
+      `${normalize}; ${body}; return applyTextModelRadio;`)(doc, {}, { log() {} });
     fn({ primaryGeminiTextModel: saved });
     return radios.find((r) => r.checked)?.value;
   };
@@ -192,6 +194,11 @@ describe('글 생성 엔진이 시작할 때 복원된다', () => {
 
   it('저장된 적 없으면 기본값', () => {
     expect(run('', ALL)).toBe('gemini-2.5-flash');
+  });
+
+  it('폐지된 Claude 모델 선택은 Sonnet으로 복원하고 generic Opus는 유지한다', () => {
+    expect(run('claude-fable-5-1', ALL)).toBe('claude-sonnet');
+    expect(run('claude-opus', [...ALL, 'claude-opus'])).toBe('claude-opus');
   });
 
   it('⭐ 시작 시점에 실제로 불린다 — 환경설정을 열지 않아도', () => {

@@ -998,37 +998,37 @@
                 <div style="margin-bottom: 14px;">
                   <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🎭 Anthropic Claude</div>
                   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
-                    <label class="tier-card" data-tier="가성비" data-cost="39"
+                    <label class="tier-card" data-tier="가성비" data-cost=""
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(168,85,247,0.3); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="claude-haiku" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">💜 Claude Haiku 4.5</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">💜 Claude Haiku 5.5</span>
                         <span style="background: linear-gradient(135deg,#c084fc,#9333ea); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">빠른 응답 · 자연스러운 한국어 · 창의적</div>
-                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩39/글</div>
+                      <div data-pricing-cost style="font-size: 12px; color: #d8b4fe; font-weight: 800;">비용 확인 중</div>
                     </label>
 
-                    <label class="tier-card" data-tier="균형" data-cost="63"
+                    <label class="tier-card" data-tier="균형" data-cost=""
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(168,85,247,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="claude-sonnet" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">📜 Claude Sonnet 5</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">📜 Claude Sonnet 5.5</span>
                         <span style="background: linear-gradient(135deg,#c084fc,#9333ea); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">균형 잡힌 품질 · 안정적 한국어</div>
-                      <div style="font-size: 12px; color: #d8b4fe; font-weight: 800;">~₩63/글</div>
+                      <div data-pricing-cost style="font-size: 12px; color: #d8b4fe; font-weight: 800;">비용 확인 중</div>
                     </label>
 
-                    <label class="tier-card" data-tier="프리미엄" data-cost="735"
+                    <label class="tier-card" data-tier="프리미엄" data-cost=""
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="claude-opus" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">👑 Claude Fable 5.1</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">👑 Claude Opus 5.5</span>
                         <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">최고 품질</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최상급 추론 · 완벽한 글쓰기</div>
-                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩735/글</div>
+                      <div data-pricing-cost style="font-size: 12px; color: #fcd34d; font-weight: 800;">비용 확인 중</div>
                     </label>
                   </div>
                 </div>
@@ -1206,7 +1206,7 @@
                         const titleEl = card.querySelector('span');
                         const cost = card.dataset.cost;
                         if (currentBadge && titleEl) {
-                          currentBadge.textContent = '현재: ' + titleEl.textContent.replace(/^[💰⚖️👑🚀💜📜🔮]\s*/, '') + ' · ~₩' + cost + '/글';
+                          currentBadge.textContent = '현재: ' + titleEl.textContent.replace(/^[💰⚖️👑🚀💜📜🔮]\s*/, '') + (cost ? ' · ~₩' + cost + '/글' : ' · 비용 확인 중');
                         }
                         // v3.8.753: generationEngine 동기화·상단 배지 갱신은 루프 밖으로 옮겼다(아래 주석)
                       } else {
@@ -1354,6 +1354,14 @@
                         onblur="this.style.borderColor='rgba(255,255,255,0.1)'; this.style.background='rgba(0,0,0,0.2)'; this.style.boxShadow='none';">
                       <button onclick="togglePasswordVisibility(this)" style="position: absolute; right: 12px; top: 12px; background: transparent; border: none; color: rgba(255,255,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px; transition: all 0.2s;" onmouseover="this.style.color='white'; this.style.background='rgba(255,255,255,0.1)';" onmouseout="this.style.color='rgba(255,255,255,0.4)'; this.style.background='transparent';"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z'></path><circle cx='12' cy='12' r='3'></circle></svg></button>
                     </div>
+                    <label for="claudeWorkspaceId" style="font-weight:700;color:rgba(255,255,255,0.9);font-size:13px;">Claude 작업공간 ID (조직·팀 API 키)</label>
+                    <input type="text" id="claudeWorkspaceId" placeholder="wrkspc_..." autocomplete="off" spellcheck="false" aria-describedby="claudeWorkspaceHelp"
+                      style="width:100%;padding:12px 16px;border:1px solid rgba(255,255,255,0.15);border-radius:10px;font-size:14px;color:white;background:rgba(0,0,0,0.2);box-sizing:border-box;">
+                    <p id="claudeWorkspaceHelp" style="margin:0;font-size:12px;line-height:1.6;color:rgba(255,255,255,0.65);">작업공간에 연결되지 않은 조직·팀 API 키에만 필요합니다. 이미 작업공간에 연결된 키는 비워 두어도 됩니다.
+                      <a href="https://platform.claude.com/settings/workspaces" onclick="event.preventDefault();(window.blogger?.openExternal || window.electronAPI?.openExternal || window.open)('https://platform.claude.com/settings/workspaces')" style="color:#c4b5fd;">Claude Console에서 작업공간 확인</a>
+                    </p>
+                    <button id="claudeApiTestBtn" type="button" onclick="window.testClaudeApiKey()" style="align-self:flex-start;padding:8px 14px;border:1px solid rgba(168,85,247,0.5);border-radius:8px;background:rgba(168,85,247,0.15);color:white;cursor:pointer;">Claude 키·작업공간 확인</button>
+                    <span id="claudeApiTestStatus" role="status" aria-live="polite" style="font-size:12px;color:rgba(255,255,255,0.8);"></span>
                   </div>
                 </div>
               </div>

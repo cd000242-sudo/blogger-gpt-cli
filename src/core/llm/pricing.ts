@@ -208,63 +208,52 @@ export const TIER_MODELS: readonly TierModel[] = [
     usdPer1M: { input: 10, output: 50, source: 'OpenAI 2026-09-03 출시가 (입력 $10 / 출력 $50 · 캐시 입력 $1)' },
   },
 
-  // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
-  //   기존 코드의 'claude-sonnet-4-20250514' / 'claude-opus-4-20250514'는 1년 전 버전.
-  //   최신: claude-sonnet-4-6 (2025-09-29), claude-opus-4-7 (2025-12, 1M context).
+  // Claude 5.5: official model IDs and standard API pricing verified 2026-10-14.
+  // Keep stored UI keys stable. Removed Fable IDs migrate to Sonnet in findTier.
   {
     value: 'claude-haiku',
-    title: 'Claude Haiku 4.5',
+    title: 'Claude Haiku 5.5',
     tier: '가성비',
-    description: '빠른 응답 · 자연스러운 한국어 · 창의적 문체',
-    costKrw: 39,
+    description: '빠른 응답 · 저비용 · 표시 단가는 입력 10만 토큰 이하 기준',
+    costKrw: 4,
     provider: 'claude',
-    modelId: 'claude-haiku-4-5-20251001',
-    fallback: ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
+    modelId: 'claude-haiku-5-5',
+    fallback: ['claude-haiku-5-5', 'claude-sonnet-5-5'],
+    usdPer1M: { input: 0.10, output: 0.50, source: 'https://platform.claude.com/docs/en/models/haiku-5-5/overview · 2026-10-14 확인 · 입력 100,000토큰 이하 $0.10/$0.50; 초과 $0.50/$2.50 per MTok' },
   },
   {
     value: 'claude-sonnet',
-    title: 'Claude Sonnet 5',
+    title: 'Claude Sonnet 5.5',
     tier: '균형',
-    description: 'Claude Sonnet 5 · 균형 잡힌 품질 · 자연스러운 한국어',
-    costKrw: 63,
+    description: 'Claude Sonnet 5.5 · 품질과 속도의 균형 · 자연스러운 한국어',
+    costKrw: 76,
     provider: 'claude',
-    modelId: 'claude-sonnet-5',
-    fallback: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+    modelId: 'claude-sonnet-5-5',
+    fallback: ['claude-sonnet-5-5', 'claude-haiku-5-5'],
+    usdPer1M: { input: 2, output: 10, source: 'https://platform.claude.com/docs/en/models/overview · 2026-10-14 확인 · Standard $2/$10 per MTok' },
   },
-  /**
-   * v3.8.628 — Fable 5.1 로 올린다 (사장님: "페이블 5.1 업데이트했고").
-   * 앞선 것들과 같은 원칙: `value` 는 저장 설정 키라 그대로, modelId·title 만 올린다.
-   * 단가는 확인 전이므로 usdPer1M 없이 선언값을 유지한다.
-   */
   {
     value: 'claude-opus',
-    title: 'Claude Fable 5.1',
+    title: 'Claude Opus 5.5',
     tier: '프리미엄',
-    description: 'Claude Fable 5.1 · 최상급 추론 · 프리미엄 글쓰기',
-    costKrw: 735,
+    description: 'Claude Opus 5.5 · 고급 추론 · 복잡한 글쓰기',
+    costKrw: 153,
     provider: 'claude',
-    modelId: 'claude-fable-5-1',
-    fallback: ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+    modelId: 'claude-opus-5-5',
+    fallback: ['claude-opus-5-5', 'claude-sonnet-5-5'],
+    usdPer1M: { input: 4, output: 20, source: 'https://platform.claude.com/docs/en/models/overview · 2026-10-14 확인 · Standard $4/$20 per MTok' },
   },
-  /**
-   * 748 — **Opus 5 를 고를 수 있게 한다.** 지금까지 텍스트 티어에 Opus 5 가 아예 없었다.
-   * 그래서 `PRIMARY_TEXT_MODEL=claude-opus-5` 를 줘도 findTier 가 못 찾고 조용히 Sonnet 5 로 떨어졌다
-   * (에이전트 모드 목록에는 이미 있는 모델이다 — agent-models.ts "균형 · 페이블 한도 찼을 때").
-   * 사장님 상황: Fable 5.1 한도 소진 → Opus 5 로 돌려야 한다.
-   * 기존 티어의 뜻은 하나도 바꾸지 않는다 — `claude-opus`(UI 👑) 는 그대로 Fable 5.1 이다. 이건 **추가**다.
-   * 단가는 확인 전이라 usdPer1M 없이 선언값으로 둔다(Sonnet 5 와 Fable 5.1 사이).
-   */
+  // Preserve the hidden legacy settings key while upgrading its actual model.
   {
     value: 'claude-opus-5',
-    title: 'Claude Opus 5',
+    title: 'Claude Opus 5.5',
     tier: '프리미엄',
-    description: 'Claude Opus 5 · 상급 추론 · 페이블 한도 찼을 때',
-    costKrw: 191,   // 단가에서 계산된 값 (deriveCostKrw) — 선언값과 계산값이 어긋나면 pricing-unification 테스트가 잡는다
+    description: 'Claude Opus 5.5 · 고급 추론 · 이전 설정 호환',
+    costKrw: 153,
     provider: 'claude',
-    modelId: 'claude-opus-5',
-    fallback: ['claude-opus-5', 'claude-sonnet-5'],
-    // 사장님 확인(2026-09-23, Anthropic 공식 표준 API 단가) — 선언값 대신 토큰 기준으로 계산된다
-    usdPer1M: { input: 5, output: 25, source: 'Anthropic 표준 API 단가 (입력 $5 / 출력 $25 per 1M) · 2026-09-23 확인' },
+    modelId: 'claude-opus-5-5',
+    fallback: ['claude-opus-5-5', 'claude-sonnet-5-5'],
+    usdPer1M: { input: 4, output: 20, source: 'https://platform.claude.com/docs/en/models/overview · 2026-10-14 확인 · Standard $4/$20 per MTok' },
     // 화면 가격표에는 아직 안 넣는다 — UI 작업은 748 제품 통합에서 한다. 지금은 라우팅(env·하네스)만
     hiddenFromUi: true,
   },
@@ -314,7 +303,7 @@ export const TIER_MODELS: readonly TierModel[] = [
 export function describeModelForLog(tierValue: string): string {
   const value = String(tierValue || '').trim();
   if (!value) return '';
-  const tier = TIER_MODELS.find((t) => t.value === value || t.modelId === value);
+  const tier = findTier(value);
   return tier ? `${tier.title} (${tier.modelId})` : value;
 }
 
@@ -365,7 +354,16 @@ export function getPricingTable(): Array<{
 
 export function findTier(value: string | undefined | null): TierModel | undefined {
   if (!value) return undefined;
-  const normalized = String(value).trim();
+  let normalized = String(value).trim();
+  // Removed expensive models must not remain callable through old stored IDs.
+  if (/^(?:claude-)?fable(?:-|$)/i.test(normalized)) normalized = 'claude-sonnet';
+  const aliases: Record<string, string> = {
+    'haiku': 'claude-haiku', 'sonnet': 'claude-sonnet', 'opus': 'claude-opus',
+    'claude-haiku-4-5-20251001': 'claude-haiku', 'claude-haiku-4-5': 'claude-haiku',
+    'claude-sonnet-5': 'claude-sonnet', 'claude-sonnet-4-6': 'claude-sonnet',
+    'claude-opus-4-8': 'claude-opus', 'claude-opus-4-7': 'claude-opus',
+  };
+  normalized = aliases[normalized.toLowerCase()] || normalized;
   const exact = TIER_MODELS.find(t => t.value === normalized || t.modelId === normalized);
   if (exact) return exact;
   return TIER_MODELS.find(t => t.fallback.includes(normalized));

@@ -36,15 +36,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.pickEnvValue = pickEnvValue;
 exports.loadEnvFromFile = loadEnvFromFile;
 exports.saveEnv = saveEnv;
-// src/env.ts
 const fs = __importStar(require("node:fs"));
 const fsp = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const APP_DIR_NAME = 'blogger-gpt-cli';
-/* ───────────────── userData path ───────────────── */
 function getUserDataDir() {
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { app } = require('electron');
         if (app && typeof app.getPath === 'function') {
             const p = app.getPath('userData');
@@ -52,26 +49,22 @@ function getUserDataDir() {
             return p;
         }
     }
-    catch { /* no electron */ }
+    catch { }
     const base = process.env['APPDATA'] || process.env['LOCALAPPDATA'] || process.env['HOME'] || process.cwd();
     const p = path.join(base, APP_DIR_NAME);
     fs.mkdirSync(p, { recursive: true });
     return p;
 }
 function envPath() { return path.join(getUserDataDir(), '.env'); }
-/* ───────────────── .env parse/stringify ───────────────── */
 function parseDotEnv(str) {
     const out = {};
     if (!str)
         return out;
-    // JSON 형식인지 확인
     if (str.trim().startsWith('{')) {
         try {
             const jsonData = JSON.parse(str);
-            // JSON에서 apiKeys 섹션 추출
             if (jsonData.apiKeys) {
                 const apiKeys = jsonData.apiKeys;
-                // 환경 변수 이름으로 매핑 (양쪽 형식 모두 지원)
                 if (apiKeys['gemini'] || apiKeys['geminiKey']) {
                     out['GEMINI_API_KEY'] = apiKeys['gemini'] || apiKeys['geminiKey'];
                     out['geminiKey'] = apiKeys['gemini'] || apiKeys['geminiKey'];
@@ -104,7 +97,6 @@ function parseDotEnv(str) {
                     out['NAVER_SEARCH_AD_SECRET_KEY'] = apiKeys['naverSearchAdSecretKey'] || apiKeys['naver_search_ad_secret_key'];
                     out['naverSearchAdSecretKey'] = apiKeys['naverSearchAdSecretKey'] || apiKeys['naver_search_ad_secret_key'];
                 }
-                // Stability AI API Key
                 if (apiKeys['stabilityApiKey'] || apiKeys['stability_api_key'] || apiKeys['STABILITY_API_KEY']) {
                     out['STABILITY_API_KEY'] = apiKeys['stabilityApiKey'] || apiKeys['stability_api_key'] || apiKeys['STABILITY_API_KEY'];
                     out['stabilityApiKey'] = apiKeys['stabilityApiKey'] || apiKeys['stability_api_key'] || apiKeys['STABILITY_API_KEY'];
@@ -120,21 +112,17 @@ function parseDotEnv(str) {
                     out['PRODIA_API_KEY'] = prodiaKey;
                     out['prodiaApiKey'] = prodiaKey;
                 }
-                // OpenAI API Key (DALL-E용)
                 if (apiKeys['openaiKey'] || apiKeys['openai_api_key'] || apiKeys['OPENAI_API_KEY']) {
                     out['OPENAI_API_KEY'] = apiKeys['openaiKey'] || apiKeys['openai_api_key'] || apiKeys['OPENAI_API_KEY'];
                     out['openaiKey'] = apiKeys['openaiKey'] || apiKeys['openai_api_key'] || apiKeys['OPENAI_API_KEY'];
                 }
-                // Pexels API Key
                 if (apiKeys['pexelsApiKey'] || apiKeys['pexels_api_key'] || apiKeys['PEXELS_API_KEY']) {
                     out['PEXELS_API_KEY'] = apiKeys['pexelsApiKey'] || apiKeys['pexels_api_key'] || apiKeys['PEXELS_API_KEY'];
                     out['pexelsApiKey'] = apiKeys['pexelsApiKey'] || apiKeys['pexels_api_key'] || apiKeys['PEXELS_API_KEY'];
                 }
-                // 모든 apiKeys 항목을 그대로도 저장
                 for (const [key, value] of Object.entries(apiKeys)) {
                     if (typeof value === 'string' && value.trim()) {
                         out[key] = value;
-                        // 대문자 키도 추가
                         const upperKey = key.toUpperCase().replace(/([A-Z])/g, '_$1').replace(/^_/, '');
                         if (!out[upperKey]) {
                             out[upperKey] = value;
@@ -142,14 +130,11 @@ function parseDotEnv(str) {
                     }
                 }
             }
-            // JSON 전체를 환경 변수로도 매핑 (직접 저장된 경우)
             for (const [key, value] of Object.entries(jsonData)) {
                 if (key === 'apiKeys')
-                    continue; // apiKeys는 이미 처리됨
+                    continue;
                 if (typeof value === 'string' && value.trim()) {
-                    // 원래 키 그대로 저장
                     out[key] = value;
-                    // 대문자 키도 추가
                     const upperKey = key.toUpperCase().replace(/([A-Z])/g, '_$1').replace(/^_/, '');
                     if (!out[upperKey]) {
                         out[upperKey] = value;
@@ -162,7 +147,6 @@ function parseDotEnv(str) {
             console.warn('[ENV] JSON 파싱 실패, 일반 형식으로 시도:', e);
         }
     }
-    // 일반 KEY=VALUE 형식 파싱
     for (const raw of str.split(/\r?\n/)) {
         const line = (raw || '').trim();
         if (!line || line.startsWith('#'))
@@ -184,50 +168,44 @@ function parseDotEnv(str) {
 function stringifyDotEnv(obj) {
     const lines = [];
     for (const [k, v] of Object.entries(obj)) {
-        if (v === undefined || v === null || v === '')
-            continue; // 빈값은 저장 생략
+        if (v === undefined || v === null || (v === '' && k !== 'ANTHROPIC_WORKSPACE_ID'))
+            continue;
         const s = String(v);
         const needsQuote = /[\s#"'=]/.test(s);
         lines.push(`${k}=${needsQuote ? JSON.stringify(s) : s}`);
     }
     return (lines.join('\n') + '\n');
 }
-/* ───────────────── 키 매핑(ENV <-> UI) ─────────────────
-   왼쪽은 .env의 대문자 키, 오른쪽은 UI/코어에서 쓰는 camelCase 키
------------------------------------------------------------------ */
 const MAP = {
     AI_PROVIDER: 'provider',
     OPENAI_API_KEY: 'openaiKey',
     DALLE_API_KEY: 'dalleApiKey',
     GEMINI_API_KEY: 'geminiKey',
     CLAUDE_API_KEY: 'claudeKey',
-    ANTHROPIC_API_KEY: 'claudeKey', // Anthropic 키도 claudeKey로 매핑
-    PERPLEXITY_API_KEY: 'perplexityKey', // Perplexity 키 추가
-    LEONARDO_API_KEY: 'leonardoKey', // Leonardo.ai 키 추가
+    ANTHROPIC_WORKSPACE_ID: 'claudeWorkspaceId',
+    CLAUDE_WORKSPACE_ID: 'claudeWorkspaceId',
+    ANTHROPIC_API_KEY: 'claudeKey',
+    PERPLEXITY_API_KEY: 'perplexityKey',
+    LEONARDO_API_KEY: 'leonardoKey',
     PEXELS_API_KEY: 'pexelsApiKey',
-    STABILITY_API_KEY: 'stabilityApiKey', // 🔥 Stability AI 추가
+    STABILITY_API_KEY: 'stabilityApiKey',
     DEEPINFRA_API_KEY: 'deepInfraApiKey',
     DEEP_INFRA_API_KEY: 'deepInfraApiKey',
-    PRODIA_API_KEY: 'prodiaApiKey', // 🚀 Prodia AI 추가
-    // v3.5.92: 봇 회피 모드 — ImageFX/Flow 브라우저 visible 강제
+    PRODIA_API_KEY: 'prodiaApiKey',
     VISIBLE_BROWSER: 'visibleBrowserMode',
-    // 🛒 쿠팡 파트너스 오픈 API (쇼핑 모드 실제 상품 데이터 + 제휴 딥링크)
     COUPANG_ACCESS_KEY: 'coupangAccessKey',
     COUPANG_SECRET_KEY: 'coupangSecretKey',
-    // Blogger/Google OAuth
     GOOGLE_BLOG_ID: 'blogId',
-    BLOGGER_BLOG_ID: 'blogId', // 두 가지 키명 모두 지원
+    BLOGGER_BLOG_ID: 'blogId',
     GOOGLE_CLIENT_ID: 'googleClientId',
     GOOGLE_CLIENT_SECRET: 'googleClientSecret',
     GOOGLE_REDIRECT_URI: 'redirectUri',
-    // WordPress 설정
     WORDPRESS_SITE_URL: 'wordpressSiteUrl',
     WORDPRESS_USERNAME: 'wordpressUsername',
     WORDPRESS_PASSWORD: 'wordpressPassword',
     WORDPRESS_STATUS: 'wordpressStatus',
     WORDPRESS_CATEGORIES: 'wordpressCategories',
     WORDPRESS_TAGS: 'wordpressTags',
-    // Tistory settings (browser publisher)
     TISTORY_BLOG_NAME: 'tistoryBlogName',
     TISTORY_BLOG_URL: 'tistoryBlogUrl',
     TISTORY_PROFILE_ID: 'tistoryProfileId',
@@ -237,9 +215,7 @@ const MAP = {
     TISTORY_KAKAO_EMAIL: 'tistoryKakaoEmail',
     KAKAO_EMAIL: 'tistoryKakaoEmail',
     TISTORY_BROWSER_EXECUTABLE_PATH: 'tistoryBrowserExecutablePath',
-    // 기타 옵션
     MIN_CHARS: 'minChars',
-    // (선택) 신선도 옵션 등 기존 것 유지
     NAVER_CUSTOMER_ID: 'naverCustomerId',
     NAVER_SECRET_KEY: 'naverSecretKey',
     NAVER_CLIENT_ID: 'naverClientId',
@@ -252,37 +228,23 @@ const MAP = {
     FRESH_MAX_AGE_DAYS: 'freshMaxAgeDays',
     HTTPS_PROXY: 'httpsProxy',
     HTTP_PROXY: 'httpProxy',
-    // ✅ 썸네일/이미지 자동 생성 옵션
-    AUTO_THUMB: 'autoThumb', // 'true' | 'false'
-    THUMB_WIDTH: 'thumbWidth', // number
-    THUMB_HEIGHT: 'thumbHeight', // number
-    THUMB_INSERT_MODE: 'thumbInsertMode', // 'dataurl' | 'none'
-    BRAND_TEXT: 'brandText', // string
-    // ── 새로 추가: 사진형 썸네일 제어
-    THUMB_MODE: 'thumbMode', // 'text' | 'photo'
-    THUMB_TEXT_ALIGN: 'thumbTextAlign', // 'left' | 'center'
-    THUMB_TEXT_FIT: 'thumbTextFit', // 'none' | 'shrink'
-    THUMB_MAX_LINES: 'thumbMaxLines', // number
-    THUMB_OVERLAY: 'thumbOverlay', // 0.0 ~ 0.9
-    THUMB_PAD: 'thumbPad', // number(px)
-    THUMB_SUBTITLE: 'thumbSubtitle', // string (선택)
-    // ── 새로 추가: 이미지 검색 제어
-    IMAGE_SOURCE: 'imageSource', // 'nanobanana2' | 'unsplash' | 'none'
-    IMAGE_SAFESEARCH: 'imageSafeSearch', // boolean
-    // 라이선스 서버 URL
+    AUTO_THUMB: 'autoThumb',
+    THUMB_WIDTH: 'thumbWidth',
+    THUMB_HEIGHT: 'thumbHeight',
+    THUMB_INSERT_MODE: 'thumbInsertMode',
+    BRAND_TEXT: 'brandText',
+    THUMB_MODE: 'thumbMode',
+    THUMB_TEXT_ALIGN: 'thumbTextAlign',
+    THUMB_TEXT_FIT: 'thumbTextFit',
+    THUMB_MAX_LINES: 'thumbMaxLines',
+    THUMB_OVERLAY: 'thumbOverlay',
+    THUMB_PAD: 'thumbPad',
+    THUMB_SUBTITLE: 'thumbSubtitle',
+    IMAGE_SOURCE: 'imageSource',
+    IMAGE_SAFESEARCH: 'imageSafeSearch',
     LICENSE_REDEEM_URL: 'licenseRedeemUrl',
 };
-// .env에 저장/읽을 키 목록
 const KNOWN_KEYS = Object.keys(MAP);
-/* ───────────────── 로드: .env -> UI형 객체 ───────────────── */
-/**
- * .env에서 키 하나를 표기 흔들림까지 감안해 찾는다.
- *
- * 설정 저장 경로(main.ts)에 매핑이 누락된 키는 `key.toUpperCase()` 폴백으로
- * 언더스코어가 빠진 채 저장된다(tistoryBlogName → `TISTORYBLOGNAME`).
- * 로더가 `TISTORY_BLOG_NAME`만 찾으면 값이 있어도 못 읽어 "설정이 안 됐다"고 오판하므로,
- * 언더스코어를 제거한 형태까지 함께 조회한다.
- */
 function pickEnvValue(fileEnv, upperKey, camelKey) {
     const candidates = [
         upperKey,
@@ -298,9 +260,7 @@ function pickEnvValue(fileEnv, upperKey, camelKey) {
     return undefined;
 }
 function loadEnvFromFile() {
-    // 1) 파일 읽기 - 프로젝트 루트 .env 파일도 확인
     let fileEnv = {};
-    // 프로젝트 루트 .env 파일 먼저 확인
     try {
         const projectRootEnv = path.join(process.cwd(), '.env');
         if (fs.existsSync(projectRootEnv)) {
@@ -313,13 +273,11 @@ function loadEnvFromFile() {
     catch (e) {
         console.warn('[ENV] 프로젝트 루트 .env 파일 읽기 실패:', e);
     }
-    // 사용자 데이터 디렉토리 .env 파일 확인 (우선순위 높음)
     try {
         const userDataEnv = envPath();
         if (fs.existsSync(userDataEnv)) {
             const raw = fs.readFileSync(userDataEnv, 'utf-8');
             const parsed = parseDotEnv(raw);
-            // 사용자 데이터 디렉토리가 우선순위 높으므로 나중에 병합 (덮어쓰기)
             fileEnv = { ...fileEnv, ...parsed };
             console.log('[ENV] 사용자 데이터 디렉토리 .env 파일 로드:', userDataEnv, '키 개수:', Object.keys(parsed).length);
         }
@@ -327,31 +285,24 @@ function loadEnvFromFile() {
     catch (e) {
         console.warn('[ENV] 사용자 데이터 디렉토리 .env 파일 읽기 실패:', e);
     }
-    // 2) 파일에 없으면 process.env 보강 (대문자 키 우선, camelCase도 시도)
     const mergedUpper = {};
-    // 먼저 fileEnv에 있는 모든 키를 mergedUpper에 저장 (원래 키 + 변환된 키 모두)
     for (const [fileKey, fileValue] of Object.entries(fileEnv)) {
         if (fileValue && typeof fileValue === 'string' && fileValue.trim()) {
-            // 원래 키 그대로 저장
             mergedUpper[fileKey] = fileValue;
-            // camelCase를 대문자 언더스코어로 변환 (naverClientId -> NAVER_CLIENT_ID)
             const upperKey = fileKey.replace(/([A-Z])/g, '_$1').toUpperCase().replace(/^_/, '');
             if (upperKey && !mergedUpper[upperKey]) {
                 mergedUpper[upperKey] = fileValue;
             }
-            // 대문자 키도 추가
             const directUpperKey = fileKey.toUpperCase();
             if (directUpperKey !== fileKey && !mergedUpper[directUpperKey]) {
                 mergedUpper[directUpperKey] = fileValue;
             }
         }
     }
-    // KNOWN_KEYS에 대해 매핑된 값 찾기 (fileEnv에 없으면 process.env에서)
     for (const k of KNOWN_KEYS) {
         if (!mergedUpper[k]) {
             const camelKey = MAP[k];
             if (camelKey) {
-                // fileEnv에서 대문자 키, camelCase 키 모두 시도
                 mergedUpper[k] = pickEnvValue(fileEnv, k, camelKey) ?? (process.env[k] ?? process.env[camelKey] ?? '');
             }
             else {
@@ -359,12 +310,9 @@ function loadEnvFromFile() {
             }
         }
     }
-    // 3) camelCase로 변환
     const out = {};
     for (const [UP, camel] of Object.entries(MAP)) {
-        // mergedUpper에서 대문자 키로 찾고, 없으면 camelCase 키로 직접 찾기
         const value = mergedUpper[UP] ?? mergedUpper[camel] ?? '';
-        // 대문자 키도 함께 저장 (호환성을 위해)
         if (value && typeof value === 'string' && value.trim()) {
             out[camel] = value;
             out[UP] = value;
@@ -373,28 +321,37 @@ function loadEnvFromFile() {
             out[camel] = '';
         }
     }
-    // 추가: mergedUpper에 있지만 MAP에 없는 camelCase 키들도 그대로 추가 (원래 키 유지)
     for (const [key, value] of Object.entries(mergedUpper)) {
         if (value && typeof value === 'string' && value.trim()) {
-            // camelCase 형식의 키인 경우 (소문자로 시작)
             if (/^[a-z]/.test(key)) {
-                // 이미 MAP에 매핑된 키가 아닌 경우에만 추가
                 if (!Object.values(MAP).includes(key)) {
                     out[key] = value;
                 }
             }
-            // 대문자 키도 추가 (호환성을 위해)
             if (/^[A-Z_]/.test(key) && !out[key]) {
                 out[key] = value;
             }
         }
     }
-    // 4) 기본값 보정
+    const claudeKeyNames = ['CLAUDE_API_KEY', 'claudeKey', 'claudeApiKey', 'ANTHROPIC_API_KEY'];
+    const savedClaudeKey = claudeKeyNames.map(key => fileEnv[key]).find(value => typeof value === 'string' && value.trim());
+    if (savedClaudeKey) {
+        out['claudeKey'] = savedClaudeKey;
+        out['CLAUDE_API_KEY'] = savedClaudeKey;
+        out['ANTHROPIC_API_KEY'] = savedClaudeKey;
+    }
+    const workspaceKeys = ['ANTHROPIC_WORKSPACE_ID', 'CLAUDE_WORKSPACE_ID', 'claudeWorkspaceId'];
+    const workspaceField = workspaceKeys.find(key => Object.prototype.hasOwnProperty.call(fileEnv, key));
+    if (workspaceField) {
+        const workspaceId = String(fileEnv[workspaceField] || '').trim();
+        out['claudeWorkspaceId'] = workspaceId;
+        out['ANTHROPIC_WORKSPACE_ID'] = workspaceId;
+        delete out['CLAUDE_WORKSPACE_ID'];
+    }
     if (!out['provider'])
         out['provider'] = 'openai';
     if (!out['redirectUri'])
         out['redirectUri'] = 'http://localhost:8765/';
-    // 숫자형 보정 도우미
     const toNum = (v) => {
         if (v === undefined || v === null || v === '')
             return undefined;
@@ -406,7 +363,6 @@ function loadEnvFromFile() {
         return Number.isFinite(n) ? n : undefined;
     };
     const toBool = (v) => (String(v).toLowerCase() === 'true');
-    // 숫자/불리언 기본값
     out['minChars'] = toNum(out['minChars']) ?? 3000;
     out['thumbWidth'] = toNum(out['thumbWidth']) ?? 1200;
     out['thumbHeight'] = toNum(out['thumbHeight']) ?? 630;
@@ -415,51 +371,42 @@ function loadEnvFromFile() {
     out['thumbPad'] = toNum(out['thumbPad']) ?? 80;
     out['autoThumb'] = out['autoThumb'] === '' ? true : toBool(out['autoThumb']);
     out['imageSafeSearch'] = out['imageSafeSearch'] === '' ? true : toBool(out['imageSafeSearch']);
-    // 문자열 기본값
     if (!out['thumbInsertMode'])
         out['thumbInsertMode'] = 'dataurl';
     if (!out['thumbMode'])
-        out['thumbMode'] = 'text'; // 'text' | 'photo'
+        out['thumbMode'] = 'text';
     if (!out['thumbTextAlign'])
-        out['thumbTextAlign'] = 'center'; // 가운데 정렬 기본
+        out['thumbTextAlign'] = 'center';
     if (!out['thumbTextFit'])
-        out['thumbTextFit'] = 'shrink'; // 공간 맞춰 자동 축소
+        out['thumbTextFit'] = 'shrink';
     if (!out['imageSource'])
-        out['imageSource'] = 'nanobanana2'; // v3.8.555: 기본 이미지 엔진(과거 'cse' 는 제거됨)
+        out['imageSource'] = 'nanobanana2';
     if (!out['thumbSubtitle'])
-        out['thumbSubtitle'] = ''; // 선택
-    // 라이선스 서버 기본값(사용자가 미설정 시) - 관리 패널과 동일한 서버 사용
+        out['thumbSubtitle'] = '';
     if (!out['licenseRedeemUrl']) {
         out['licenseRedeemUrl'] = 'https://script.google.com/macros/s/AKfycbxBOGkjVj4p-6XZ4SEFYKhW3FBmo5gt7Fv6djWhB1TljnDDmx_qlfZ4YdlJNohzIZ8NJw/exec';
     }
-    // WordPress 배열 필드 처리
     if (out['wordpressCategories'] && typeof out['wordpressCategories'] === 'string') {
         out['wordpressCategories'] = out['wordpressCategories'].split(',').map(s => s.trim()).filter(Boolean);
     }
     if (out['wordpressTags'] && typeof out['wordpressTags'] === 'string') {
         out['wordpressTags'] = out['wordpressTags'].split(',').map(s => s.trim()).filter(Boolean);
     }
-    // WordPress 기본값
     if (!out['wordpressStatus'])
         out['wordpressStatus'] = 'draft';
     return out;
 }
-/* ───────────────── 저장: UI형 -> .env ───────────────── */
 async function saveEnv(data) {
     try {
-        // 현재 ENV(대문자) 로드
         const curUpperRaw = parseDotEnv(fs.existsSync(envPath()) ? fs.readFileSync(envPath(), 'utf-8') : '');
         const nextUpper = { ...curUpperRaw };
-        // camelCase -> UPPER 변환해서 반영
         for (const [UP, camel] of Object.entries(MAP)) {
             if (camel in (data || {})) {
                 const v = data[camel];
                 if (v === undefined || v === null || v === '') {
-                    // 비우면 .env에서 제거
                     delete nextUpper[UP];
                 }
                 else {
-                    // 타입 보정(숫자/불리언)
                     const numericKeys = new Set([
                         'MIN_CHARS',
                         'THUMB_WIDTH',
@@ -491,7 +438,6 @@ async function saveEnv(data) {
                         nextUpper[UP] = String(!!(v === true || String(v).toLowerCase() === 'true'));
                     }
                     else {
-                        // WordPress 배열 필드는 콤마로 구분된 문자열로 저장
                         if (UP === 'WORDPRESS_CATEGORIES' || UP === 'WORDPRESS_TAGS') {
                             if (Array.isArray(v)) {
                                 nextUpper[UP] = v.join(', ');
@@ -507,14 +453,21 @@ async function saveEnv(data) {
                 }
             }
         }
-        // 기본값이 필요한 필드 보정(없으면 추가)
+        if (Object.prototype.hasOwnProperty.call(data || {}, 'claudeWorkspaceId')) {
+            const workspaceId = String(data['claudeWorkspaceId'] || '').trim();
+            if (workspaceId && !/^wrkspc_[A-Za-z0-9]{8,128}$/.test(workspaceId)) {
+                throw new Error('Claude 작업공간 ID 형식이 올바르지 않습니다.');
+            }
+            delete nextUpper['claudeWorkspaceId'];
+            delete nextUpper['CLAUDE_WORKSPACE_ID'];
+            nextUpper['ANTHROPIC_WORKSPACE_ID'] = workspaceId;
+        }
         if (!nextUpper['AI_PROVIDER'])
             nextUpper['AI_PROVIDER'] = 'openai';
         if (!nextUpper['GOOGLE_REDIRECT_URI'])
             nextUpper['GOOGLE_REDIRECT_URI'] = 'http://localhost:8765/';
         if (!nextUpper['MIN_CHARS'])
             nextUpper['MIN_CHARS'] = '3000';
-        // 썸네일/이미지 기본
         if (!nextUpper['AUTO_THUMB'])
             nextUpper['AUTO_THUMB'] = 'true';
         if (!nextUpper['THUMB_WIDTH'])
@@ -539,7 +492,6 @@ async function saveEnv(data) {
             nextUpper['IMAGE_SOURCE'] = 'cse';
         if (!nextUpper['IMAGE_SAFESEARCH'])
             nextUpper['IMAGE_SAFESEARCH'] = 'true';
-        // 쓰기
         const text = stringifyDotEnv(nextUpper);
         const p = envPath();
         await fsp.mkdir(path.dirname(p), { recursive: true });
@@ -550,3 +502,4 @@ async function saveEnv(data) {
         return { ok: false, exitCode: 1, error: e?.message || String(e) };
     }
 }
+//# sourceMappingURL=env.js.map

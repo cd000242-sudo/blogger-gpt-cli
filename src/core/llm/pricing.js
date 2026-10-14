@@ -1,15 +1,4 @@
 "use strict";
-/**
- * AI 텍스트 엔진 단가 + 티어 정의
- *
- * 글 1편당 비용 추정 기준 (Naver 자동화와 동일한 산식):
- *   입력 ~15K 토큰 + 출력 ~1.2K 토큰 × 평균 1.3회 시도
- *   환율 ₩1,400 / $1
- *
- * ⚠️ 주의: blogger-gpt-cli는 글 1편 생성 시 약 8회의 LLM 호출이 일어남
- * (제목, H2, 팩트체크, 본문, FAQ, CTA, 요약표, 해시태그). 실제 비용은
- * 아래 표시 금액 × 약 8배. UI 표시는 Naver 자동화 기준 그대로 유지함.
- */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DEFAULT_TIER_VALUE = exports.TIER_MODELS = exports.COST_MODEL = void 0;
 exports.deriveCostKrw = deriveCostKrw;
@@ -22,28 +11,12 @@ exports.resolveDefaultTierValue = resolveDefaultTierValue;
 exports.resolveDefaultProvider = resolveDefaultProvider;
 exports.deriveProvider = deriveProvider;
 exports.getCurrentTier = getCurrentTier;
-/**
- * v3.8.392: 금액 단일 출처(single source of truth).
- *
- * 왜 만들었나 — 같은 모델 금액이 세 곳에서 전부 달랐다 (2026-07-31 실측):
- *   Gemini 3.5 Flash   pricing.ts costKrw=80 / index.html data-cost=20 / 화면 라벨 ~₩20
- *   Gemini Flash-Lite  costKrw=15 / data-cost=15 / 화면 라벨 ~₩12
- * 근본 원인은 **토큰 단가가 없어서** 어느 숫자도 검증할 수 없었던 것이다.
- * 이제 토큰 단가를 적고 금액을 계산으로 뽑는다. 화면·로그·설정은 이 값만 읽는다.
- */
 exports.COST_MODEL = {
-    /** 표시 기준: LLM 호출 1회 (실제 발행은 약 8회 — UI 안내 문구에서 별도 고지) */
     inputTokens: 15000,
     outputTokens: 1200,
-    /** 평균 재시도 배수 */
     retryFactor: 1.3,
-    /** 환율 (₩/$) */
     usdToKrw: 1400,
 };
-/**
- * 토큰 단가로 글 1편(호출 1회) 표시 금액을 계산한다.
- * 단가를 모르는 모델은 계산하지 않고 선언된 costKrw 를 그대로 쓴다(추측 금지).
- */
 function deriveCostKrw(price, declared) {
     if (!price)
         return declared;
@@ -51,11 +24,7 @@ function deriveCostKrw(price, declared) {
         + (exports.COST_MODEL.outputTokens / 1000000) * price.output) * exports.COST_MODEL.retryFactor;
     return Math.round(usd * exports.COST_MODEL.usdToKrw);
 }
-/**
- * 10개 티어 모델 (Naver 자동화 priceInfoModal 기반)
- */
 exports.TIER_MODELS = [
-    // ─── Gemini ───────────────────────────────
     {
         value: 'gemini-2.5-flash-lite',
         title: 'Gemini 3.1 Flash-Lite',
@@ -66,35 +35,6 @@ exports.TIER_MODELS = [
         modelId: 'gemini-3.1-flash-lite',
         fallback: ['gemini-3.1-flash-lite', 'gemini-3.5-flash'],
     },
-    /**
-     * v3.8.483 — Gemini 3.6 Flash 도입, 3.1 Pro Preview 제거.
-     *
-     * 공식 문서 확인(2026-08-11, ai.google.dev/gemini-api/docs/pricing):
-     *   gemini-3.6-flash  Stable   입력 $1.50 / 출력 $7.50
-     *   gemini-3.5-flash  Stable   입력 $1.50 / 출력 $9.00
-     *   gemini-3.1-pro    **Preview**
-     *
-     * 3.6 은 3.5 보다 **새로우면서 출력이 17% 싸다** — 품질·비용 둘 다 이기므로 기본값으로 올린다.
-     * 3.1 Pro 는 Preview 라 선불 티어에서 호출이 막힌다(사용자 실측). 목록에서 뺀다 —
-     * 고를 수 있는데 안 되는 모델은 조용한 실패를 만든다.
-     *
-     * ⚠️ `value` 는 사용자 저장 설정 키다. 옛 이름(gemini-2.5-*)을 그대로 둬야
-     *    기존 사용자의 선택이 안 깨진다. 바뀌는 것은 modelId·title·가격뿐이다.
-     */
-    /**
-     * v3.8.628 — Gemini 3.8 Flash 도입 (사장님: "제미나이 3.8플래쉬가 나왔어").
-     *
-     * v3.8.483 이 3.5→3.6 을 올렸던 방식 그대로, `value` 키는 그대로 두고
-     * modelId·title 만 올린다. 그래야 기존 사용자의 저장된 선택이 안 깨진다.
-     *
-     * ⚠️ **단가를 지어내지 않는다.** 3.8 의 공식 가격표를 아직 확인하지 못했으므로
-     *    usdPer1M 을 비워 둔다(이 파일 규칙: "확인된 모델만 채운다"). 그러면
-     *    costKrw 선언값이 그대로 표시된다 — 3.6 과 같은 값으로 두었다.
-     *    공식 가격이 확인되면 usdPer1M 을 채우고 costKrw 를 계산값으로 바꾼다.
-     *
-     * ⚠️ 모델 id 는 이 저장소의 명명 규칙(gemini-3.6-flash)을 따라 지었다.
-     *    실제 id 가 다르면 **fallback 체인이 3.6 으로 받아준다** — 조용히 죽지 않는다.
-     */
     {
         value: 'gemini-2.5-flash',
         title: 'Gemini 3.8 Flash',
@@ -117,14 +57,10 @@ exports.TIER_MODELS = [
         fallback: ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'],
         usdPer1M: { input: 1.50, output: 9.00, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
     },
-    // ─── OpenAI (GPT-5 시리즈로 최신화, 2026-04) ───────────────────────────────
-    //   기존 value 키(openai-gpt4o-mini/openai-gpt41/openai-gpt4o)는 사용자 저장 설정 호환을 위해 유지,
-    //   modelId/title/description/costKrw만 최신 GPT-5 플래그십으로 업그레이드.
     {
         value: 'openai-gpt4o-mini',
         title: 'GPT-5.6 Luna',
         tier: '가성비',
-        // 2026-07-30 인하: 입력 $1 → $0.20, 출력 $6 → $1.20 (80% 인하)
         description: 'GPT-5.6 Luna · 초저비용 · 빠른 속도 · 대량 발행',
         costKrw: 8,
         provider: 'openai',
@@ -136,7 +72,6 @@ exports.TIER_MODELS = [
         value: 'openai-gpt41',
         title: 'GPT-5.6 Terra',
         tier: '균형',
-        // 2026-07-30 인하: 입력 $2.5 → $2, 출력 $15 → $12 (20% 인하)
         description: 'GPT-5.6 Terra · 품질/가격 균형 · 일반 블로그에 최적',
         costKrw: 81,
         provider: 'openai',
@@ -148,7 +83,6 @@ exports.TIER_MODELS = [
         value: 'openai-gpt4o',
         title: 'GPT-5.6 Sol',
         tier: '프리미엄',
-        // 2026-08-21 프로모션: $5/$30 → $4/$20 (11-21 까지). 끝나면 $5/$30 으로 되돌려야 한다.
         description: 'GPT-5.6 Sol · 강력한 추론 · 2026-11-21까지 프로모션가',
         costKrw: 153,
         provider: 'openai',
@@ -156,11 +90,6 @@ exports.TIER_MODELS = [
         fallback: ['gpt-5.6-sol', 'gpt-5.6-terra'],
         usdPer1M: { input: 4, output: 20, source: 'OpenAI 2026-08-21 프로모션가 (입력 $4 / 출력 $20 · 11-21까지, 이전 $5/$30)' },
     },
-    /**
-     * v3.8.686 — GPT-6 Astra (2026-09-03 출시. 사장님: "지피티6 아스트라 나왔고 비용표 업데이트해").
-     * 재활용할 옛 키가 없어 새 value 키다. 출시가 $10/$50 는 Sol 프로모션가의 2.5배이자
-     * Fable 5.1 과 같은 값 — 글 1편(호출 1회) ₩382. 기본 추천은 여전히 Terra 다.
-     */
     {
         value: 'openai-gpt6-astra',
         title: 'GPT-6 Astra',
@@ -172,130 +101,76 @@ exports.TIER_MODELS = [
         fallback: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'],
         usdPer1M: { input: 10, output: 50, source: 'OpenAI 2026-09-03 출시가 (입력 $10 / 출력 $50 · 캐시 입력 $1)' },
     },
-    // ─── Claude (2026-04 기준 최신 ID로 교정) ───────────────────────────────
-    //   기존 코드의 'claude-sonnet-4-20250514' / 'claude-opus-4-20250514'는 1년 전 버전.
-    //   최신: claude-sonnet-4-6 (2025-09-29), claude-opus-4-7 (2025-12, 1M context).
     {
         value: 'claude-haiku',
-        title: 'Claude Haiku 4.5',
+        title: 'Claude Haiku 5.5',
         tier: '가성비',
-        description: '빠른 응답 · 자연스러운 한국어 · 창의적 문체',
-        costKrw: 39,
+        description: '빠른 응답 · 저비용 · 표시 단가는 입력 10만 토큰 이하 기준',
+        costKrw: 4,
         provider: 'claude',
-        modelId: 'claude-haiku-4-5-20251001',
-        fallback: ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
+        modelId: 'claude-haiku-5-5',
+        fallback: ['claude-haiku-5-5', 'claude-sonnet-5-5'],
+        usdPer1M: { input: 0.10, output: 0.50, source: 'https://platform.claude.com/docs/en/models/haiku-5-5/overview · 2026-10-14 확인 · 입력 100,000토큰 이하 $0.10/$0.50; 초과 $0.50/$2.50 per MTok' },
     },
     {
         value: 'claude-sonnet',
-        title: 'Claude Sonnet 5',
+        title: 'Claude Sonnet 5.5',
         tier: '균형',
-        description: 'Claude Sonnet 5 · 균형 잡힌 품질 · 자연스러운 한국어',
-        costKrw: 63,
+        description: 'Claude Sonnet 5.5 · 품질과 속도의 균형 · 자연스러운 한국어',
+        costKrw: 76,
         provider: 'claude',
-        modelId: 'claude-sonnet-5',
-        fallback: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+        modelId: 'claude-sonnet-5-5',
+        fallback: ['claude-sonnet-5-5', 'claude-haiku-5-5'],
+        usdPer1M: { input: 2, output: 10, source: 'https://platform.claude.com/docs/en/models/overview · 2026-10-14 확인 · Standard $2/$10 per MTok' },
     },
-    /**
-     * v3.8.628 — Fable 5.1 로 올린다 (사장님: "페이블 5.1 업데이트했고").
-     * 앞선 것들과 같은 원칙: `value` 는 저장 설정 키라 그대로, modelId·title 만 올린다.
-     * 단가는 확인 전이므로 usdPer1M 없이 선언값을 유지한다.
-     */
     {
         value: 'claude-opus',
-        title: 'Claude Fable 5.1',
+        title: 'Claude Opus 5.5',
         tier: '프리미엄',
-        description: 'Claude Fable 5.1 · 최상급 추론 · 프리미엄 글쓰기',
-        costKrw: 735,
+        description: 'Claude Opus 5.5 · 고급 추론 · 복잡한 글쓰기',
+        costKrw: 153,
         provider: 'claude',
-        modelId: 'claude-fable-5-1',
-        fallback: ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+        modelId: 'claude-opus-5-5',
+        fallback: ['claude-opus-5-5', 'claude-sonnet-5-5'],
+        usdPer1M: { input: 4, output: 20, source: 'https://platform.claude.com/docs/en/models/overview · 2026-10-14 확인 · Standard $4/$20 per MTok' },
     },
-    /**
-     * 748 — **Opus 5 를 고를 수 있게 한다.** 지금까지 텍스트 티어에 Opus 5 가 아예 없었다.
-     * 그래서 `PRIMARY_TEXT_MODEL=claude-opus-5` 를 줘도 findTier 가 못 찾고 조용히 Sonnet 5 로 떨어졌다
-     * (에이전트 모드 목록에는 이미 있는 모델이다 — agent-models.ts "균형 · 페이블 한도 찼을 때").
-     * 사장님 상황: Fable 5.1 한도 소진 → Opus 5 로 돌려야 한다.
-     * 기존 티어의 뜻은 하나도 바꾸지 않는다 — `claude-opus`(UI 👑) 는 그대로 Fable 5.1 이다. 이건 **추가**다.
-     * 단가는 확인 전이라 usdPer1M 없이 선언값으로 둔다(Sonnet 5 와 Fable 5.1 사이).
-     */
     {
         value: 'claude-opus-5',
-        title: 'Claude Opus 5',
+        title: 'Claude Opus 5.5',
         tier: '프리미엄',
-        description: 'Claude Opus 5 · 상급 추론 · 페이블 한도 찼을 때',
-        costKrw: 191, // 단가에서 계산된 값 (deriveCostKrw) — 선언값과 계산값이 어긋나면 pricing-unification 테스트가 잡는다
+        description: 'Claude Opus 5.5 · 고급 추론 · 이전 설정 호환',
+        costKrw: 153,
         provider: 'claude',
-        modelId: 'claude-opus-5',
-        fallback: ['claude-opus-5', 'claude-sonnet-5'],
-        // 사장님 확인(2026-09-23, Anthropic 공식 표준 API 단가) — 선언값 대신 토큰 기준으로 계산된다
-        usdPer1M: { input: 5, output: 25, source: 'Anthropic 표준 API 단가 (입력 $5 / 출력 $25 per 1M) · 2026-09-23 확인' },
-        // 화면 가격표에는 아직 안 넣는다 — UI 작업은 748 제품 통합에서 한다. 지금은 라우팅(env·하네스)만
+        modelId: 'claude-opus-5-5',
+        fallback: ['claude-opus-5-5', 'claude-sonnet-5-5'],
+        usdPer1M: { input: 4, output: 20, source: 'https://platform.claude.com/docs/en/models/overview · 2026-10-14 확인 · Standard $4/$20 per MTok' },
         hiddenFromUi: true,
     },
-    // ─── Perplexity ───────────────────────────
     {
         value: 'perplexity-sonar',
         title: 'Perplexity Sonar',
         tier: '실시간',
         description: '최신 웹 정보 기반 실시간 검색 + AI 분석',
-        /**
-         * v3.8.582 — 15 → 40 으로 바로잡는다. 실제보다 2~3배 싸게 표시되고 있었다.
-         *
-         * 2026-08-29 실측·계산: sonar-pro 는 입력 $3 / 출력 $15 per 1M 에
-         * **요청당 검색비 $6~14 / 1,000건**이 따로 붙는다. 팩트체크 호출은
-         * 프롬프트 587자 · max_tokens 1024 · 글당 1회이므로
-         *   입력 $0.0024 + 출력 $0.0154 + 검색비 $0.006~0.014 = $0.024~0.032
-         * 환율 1,400원 기준 ₩34~45 → 반올림 40.
-         *
-         * ⚠️ `usdPer1M` 을 채우지 않는 이유: `deriveCostKrw` 는 **본문 생성 크기**의
-         * 토큰 모델(COST_MODEL)로 계산한다. 팩트체크 호출은 그 1/20 크기라
-         * 그대로 대입하면 오히려 크게 부풀려진다. 게다가 요청당 검색비는
-         * 토큰 단가로 표현할 수 없다. 그래서 실측 계산값을 선언값으로 둔다.
-         */
         costKrw: 40,
         provider: 'perplexity',
         modelId: 'sonar-pro',
         fallback: ['sonar-pro', 'sonar'],
     },
 ];
-/**
- * v3.8.483 — 'gemini-3.5-flash' → 'gemini-3.6-flash'.
- *
- * 이 값은 findTier 가 modelId 로 찾는다. 3.5 는 이제 **프리미엄** 항목의 modelId 라
- * 그대로 두면 기본값이 `default: true` 인 균형 티어가 아니라 프리미엄을 가리킨다.
- * 기본 모델이 조용히 바뀌는 종류의 사고다.
- */
-/**
- * v3.8.489 - 로그에 찍을 모델 표기.
- *
- * 사장님 보고: "로그에는 2.5플래쉬라뜹니다".
- * `value` 는 **사용자 설정 키**라 옛 이름(gemini-2.5-*)을 유지해야 한다 —
- * 바꾸면 기존 사용자의 선택이 통째로 깨진다. 그래서 키는 두되,
- * 로그에는 사람이 읽는 이름과 **실제 호출되는 모델 id** 를 함께 찍는다.
- */
 function describeModelForLog(tierValue) {
     const value = String(tierValue || '').trim();
     if (!value)
         return '';
-    const tier = exports.TIER_MODELS.find((t) => t.value === value || t.modelId === value);
+    const tier = findTier(value);
     return tier ? `${tier.title} (${tier.modelId})` : value;
 }
 exports.DEFAULT_TIER_VALUE = 'gemini-3.6-flash';
-/**
- * 화면·로그·설정이 공통으로 읽는 표시 금액.
- * 단가를 아는 모델은 계산값, 모르는 모델은 선언값을 돌려준다.
- */
 function tierCostKrw(tier) {
     return deriveCostKrw(tier.usdPer1M, tier.costKrw);
 }
-/** 표시 문자열까지 한 곳에서 만든다 — 화면마다 포맷이 달라지지 않게. */
 function formatTierCost(tier) {
     return `~₩${tierCostKrw(tier).toLocaleString('ko-KR')}/글`;
 }
-/**
- * 렌더러(설정 화면·선택창)로 넘길 납작한 표.
- * UI 가 자기 숫자를 들고 있지 않게 하는 것이 목적이다.
- */
 function getPricingTable() {
     return exports.TIER_MODELS.map(t => ({
         value: t.value,
@@ -313,49 +188,32 @@ function getPricingTable() {
 function findTier(value) {
     if (!value)
         return undefined;
-    const normalized = String(value).trim();
+    let normalized = String(value).trim();
+    if (/^(?:claude-)?fable(?:-|$)/i.test(normalized))
+        normalized = 'claude-sonnet';
+    const aliases = {
+        'haiku': 'claude-haiku', 'sonnet': 'claude-sonnet', 'opus': 'claude-opus',
+        'claude-haiku-4-5-20251001': 'claude-haiku', 'claude-haiku-4-5': 'claude-haiku',
+        'claude-sonnet-5': 'claude-sonnet', 'claude-sonnet-4-6': 'claude-sonnet',
+        'claude-opus-4-8': 'claude-opus', 'claude-opus-4-7': 'claude-opus',
+    };
+    normalized = aliases[normalized.toLowerCase()] || normalized;
     const exact = exports.TIER_MODELS.find(t => t.value === normalized || t.modelId === normalized);
     if (exact)
         return exact;
     return exports.TIER_MODELS.find(t => t.fallback.includes(normalized));
 }
-/**
- * 🎯 v3.8.446 — **기본값이 늘 Gemini 로 떨어지던 뿌리.**
- *
- * 사용자 지적(2026-08-04): "제미나이 충전을 못해서 안쓴다고".
- * `.env` 는 `AI_PROVIDER=openai` 인데 이 파일의 `DEFAULT_TIER_VALUE` 가
- * 'gemini-3.5-flash' 로 고정이라, 모델이 안 정해진 모든 경로가 Gemini 로 갔다.
- * 그 키는 차단된 상태라 그 경로들은 전부 실패한다.
- *
- * 이제 설정을 먼저 본다. 설정이 없거나 모르는 값일 때만 예전 기본값을 쓴다.
- * (여기 한 곳을 고치면 getCurrentTier·deriveProvider·gemini-engine 이 함께 따라온다.)
- */
 const PROVIDER_DEFAULT_TIER = {
     openai: 'openai-gpt41',
     claude: 'claude-sonnet',
     perplexity: 'perplexity-sonar',
     gemini: 'gemini-3.5-flash',
 };
-/**
- * 🩹 v3.8.468 — **설정 파일도 읽는다.**
- *
- * v3.8.446 이 "payload 에 모델이 없으면 설정값을 쓴다" 는 안전망을 넣었는데,
- * 그 설정값을 `process.env.AI_PROVIDER` 에서만 읽었다. 그런데 앱 어디에서도
- * 그 환경변수를 세우지 않는다(전수 확인). 그래서 사용자가 .env 에
- * `AI_PROVIDER=openai` 를 넣어 두어도 **항상 gemini-3.5-flash 로 떨어졌다.**
- * 안전망이 있는데 작동하지 않는 상태였다.
- *
- * 실측(2026-08-06): .env 의 AI_PROVIDER=openai · resolveDefaultProvider() → gemini
- *
- * 이제 환경변수가 없으면 .env 파일을 직접 본다. 읽기 실패는 무시한다 —
- * 설정을 못 읽는다고 생성이 멈추면 안 된다.
- */
 function readProviderFromSettings() {
     const fromProcess = String(process.env['AI_PROVIDER'] || '').trim().toLowerCase();
     if (fromProcess)
         return fromProcess;
     try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { loadEnvFromFile } = require('../../env');
         const env = loadEnvFromFile() || {};
         return String(env['AI_PROVIDER'] || env['aiProvider'] || '').trim().toLowerCase();
@@ -371,20 +229,14 @@ function resolveDefaultTierValue() {
         return mapped;
     return exports.DEFAULT_TIER_VALUE;
 }
-/** 설정에서 파생한 기본 제공자 (모델을 못 정했을 때 쓰는 값) */
 function resolveDefaultProvider() {
     return findTier(resolveDefaultTierValue())?.provider ?? 'gemini';
 }
-/**
- * primaryGeminiTextModel → defaultAiProvider 자동 파생
- */
 function deriveProvider(value) {
     return findTier(value)?.provider ?? resolveDefaultProvider();
 }
-/**
- * 환경변수에서 현재 선택된 티어를 읽음. 없으면 설정 기반 기본값.
- */
 function getCurrentTier() {
     const fromEnv = process.env['PRIMARY_TEXT_MODEL'];
     return findTier(fromEnv) ?? findTier(resolveDefaultTierValue()) ?? findTier(exports.DEFAULT_TIER_VALUE);
 }
+//# sourceMappingURL=pricing.js.map

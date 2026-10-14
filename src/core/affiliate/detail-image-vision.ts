@@ -27,6 +27,7 @@
  * 이 앱의 원칙이다. 분석이 안 되면 그냥 예전처럼 동작한다.
  */
 import * as https from 'https';
+import { buildClaudeHeaders, isClaudeWorkspaceError, CLAUDE_WORKSPACE_GUIDE } from '../llm/claude-auth';
 import { routeTextToVision, VisionRouting } from '../url-image-crawler/visionRouter';
 import { fetchImageBuffer, detectMimeType } from '../url-image-crawler/imageRelevanceScorer';
 
@@ -228,6 +229,9 @@ async function askVision(
     const res = await httpsPostJson('https://api.anthropic.com/v1/messages', {
       model: routing.model,
       max_tokens: 400,
+      // Sonnet 5.5 rejects disabled. With no tools, between_tools keeps this
+      // short JSON budget available for the answer instead of up-front thinking.
+      ...(routing.model === 'claude-sonnet-5-5' ? { thinking: { type: 'between_tools' } } : {}),
       messages: [{
         role: 'user',
         content: [
@@ -235,9 +239,12 @@ async function askVision(
           { type: 'text', text: `${prompt}\n\nJSON만 출력하세요.` },
         ],
       }],
-    }, { 'x-api-key': keys.claude, 'anthropic-version': '2023-06-01' }, timeoutMs);
+    }, buildClaudeHeaders(keys.claude), timeoutMs);
+    if (isClaudeWorkspaceError(res)) throw new Error(`CLAUDE_WORKSPACE_ERROR: ${CLAUDE_WORKSPACE_GUIDE}`);
     throwIfApiError(res, 'claude');
-    return res?.content?.[0]?.text || '';
+    return (Array.isArray(res?.content) ? res.content : [])
+      .filter((block: any) => block?.type === 'text' && typeof block.text === 'string')
+      .map((block: any) => block.text).join('');
   }
   if (!keys.openai) throw new Error('openai 키 없음');
   const body: any = {
@@ -325,6 +332,10 @@ export async function analyzeDetailImages(
       if (parsed.facts.length === 0 && !parsed.bestH2 && parsed.hasProduct) continue;
       out.push({ imageUrl, ...parsed });
     } catch (e: any) {
+      if (isClaudeWorkspaceError(e)) {
+        opts.onLog?.(`   ⚠️ ${CLAUDE_WORKSPACE_GUIDE} 이미지 분석을 중단합니다.`);
+        break;
+      }
       // 한 장 실패가 나머지를 막지 않는다
       opts.onLog?.(`   ⚠️ 이미지 분석 실패(건너뜀): ${String(e?.message || e).slice(0, 50)}`);
     }

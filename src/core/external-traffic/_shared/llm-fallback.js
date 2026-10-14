@@ -46,12 +46,9 @@ const MODEL_CHAINS = {
     'gpt-5.6-sol': ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5-mini'],
   },
   claude: {
-    'claude-haiku': ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
-    'claude-sonnet': ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
-    'claude-opus': ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
-    'claude-haiku-4-5-20251001': ['claude-haiku-4-5-20251001', 'claude-sonnet-5'],
-    'claude-sonnet-5': ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
-    'claude-fable-5': ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5'],
+    'claude-haiku': ['claude-haiku-5-5', 'claude-sonnet-5-5'],
+    'claude-sonnet': ['claude-sonnet-5-5', 'claude-haiku-5-5'],
+    'claude-opus': ['claude-opus-5-5', 'claude-sonnet-5-5'],
   },
   perplexity: {
     'perplexity-sonar': ['sonar-pro', 'sonar'],
@@ -91,14 +88,21 @@ function inferProviderFromModel(raw) {
   if (!value) return '';
   if (value.startsWith('gemini-')) return 'gemini';
   if (value.startsWith('openai-') || value.startsWith('gpt-')) return 'openai';
-  if (value.startsWith('claude-')) return 'claude';
+  if (value.startsWith('claude-') || /^(?:haiku|sonnet|opus|fable)(?:-|$)/.test(value)) return 'claude';
   if (value.startsWith('perplexity-') || value.startsWith('sonar')) return 'perplexity';
   return '';
 }
 
 function resolveCandidateModels(provider, params, defaults) {
   const requested = getRequestedModel(params);
-  const requestedKey = requested.toLowerCase();
+  let requestedKey = requested.toLowerCase();
+  if (provider === 'claude') {
+    if (/^(?:claude-)?fable(?:-|$)/.test(requestedKey)) requestedKey = 'claude-sonnet';
+    else {
+      const family = requestedKey.match(/^(?:claude-)?(haiku|sonnet|opus)(?:$|-\d)/)?.[1];
+      if (family) requestedKey = `claude-${family}`;
+    }
+  }
   const requestedProvider = inferProviderFromModel(requestedKey);
   if (!requested || (requestedProvider && requestedProvider !== provider)) {
     return [...defaults];
@@ -181,30 +185,29 @@ async function callOpenAI(params, key) {
 }
 
 async function callClaude(params, key) {
-  // @anthropic-ai/sdk 의존성이 없을 수 있음 — 동적 로드 + 실패 시 명시.
-  let Anthropic;
-  try {
-    Anthropic = require('@anthropic-ai/sdk');
-    if (Anthropic && Anthropic.default) Anthropic = Anthropic.default;
-  } catch {
-    throw new Error('CLAUDE_SDK_NOT_INSTALLED');
-  }
-  const client = new Anthropic({ apiKey: key });
-  const candidates = resolveCandidateModels('claude', params, ['claude-sonnet-5', 'claude-fable-5', 'claude-haiku-4-5-20251001']);
+  const { buildClaudeHeaders, isClaudeWorkspaceError, CLAUDE_WORKSPACE_GUIDE } = require('../../llm/claude-auth');
+  const headers = buildClaudeHeaders(key);
+  const candidates = resolveCandidateModels('claude', params, ['claude-sonnet-5-5', 'claude-haiku-5-5']);
   let lastErr = null;
   for (const modelName of candidates) {
     try {
-      const resp = await client.messages.create({
-        model: modelName,
-        // v3.8.254: 기본값 2000 → 4000 (structured 호출은 8000 명시 전달)
-        max_tokens: params.maxOutputTokens || 4000,
-        system: factualSystem(params),
-        temperature: generationTemperature(params),
-        messages: [{ role: 'user', content: params.user }],
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(120000),
+        body: JSON.stringify({
+          model: modelName,
+          max_tokens: params.maxOutputTokens || 4000,
+          system: factualSystem(params),
+          messages: [{ role: 'user', content: params.user }],
+        }),
       });
-      const text = (resp && resp.content && resp.content[0] && resp.content[0].text || '').trim();
+      const resp = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(`Claude ${response.status}: ${resp?.error?.message || response.statusText}`);
+      const text = (resp?.content || []).filter(block => block.type === 'text').map(block => block.text || '').join('\n').trim();
       if (text) return { text, model: modelName, provider: 'claude' };
     } catch (e) {
+      if (isClaudeWorkspaceError(e)) throw new Error(`CLAUDE_WORKSPACE_ERROR: ${CLAUDE_WORKSPACE_GUIDE}`);
       lastErr = e;
     }
   }
@@ -270,6 +273,7 @@ async function callLLMWithFallback(params, keys) {
       const result = await p.call(params, keys[p.id]);
       return { ...result, tries: tries.concat({ provider: p.id }) };
     } catch (e) {
+      if (p.id === 'claude' && require('../../llm/claude-auth').isClaudeWorkspaceError(e)) throw e;
       const msg = e instanceof Error ? e.message : String(e);
       tries.push({ provider: p.id, error: msg });
     }

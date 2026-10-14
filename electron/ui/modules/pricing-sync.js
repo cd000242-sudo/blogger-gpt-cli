@@ -6,10 +6,10 @@
  *   Gemini Flash-Lite   costKrw=15 / data-cost=15 / 화면 라벨 "~₩12/글"
  * 화면이 자기 숫자를 하드코딩해 들고 있으면 백엔드 단가를 고쳐도 절대 따라오지 않는다.
  *
- * 그래서 화면의 숫자를 지우지 않고 **덮어쓴다** — 백엔드 pricing.ts 하나만 고치면
+ * 화면의 비용 슬롯을 백엔드 값으로 채운다 — 백엔드 pricing.ts 하나만 고치면
  * 선택창·배지·data-cost 가 전부 같이 움직인다.
  *
- * 실패해도 화면을 망가뜨리지 않는다(기존 하드코딩 값이 그대로 남을 뿐).
+ * 조회 전이나 실패 시 동적 슬롯은 '비용 확인 중'을 유지한다.
  */
 
 let cachedTiers = null;
@@ -53,7 +53,7 @@ export async function syncPricingLabels() {
 
     // 금액 라벨 — "₩" 가 들어간 마지막 div 를 금액 줄로 본다
     const divs = Array.from(card.querySelectorAll('div'));
-    const costEl = divs.reverse().find(d => /₩/.test(d.textContent || ''));
+    const costEl = card.querySelector('[data-pricing-cost]') || divs.reverse().find(d => /₩/.test(d.textContent || ''));
     if (costEl) {
       costEl.textContent = tier.costLabel;
       costEl.title = tier.derived
