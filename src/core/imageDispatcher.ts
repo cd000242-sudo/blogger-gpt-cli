@@ -1111,10 +1111,12 @@ async function _tryEngineInternal(
       if (!apiKey || apiKey.length < 10) {
         return { ok: false, dataUrl: '', source: '', error: 'Gemini API 키 없음' };
       }
+      // [2026-10-20] Google 모델 목록 API 실측: preview ID 두 개는 더 이상 목록에 없다(2026-06-25 종료).
+      //   nanobanana2 → 최신 Nano Banana 2.1, nanobananapro → 안정 ID gemini-3-pro-image.
       const modelMap = {
-        'nanobanana':    { id: 'gemini-2.5-flash-image' as const,         label: 'Nano Banana (2.5 저비용)' },
-        'nanobanana2':   { id: 'gemini-3.1-flash-image-preview' as const, label: 'Nano Banana 2' },
-        'nanobananapro': { id: 'gemini-3-pro-image-preview' as const,     label: 'Nano Banana Pro' },
+        'nanobanana':    { id: 'gemini-2.5-flash-image' as const, label: 'Nano Banana (2.5 저비용)' },
+        'nanobanana2':   { id: 'gemini-nano-banana-2.1' as const, label: 'Nano Banana 2.1' },
+        'nanobananapro': { id: 'gemini-3-pro-image' as const,     label: 'Nano Banana Pro' },
       };
       const m = modelMap[engine as 'nanobanana' | 'nanobanana2' | 'nanobananapro'];
       let detail = '사유 미상';

@@ -30,8 +30,8 @@ const mockRng = { next: mulberry32(0x9e3779b9) };
 // 엔진별 단일-시도 실패 확률 (현실적 추정 — preview/인증 엔진을 약간 높게)
 const FAIL_PROB: Record<string, number> = {
   'gemini-2.5-flash-image': 0.08,
-  'gemini-3.1-flash-image-preview': 0.07,
-  'gemini-3-pro-image-preview': 0.1,
+  'gemini-nano-banana-2.1': 0.07,
+  'gemini-3-pro-image': 0.1,
   'gpt-image-1': 0.08,
   'gpt-image-2': 0.12,
   prodia: 0.06,

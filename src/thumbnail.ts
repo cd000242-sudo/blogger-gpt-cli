@@ -61,9 +61,9 @@ export type NanoBananaProOptions = {
   referenceImages?: string[];
   // v3.5.88: 사용자 명시 모델 선택. 미지정 시 기존 2단 폴백 체인(3.1 → 2.5) 유지.
   //   'gemini-2.5-flash-image'         = 나노바나나 (저비용 원조)
-  //   'gemini-3.1-flash-image-preview' = 나노바나나2 (Pro 품질·Flash 가격)
-  //   'gemini-3-pro-image-preview'     = 나노바나나 프로 (Pro 모델)
-  modelId?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview';
+  //   'gemini-nano-banana-2.1'         = 나노바나나 2.1 (2026-10-20 최신; 종료된 3.1-flash-image-preview 대체)
+  //   'gemini-3-pro-image'             = 나노바나나 프로 (안정 ID; 종료된 3-pro-image-preview 대체)
+  modelId?: 'gemini-2.5-flash-image' | 'gemini-nano-banana-2.1' | 'gemini-3-pro-image';
 };
 
 // 🚀 Prodia AI 옵션 (저렴하고 빠른 고품질 이미지 생성)
@@ -1721,7 +1721,7 @@ async function tryGeminiExperimentalImageGeneration(
   topic: string,
   apiKey: string,
   isThumbnail: boolean = false,
-  modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-3.1-flash-image-preview' | 'gemini-3-pro-image-preview',
+  modelIdHint?: 'gemini-2.5-flash-image' | 'gemini-nano-banana-2.1' | 'gemini-3-pro-image',
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4',
   noTextOverlay: boolean = false,
   referenceImages?: string[],
@@ -1731,15 +1731,16 @@ async function tryGeminiExperimentalImageGeneration(
   // Gemini 이미지 모델 카탈로그 — 명시 선택 vs 자동 폴백 분기
   //   명시 선택(modelIdHint 지정): 그 모델만 1회 시도 (이미지 dispatcher가 폴백 차단 책임짐)
   //   자동(미지정): 나노바나나2 → 나노바나나 폴백 체인 (기존 동작 유지)
+  // [2026-10-20] preview ID 2종은 Google 모델 목록에서 사라졌다 → 최신 Nano Banana 2.1 · 안정 Pro ID 로.
   const MODEL_CATALOG: Record<string, { id: string; name: string }> = {
-    'gemini-3-pro-image-preview':     { id: 'gemini-3-pro-image-preview',     name: '나노바나나 프로 (Gemini 3 Pro Image)' },
-    'gemini-3.1-flash-image-preview': { id: 'gemini-3.1-flash-image-preview', name: '나노바나나2 (Gemini 3.1 Flash Image)' },
-    'gemini-2.5-flash-image':         { id: 'gemini-2.5-flash-image',         name: '나노바나나 (Gemini 2.5 Flash Image · 저비용)' },
+    'gemini-3-pro-image':     { id: 'gemini-3-pro-image',     name: '나노바나나 프로 (Gemini 3 Pro Image)' },
+    'gemini-nano-banana-2.1': { id: 'gemini-nano-banana-2.1', name: '나노바나나 2.1 (Nano Banana 2.1)' },
+    'gemini-2.5-flash-image': { id: 'gemini-2.5-flash-image', name: '나노바나나 (Gemini 2.5 Flash Image · 저비용)' },
   };
   const IMAGE_MODELS = modelIdHint
     ? [MODEL_CATALOG[modelIdHint]!]
     : [
-        MODEL_CATALOG['gemini-3.1-flash-image-preview']!,
+        MODEL_CATALOG['gemini-nano-banana-2.1']!,
         MODEL_CATALOG['gemini-2.5-flash-image']!,
       ];
 

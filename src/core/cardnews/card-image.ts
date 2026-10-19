@@ -33,7 +33,7 @@ export const CARD_IMAGE_ENGINES: Array<{ value: string; label: string; note: str
   { value: 'gptimage25sunburst', label: 'GPT 이미지 2.5 선버스트', note: '프리미엄 · 편집 제어 정밀 · 느림 · 장당 과금(2의 2배)', textCapable: true },
   { value: 'gptimage2', label: 'GPT 이미지 2 (덕테이프)', note: '글자 렌더링 가장 좋음 · 장당 과금', textCapable: true },
   { value: 'dropshot-nanobanana-pro', label: 'dropshot 나노바나나 프로 무제한', note: '비용 0 · 장당 30~60초 · 보드 무제한 토글 필요', textCapable: true },
-  { value: 'nanobanana2', label: '나노바나나2', note: 'Gemini 3.1 Flash · 빠름 · 장당 과금', textCapable: false },
+  { value: 'nanobanana2', label: '나노바나나2', note: 'Nano Banana 2.1 · 빠름 · 장당 과금', textCapable: false },
   { value: 'nanobananapro', label: '나노바나나 프로', note: 'Gemini 3 Pro · 품질 최상 · 비용 높음', textCapable: false },
   { value: 'gptimage1', label: 'GPT 이미지 1', note: '구형 · 장당 과금', textCapable: false },
   { value: 'none', label: '이미지 없이 (그라데이션)', note: '비용 0 · 즉시 · 지금까지 쓰던 방식', textCapable: false },

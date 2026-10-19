@@ -118,7 +118,7 @@ describe('dispatchH2ImageGeneration — 보장형 폴백 (v3.6.0 기본)', () =>
 
     const result = await dispatchH2ImageGeneration('', 'test', 'kw');
     expect(result.ok).toBe(true);
-    expect(result.source).toBe('Nano Banana 2');
+    expect(result.source).toBe('Nano Banana 2.1');
     expect(mockNano).toHaveBeenCalled();
   });
 
@@ -321,21 +321,22 @@ describe('v3.5.88 신규 엔진 — 나노바나나 3종', () => {
     );
   });
 
-  it('nanobanana2 선택 → modelId="gemini-3.1-flash-image-preview" 호출', async () => {
+  // [2026-10-20] preview ID 두 개는 Google 모델 목록에서 사라졌다(2026-06-25 종료) → 2.1 / 안정 Pro ID.
+  it('nanobanana2 선택 → modelId="gemini-nano-banana-2.1" 호출', async () => {
     mockNano.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,NB2' } as any);
 
     const result = await dispatchH2ImageGeneration('nanobanana2', 'test', 'kw');
 
     expect(result.ok).toBe(true);
-    expect(result.source).toBe('Nano Banana 2');
+    expect(result.source).toBe('Nano Banana 2.1');
     expect(mockNano).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
-      expect.objectContaining({ modelId: 'gemini-3.1-flash-image-preview' }),
+      expect.objectContaining({ modelId: 'gemini-nano-banana-2.1' }),
     );
   });
 
-  it('nanobananapro 선택 → modelId="gemini-3-pro-image-preview" 호출', async () => {
+  it('nanobananapro 선택 → modelId="gemini-3-pro-image" 호출', async () => {
     mockNano.mockResolvedValue({ ok: true, dataUrl: 'data:image/png;base64,NBP' } as any);
 
     const result = await dispatchH2ImageGeneration('nanobananapro', 'test', 'kw');
@@ -345,7 +346,7 @@ describe('v3.5.88 신규 엔진 — 나노바나나 3종', () => {
     expect(mockNano).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
-      expect.objectContaining({ modelId: 'gemini-3-pro-image-preview' }),
+      expect.objectContaining({ modelId: 'gemini-3-pro-image' }),
     );
   });
 

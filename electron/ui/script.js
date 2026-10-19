@@ -9152,7 +9152,7 @@ function addKeywordField() {
          <div style="display: flex; gap: 8px; align-items: center;">
            <label style="color: rgba(255, 255, 255, 0.8); font-size: 11px; font-weight: 500; min-width: 60px;">썸네일:</label>
            <select class="keyword-thumbnail-select form-input" style="background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.3); color: white; backdrop-filter: blur(10px); font-size: 12px; padding: 6px; border-radius: 4px; flex: 1;">
-             <option value="nanobanana2" style="background: #667eea; color: white;">🍌 Nano Banana 2 (권장)</option>
+             <option value="nanobanana2" style="background: #667eea; color: white;">🍌 Nano Banana 2.1 (권장)</option>
              <option value="nanobananapro" style="background: #667eea; color: white;">🍌 Nano Banana Pro</option>
              <option value="prodia" style="background: #667eea; color: white;">🚀 Prodia (유료 최저가)</option>
              <option value="deepinfra" style="background: #667eea; color: white;">🔥 DeepInfra FLUX-2</option>
