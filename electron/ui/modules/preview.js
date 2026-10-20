@@ -166,7 +166,9 @@ export async function generatePreview() {
       const htmlSizeKB = (htmlContent.length / 1024).toFixed(2);
       console.log(`[NEW-PREVIEW] HTML 콘텐츠 크기: ${textLength}자 (순수 텍스트, HTML: ${htmlContent.length}자, ${htmlSizeKB}KB)`);
       addLog(`📏 받은 HTML 크기: ${textLength}자 (순수 텍스트)`, 'info');
-      
+
+      // v3.8.763: 발행·초기화가 그릇을 null 로 비워 둔다 — 비었으면 새로 만든다
+      if (!appState.generatedContent) appState.generatedContent = {};
       appState.generatedContent.title = result.title || keyword;
       appState.generatedContent.content = htmlContent;
       appState.generatedContent.thumbnailUrl = result.thumbnailUrl || '';

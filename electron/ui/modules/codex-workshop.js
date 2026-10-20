@@ -4689,6 +4689,8 @@ export async function applyCodexResult(options = {}) {
     html = await prepareContentForPlatform(html, payload);
 
     const appState = getAppState();
+    // v3.8.763: 발행·초기화가 그릇을 null 로 비워 둔다 — 비었으면 새로 만든다
+    if (!appState.generatedContent) appState.generatedContent = {};
     appState.generatedContent.title = title;
     appState.generatedContent.content = html;
     appState.generatedContent.thumbnailUrl = options.thumbnailUrl || '';
