@@ -2225,7 +2225,15 @@ export function ensureAgentModeSettingsSection() {
 }
 
 function getTopic(payload = {}) {
+  // URL 모드에서는 숨겨진 입력란이나 큐의 표시용 키워드를 주제로 사용하지 않는다.
+  if (payload.urlBasedGeneration === true) return '';
   return payload.title || payload.topic || payload.keywords?.[0]?.keyword || $('keywordInput')?.value?.trim() || '';
+}
+
+function hasGenerationInput(payload = {}) {
+  return payload.urlBasedGeneration === true
+    ? getReferenceLines(payload).length > 0
+    : !!getTopic(payload).trim();
 }
 
 function normalizePlatformName(platform = '') {
@@ -2239,9 +2247,13 @@ function normalizePlatformName(platform = '') {
 
 function getReferenceLines(payload = {}) {
   const urls = [
-    ...(Array.isArray(payload.manualCrawlUrls) ? payload.manualCrawlUrls : []),
     payload.sourceUrl,
-  ].filter(Boolean);
+    ...(Array.isArray(payload.manualCrawlUrls) ? payload.manualCrawlUrls : []),
+    ...(payload.urlBasedGeneration === true && Array.isArray(payload.affiliateLinks) ? payload.affiliateLinks : []),
+  ].map(url => String(url || '').trim()).filter(url => {
+    try { return ['http:', 'https:'].includes(new URL(url).protocol); }
+    catch { return false; }
+  });
   return [...new Set(urls)].slice(0, 6);
 }
 
@@ -2279,7 +2291,7 @@ function buildCodexArticleTask(payload = {}) {
 - 결과는 Orbit 앱에 다시 넣을 수 있도록 HTML만 깔끔하게 출력한다.
 
 입력 설정:
-- 핵심 키워드: ${topic || '(keyword empty)'}
+- 핵심 키워드: ${payload.urlBasedGeneration === true ? '참고 URL의 실제 본문에서 주제와 제목을 추출한다. 원문을 읽을 수 없으면 추측해서 글을 만들지 않는다.' : topic || '(keyword empty)'}
 - 플랫폼: ${platform}
 - 글 유형: ${payload.contentMode || 'general'}
 - 말투: ${payload.toneStyle || '친절한 존댓말'}
@@ -2334,7 +2346,7 @@ function buildCodexImageTask(payload = {}) {
 - ${imageCapabilityNote}
 
 입력 설정:
-- 핵심 키워드: ${topic || '(keyword empty)'}
+- 핵심 키워드: ${payload.urlBasedGeneration === true ? '참고 URL을 바탕으로 완성된 글의 주제와 제목을 사용한다.' : topic || '(keyword empty)'}
 - 플랫폼: ${platform}
 - 이미지 생성 범위: ${describeImagePolicy(imagePolicy)}
 - 썸네일 텍스트: ${thumbnailTextIncluded ? '포함 가능. 단, 짧은 한국어 제목형 문구만 사용' : '미포함. 썸네일에도 글자를 넣지 않음'}
@@ -4001,6 +4013,20 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
 /** 작업실에 남아 있는 payload 가 지금 화면(키워드·작성자 요청)과 같은가 — 다르면 새로 만든다 */
 function isSavedPayloadCurrent(saved) {
   if (!saved) return false;
+  let urlMode = false;
+  try { urlMode = localStorage.getItem('singleInputMode') === 'url'; } catch { /* 기본 키워드 모드 */ }
+  if (urlMode !== (saved.urlBasedGeneration === true)) return false;
+  if (urlMode) {
+    const references = (document.getElementById('referenceUrl')?.value || '').split('\n');
+    const currentUrls = getReferenceLines({
+      urlBasedGeneration: true,
+      sourceUrl: references[0],
+      manualCrawlUrls: [1, 2, 3].map(i => document.getElementById(`manualCrawlUrl${i}`)?.value).concat(references),
+      affiliateLinks: (document.getElementById('affiliateLinks')?.value || '').split(/[\n,]+/),
+    });
+    if (JSON.stringify(currentUrls) !== JSON.stringify(getReferenceLines(saved))) return false;
+    return sameUserRequest(saved.userRequest, document.getElementById('userRequestNote')?.value);
+  }
   const keyword = (document.getElementById('keywordInput')?.value || '').trim();
   const savedKeyword = String(saved.topic || saved.keyword || '').trim();
   if (keyword && savedKeyword && keyword !== savedKeyword) return false;
@@ -4051,13 +4077,14 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
   // v3.8.777 — 작업실을 연 뒤 키워드·작성자 요청을 바꿨으면 열 때 만든 payload 를 쓰지 않는다(같은 키워드 + 다른 요청 = 다른 작업)
   const payload = inputPayload || (isSavedPayloadCurrent(state.payload) ? state.payload : null) || await createPreviewPayload();
   const topic = getTopic(payload);
-  if (!topic) {
-    throw new Error('먼저 키워드나 제목을 입력해주세요.');
+  if (!hasGenerationInput(payload)) {
+    throw new Error(payload.urlBasedGeneration === true ? '글을 생성할 올바른 URL을 입력해주세요.' : '먼저 키워드나 제목을 입력해주세요.');
   }
 
+  const reuseEditedTasks = source === 'modal' && payload === state.payload;
   state.payload = payload;
-  const editedArticleTask = source === 'modal' ? $('codexArticleTask')?.value?.trim() : '';
-  const editedImageTask = source === 'modal' ? $('codexImageTask')?.value?.trim() : '';
+  const editedArticleTask = reuseEditedTasks ? $('codexArticleTask')?.value?.trim() : '';
+  const editedImageTask = reuseEditedTasks ? $('codexImageTask')?.value?.trim() : '';
   state.articleTask = editedArticleTask || buildCodexArticleTask(payload);
   state.imageTask = editedImageTask || buildCodexImageTask(payload);
   setModalValues();
@@ -4646,9 +4673,8 @@ export async function openCodexWorkshopPanel() {
     }
 
     const payload = await createPreviewPayload();
-    const topic = getTopic(payload);
-    if (!topic) {
-      alert('먼저 키워드나 제목을 입력해주세요.');
+    if (!hasGenerationInput(payload)) {
+      alert(payload.urlBasedGeneration === true ? '글을 생성할 올바른 URL을 입력해주세요.' : '먼저 키워드나 제목을 입력해주세요.');
       return;
     }
 

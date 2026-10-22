@@ -9687,10 +9687,11 @@ function getAgentDemandQuestions(payload) {
 }
 function getAgentReferenceLines(payload) {
     const urls = [
-        ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
         payload?.sourceUrl,
+        ...(Array.isArray(payload?.manualCrawlUrls) ? payload.manualCrawlUrls : []),
         payload?.crawlUrl,
         payload?.referenceUrl,
+        ...(payload?.urlBasedGeneration === true && Array.isArray(payload?.affiliateLinks) ? payload.affiliateLinks : []),
     ]
         .map((url) => String(url || '').trim())
         .filter((url) => /^https?:\/\//i.test(url));
@@ -9698,7 +9699,9 @@ function getAgentReferenceLines(payload) {
 }
 function buildAgentJobInstructions(request, profile) {
     const payload = request.payload || {};
-    const topic = request.title || payload.title || payload.topic || payload.keyword || payload.keywords?.[0]?.keyword || '';
+    const topic = payload.urlBasedGeneration === true
+        ? ''
+        : request.title || payload.title || payload.topic || payload.keyword || payload.keywords?.[0]?.keyword || '';
     const imagePolicy = normalizeAgentImagePolicy(payload.imagePolicy || payload.h2ImageMode || payload?.h2Images?.imagePolicy || payload?.h2Images?.mode);
     const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
     const referenceLines = getAgentReferenceLines(payload);
@@ -9712,7 +9715,7 @@ function buildAgentJobInstructions(request, profile) {
         '앱에서 전달한 작업지시서를 기준으로, 바로 발행 전 미리보기에 넣을 수 있는 최종 HTML 글을 만드세요.',
         '',
         '## 핵심 목표',
-        `- 주제: ${topic || '(비어 있음)'}`,
+        `- 주제: ${payload.urlBasedGeneration === true ? '첫 번째 원본 URL의 실제 본문을 읽고 주제와 제목을 추출한다. 이전 키워드나 URL 표시용 라벨을 제목으로 사용하지 않는다. 원문을 읽을 수 없으면 추측해서 글을 만들지 않는다.' : topic || '(비어 있음)'}`,
         `- 실행 엔진: ${profile.provider}`,
         `- API 이미지 생성 범위: ${describeAgentImagePolicy(imagePolicy)}`,
         `- 썸네일 텍스트: ${thumbnailTextIncluded ? '포함 가능. 단, 짧은 한국어 제목형 문구만 사용한다.' : '미포함. 썸네일에도 글자를 넣지 않는다.'}`,
