@@ -38,6 +38,8 @@ const yaml = require('js-yaml');
     'src/core/llm/pricing.js', 'src/env.js',
     'src/core/external-traffic/_shared/llm-fallback.js',
     'electron/ui/modules/settings.js', 'electron/ui/modules/codex-workshop.js',
+    'electron/ui/modules/genspark-image-auth.js', 'electron/ui/script.js', 'electron/ui/index.html',
+    'dist/core/genspark/genspark-image.js', 'dist/core/genspark/genspark-client.js',
   ];
   for (const module of modules) {
     assert(asar.extractFile(archive, path.normalize(module)).equals(fs.readFileSync(path.join(root, module))), `${module} differs from the verified workspace`);

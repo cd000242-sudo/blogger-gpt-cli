@@ -1681,33 +1681,49 @@ window.setBatchDropshotStatusIdle = function () {
 function setGensparkStatus(text, color) {
   const status = document.getElementById('gensparkStatus');
   if (status) { status.textContent = text; status.style.color = color || 'rgba(255,255,255,0.6)'; }
+  window.__gensparkAuthState = { ...window.__gensparkAuthState, text, color: color || '#cbd5e1' };
+  window.dispatchEvent(new CustomEvent('genspark-auth-state'));
 }
 
-window.handleGensparkLogin = async function () {
-  const btn = document.getElementById('gensparkLoginBtn');
-  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-  setGensparkStatus('⏳ 젠스파크 창이 열렸습니다. 그 창에서 로그인하면 자동으로 닫힙니다.');
-  try {
-    const r = await window.electronAPI?.invoke?.('genspark:login');
-    if (r?.ok) setGensparkStatus(`✅ 젠스파크 로그인 완료${r.email ? ' — ' + r.email : ''}`, '#86efac');
-    else setGensparkStatus('❌ ' + (r?.error || '로그인을 확인하지 못했습니다'), '#fca5a5');
-  } catch (e) {
-    setGensparkStatus('❌ ' + (e?.message || e), '#fca5a5');
-  } finally {
-    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
-  }
-};
+let gensparkAuthPending = null;
 
-window.handleGensparkCheck = async function () {
-  setGensparkStatus('⏳ 젠스파크 로그인 상태를 확인하는 중...');
-  try {
-    const r = await window.electronAPI?.invoke?.('genspark:check-login');
-    if (r?.loggedIn) setGensparkStatus(`✅ 연결됨${r.email ? ' — ' + r.email : ''}`, '#86efac');
-    else setGensparkStatus('❌ ' + (r?.error || '로그인이 필요합니다. [젠스파크 로그인]을 눌러 주세요.'), '#fca5a5');
-  } catch (e) {
-    setGensparkStatus('❌ ' + (e?.message || e), '#fca5a5');
+function setGensparkAuthBusy(busy) {
+  window.__gensparkAuthState = { ...window.__gensparkAuthState, busy };
+  for (const id of ['gensparkLoginBtn', 'gensparkCheckBtn']) {
+    const btn = document.getElementById(id);
+    if (btn) { btn.disabled = busy; btn.style.opacity = busy ? '0.6' : '1'; }
   }
-};
+  window.dispatchEvent(new CustomEvent('genspark-auth-state'));
+}
+
+function runGensparkAuth(action) {
+  // 리서치·썸네일·편집기의 버튼을 연달아 눌러도 같은 프로필 창을 중복 실행하지 않는다.
+  if (gensparkAuthPending) return gensparkAuthPending;
+  gensparkAuthPending = (async () => {
+    setGensparkAuthBusy(true);
+    setGensparkStatus(action === 'login'
+      ? '⏳ 젠스파크 로그인 창을 여는 중입니다. 창에서 로그인하면 자동으로 닫힙니다.'
+      : '⏳ 젠스파크 로그인 상태를 확인하는 중...');
+    try {
+      const r = action === 'login'
+        ? await window.electronAPI?.invoke?.('genspark:login')
+        : await window.electronAPI?.invoke?.('genspark:check-login');
+      if (!r) throw new Error('앱 연결을 확인하지 못했습니다. Orbit를 다시 실행해 주세요.');
+      if (action === 'login' ? r.ok : r.loggedIn) setGensparkStatus(`✅ 연결됨${r.email ? ' — ' + r.email : ''} · 리서치·이미지 공용`, '#86efac');
+      else setGensparkStatus('❌ ' + (r.error || '로그인이 필요합니다. [젠스파크 로그인]을 눌러 주세요.'), '#fca5a5');
+      return r;
+    } catch (e) {
+      setGensparkStatus('❌ ' + (e?.message || e), '#fca5a5');
+      return { ok: false, loggedIn: false, error: String(e?.message || e) };
+    } finally {
+      setGensparkAuthBusy(false);
+    }
+  })().finally(() => { gensparkAuthPending = null; });
+  return gensparkAuthPending;
+}
+
+window.handleGensparkLogin = () => runGensparkAuth('login');
+window.handleGensparkCheck = () => runGensparkAuth('check');
 
 document.addEventListener('DOMContentLoaded', () => {
   const box = document.getElementById('gensparkResearch');

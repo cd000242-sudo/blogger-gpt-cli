@@ -29,7 +29,7 @@ describe('v3.8.761 젠스파크 이미지 선택지', () => {
 
   test('묶음 제목이 있는 목록에서는 젠스파크 묶음 제목이 따로 있다(드롭샷으로 오해하지 않게)', () => {
     const html = read('electron/ui/index.html');
-    expect((html.match(/✨ 젠스파크 \(본인 계정 로그인 · 설정 콘텐츠 탭\)/g) || []).length).toBe(2);
+    expect((html.match(/✨ 젠스파크 \(선택 후 아래에서 로그인\)/g) || []).length).toBe(2);
     expect((html.match(/─── ✨ 젠스파크 ───/g) || []).length).toBe(2);
   });
 

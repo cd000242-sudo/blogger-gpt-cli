@@ -8,7 +8,7 @@
  * 결과는 **작업 번호로 서버 기록에서** 꺼낸다. Dropshot 759 사고(화면에 새로 뜬 남의 이미지를 집음)가 생길 자리가 없다.
  * 같은 로그인 폴더를 리서치와 함께 쓰므로 runGensparkExclusive 줄을 선다.
  */
-import { fetchJsonInPage, openGensparkHeadless, projectIdFromUrl, runGensparkExclusive, GENSPARK_ORIGIN } from './genspark-client';
+import { fetchJsonInPage, openGensparkHeadless, projectIdFromUrl, readLoginResponse, runGensparkExclusive, GENSPARK_ORIGIN } from './genspark-client';
 
 export const AI_IMAGE_URL = `${GENSPARK_ORIGIN}/ai_image`;
 
@@ -25,7 +25,9 @@ export function parseGensparkImageProject(json: unknown): GensparkImageProject {
     for (const [id, result] of Object.entries(message?.session_state?.media_task_results || {})) {
       const r = result as any;
       const url = String(r?.url_nowatermark || r?.url || '');
-      if (/^https?:\/\//i.test(url)) images.push({ id, url, status: String(r?.status || '') });
+      const status = String(r?.status || '');
+      // 실패한 작업은 이미지 URL이 없어도 남겨야 즉시 실패 이유를 알릴 수 있다.
+      if (/^https?:\/\//i.test(url) || /fail|error|cancel/i.test(status)) images.push({ id, url, status });
     }
   }
   // 리서치와 같은 규칙: data.status 가 아니라 멈춘 이유로 완료를 본다
@@ -90,6 +92,15 @@ async function makeOnce(prompt: string, options: { onLog?: (m: string) => void; 
     context = opened.context;
     const page = opened.page;
     await page.goto(AI_IMAGE_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    options.onLog?.('🔐 젠스파크 이미지 생성 전 로그인 상태를 확인합니다.');
+    const session = await fetchJsonInPage(page, '/api/is_login');
+    if (session.status !== 200 || !session.json) {
+      return { ok: false, dataUrl: '', elapsedMs: Date.now() - startedAt, error: `GENSPARK_SESSION_CHECK_FAILED: 로그인 상태를 확인하지 못했습니다(HTTP ${session.status}). 이미지 엔진 옆 [상태 확인]을 눌러 주세요.` };
+    }
+    if (!readLoginResponse(session.json).loggedIn) {
+      return { ok: false, dataUrl: '', elapsedMs: Date.now() - startedAt, error: 'GENSPARK_LOGIN_REQUIRED: 이미지 엔진 옆 [젠스파크 로그인]을 먼저 눌러 주세요. 리서치와 같은 계정을 사용합니다.' };
+    }
+    options.onLog?.('✅ 젠스파크 로그인 확인 완료 — 이미지 생성을 시작합니다.');
     await page.locator('textarea').first().fill(text, { timeout: 20_000 });
     await page.locator('[aria-label="메시지 전송"]').first().click({ timeout: 10_000 });
     options.onLog?.('✨ 젠스파크 이미지 생성 중 — 보통 20초 안팎');
@@ -101,7 +112,7 @@ async function makeOnce(prompt: string, options: { onLog?: (m: string) => void; 
     }
     if (!projectId) {
       const login = await fetchJsonInPage(page, '/api/is_login').catch(() => ({ json: null }));
-      const loggedIn = !!(login?.json?.data?.cogen_id || login?.json?.cogen_id);
+      const loggedIn = readLoginResponse(login?.json).loggedIn;
       return { ok: false, dataUrl: '', elapsedMs: Date.now() - startedAt, error: loggedIn ? '젠스파크가 작업 번호를 주지 않았습니다(전송 실패)' : 'GENSPARK_LOGIN_REQUIRED: 설정에서 젠스파크 로그인을 먼저 해 주세요.' };
     }
 
@@ -110,6 +121,9 @@ async function makeOnce(prompt: string, options: { onLog?: (m: string) => void; 
     while (Date.now() < deadline) {
       await page.waitForTimeout(3000);
       const { status, json } = await fetchJsonInPage(page, `/api/project?id=${projectId}`);
+      if (status === 401 || status === 403) {
+        return { ok: false, dataUrl: '', projectId, elapsedMs: Date.now() - startedAt, error: 'GENSPARK_SESSION_EXPIRED: 이미지 작업에 접근할 수 없습니다. 이미지 엔진 옆 [젠스파크 로그인]으로 다시 연결해 주세요.' };
+      }
       if (status !== 200 || !json) continue;
       const project = parseGensparkImageProject(json);
       if (project.finished && !finishedAt) finishedAt = Date.now();
