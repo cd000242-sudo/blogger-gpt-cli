@@ -968,7 +968,22 @@ function getCurrentSectionCount() {
   return 5;
 }
 
+/** v3.8.770: in Agent mode the thumbnail text switch lives in the agent panel — keep that choice as the queue default. */
+function isAgentThumbnailTextOff() {
+  try {
+    const mode = getQueueAgentImageMode();
+    return !!(mode && mode.isAgentMode && mode.thumbnailTextIncluded === false);
+  } catch { return false; }
+}
+
 function getCurrentQueueSnapshot() {
+  const snapshot = buildScreenQueueSnapshot();
+  // v3.8.770: Agent mode keeps the agent panel's thumbnail-text choice as the queue default
+  if (isAgentThumbnailTextOff()) snapshot.thumbnailNoText = true;
+  return snapshot;
+}
+
+function buildScreenQueueSnapshot() {
   const contentMode = getSelectValue('contentMode') || getSelectValue('scheduleContentMode') || 'external';
   const selectedThumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'codex-image');
   const selectedH2ImageSource = getCurrentH2ImageSource();
@@ -1011,6 +1026,8 @@ function getCurrentQueueSnapshot() {
     keywordFront: !!(window.__getTitleOptions?.() || {}).keywordFront,
     // 🚫 v3.8.336: 썸네일 텍스트 미포함 — 대기열 추가 시점의 값을 항목에 고정
     thumbnailNoText: !!document.getElementById('thumbnailNoText')?.checked,
+    // v3.8.770: heading-image text has no single-screen source — off until the card or the bulk bar turns it on
+    h2TextIncluded: false,
     urlImageSource,
     urlAiCheck: !!document.getElementById('urlImageAiCheck')?.checked,
     urlAiFill: !!document.getElementById('urlImageAiFill')?.checked,
@@ -1053,6 +1070,7 @@ function cloneQueueSnapshot(snapshot) {
     useKeywordAsTitle: !!snap.useKeywordAsTitle,
     keywordFront: !!snap.keywordFront,
     thumbnailNoText: !!snap.thumbnailNoText,
+    h2TextIncluded: snap.h2TextIncluded === true,
     urlImageSource: snap.urlImageSource || '',
     urlAiCheck: !!snap.urlAiCheck,
     urlAiFill: !!snap.urlAiFill,
@@ -1083,6 +1101,7 @@ function snapshotFromItem(item) {
     useKeywordAsTitle: item.useKeywordAsTitle,
     keywordFront: item.keywordFront,
     thumbnailNoText: item.thumbnailNoText,
+    h2TextIncluded: item.h2TextIncluded,
     urlImageSource: item.url,
     urlAiCheck: item.urlAiCheck,
     urlAiFill: item.urlAiFill,
@@ -1131,6 +1150,7 @@ function applySnapshotToItem(item, snapshot, options = {}) {
   if (force || item.useKeywordAsTitle == null) item.useKeywordAsTitle = snap.useKeywordAsTitle;
   if (force || item.keywordFront == null) item.keywordFront = snap.keywordFront;
   if (force || item.thumbnailNoText == null) item.thumbnailNoText = snap.thumbnailNoText;
+  if (force || item.h2TextIncluded == null) item.h2TextIncluded = snap.h2TextIncluded;
   if (force || item.url == null) item.url = snap.urlImageSource;
   if (force || item.urlAiCheck == null) item.urlAiCheck = snap.urlAiCheck;
   if (force || item.urlAiFill == null) item.urlAiFill = snap.urlAiFill;
@@ -1546,6 +1566,22 @@ function buildModalHtml() {
                 <option value="none">이미지 없음</option>
               </select>
             </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">제목(썸네일) 글자</span>
+              <select id="pq-bulk-thumb-text">
+                <option value="">변경 안 함</option>
+                <option value="on">넣기</option>
+                <option value="off">빼기</option>
+              </select>
+            </label>
+            <label style="display:flex;flex-direction:column;gap:4px;">
+              <span style="color:#cbd5e1;font-size:11px;font-weight:700;">소제목 글자</span>
+              <select id="pq-bulk-h2-text">
+                <option value="">변경 안 함</option>
+                <option value="on">넣기</option>
+                <option value="off">빼기</option>
+              </select>
+            </label>
           </div>
         </div>
       </div>
@@ -1818,6 +1854,13 @@ function buildItemRow(item, idx) {
       </select>
     </div>
     <div class="pq-field">
+      <label>이미지 글자</label>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:12px;font-weight:700;color:#e2e8f0;" title="글자를 그릴 수 있는 엔진(나노바나나·GPT 이미지·Codex 등)에서만 적용됩니다">
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer;"><input type="checkbox" class="pq-item-thumb-text" ${item.thumbnailNoText ? '' : 'checked'} style="accent-color:#fbbf24;"> 제목(썸네일)</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer;"><input type="checkbox" class="pq-item-h2-text" ${item.h2TextIncluded === true ? 'checked' : ''} style="accent-color:#fbbf24;"> 소제목</label>
+      </div>
+    </div>
+    <div class="pq-field">
       <label>📁 내 폴더 이미지</label>
       <div class="pq-folder-static" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <button type="button" class="pq-item-folder-btn" data-item-id="${escHtml(item.id || '')}" style="flex:1;min-height:34px;padding:7px 10px;background:linear-gradient(135deg,#16a34a,#059669);color:#fff;border:1px solid rgba(134,239,172,0.35);border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">📁 이 글 폴더 이미지 선택</button>
@@ -2010,6 +2053,8 @@ function bindItemEvents() {
     });
     row.querySelector('.pq-item-thumb')?.addEventListener('change', e => { item.thumb = normalizeThumbEngine(e.target.value); saveItem(); });
     row.querySelector('.pq-item-h2')?.addEventListener('change', e => { item.h2ImageSource = normalizeThumbEngine(e.target.value); saveItem(); });
+    row.querySelector('.pq-item-thumb-text')?.addEventListener('change', e => { item.thumbnailNoText = !e.target.checked; saveItem(); });
+    row.querySelector('.pq-item-h2-text')?.addEventListener('change', e => { item.h2TextIncluded = e.target.checked; saveItem(); });
     row.querySelector('.pq-item-h2-mode')?.addEventListener('change', e => {
       synchronizeQueueItemImageMode(item, e.target.value);
       saveItem();
@@ -2450,6 +2495,10 @@ function buildQueuePayloadOverrides(item, scheduleDateIso) {
     keywordFront: !!item.keywordFront,
     // 🚫 v3.8.336: 항목에 고정된 "텍스트 미포함 썸네일" 설정을 백엔드로 전달
     thumbnailNoText: !!item.thumbnailNoText,
+    // v3.8.770: the same choice under the names the Agent image path reads, plus the heading-image text switch
+    thumbnailTextIncluded: !item.thumbnailNoText,
+    thumbnailIncludeText: !item.thumbnailNoText,
+    h2TextIncluded: item.h2TextIncluded === true,
     sourceUrl: sourceUrl || undefined,
     contentUrl: sourceUrl || undefined,
     manualCrawlUrls: sourceUrl ? [sourceUrl] : undefined,
@@ -3181,6 +3230,9 @@ function bindModalEvents() {
     const t = document.getElementById('pq-bulk-thumb')?.value;
     const h = document.getElementById('pq-bulk-h2')?.value;
     const hm = document.getElementById('pq-bulk-h2-mode')?.value;
+    // v3.8.770: "" = leave as is, 'on' = draw the text, 'off' = no text
+    const bulkThumbText = document.getElementById('pq-bulk-thumb-text')?.value || '';
+    const bulkH2Text = document.getElementById('pq-bulk-h2-text')?.value || '';
     const c = document.getElementById('pq-bulk-cta')?.value;
     const p = document.getElementById('pq-bulk-platform')?.value;
     const pm = document.getElementById('pq-bulk-posting')?.value;
@@ -3233,6 +3285,8 @@ function bindModalEvents() {
       if (h === 'same') item.h2ImageSource = normalizeThumbEngine(item.thumb);
       else if (h) item.h2ImageSource = normalizeThumbEngine(h);
       if (hm) synchronizeQueueItemImageMode(item, hm);
+      if (bulkThumbText) item.thumbnailNoText = bulkThumbText === 'off';
+      if (bulkH2Text) item.h2TextIncluded = bulkH2Text === 'on';
       delete item.agentImageManaged;
       delete item.imageManagedBy;
       if (c) item.ctaMode = c;

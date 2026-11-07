@@ -5582,6 +5582,9 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
             h2ImageSource: payload.h2ImageSource || selectedImageSource,
             h2ImageMode: payload.h2ImageMode,
             h2Images: payload.h2Images,
+            // v3.8.770: 썸네일 제목 글자(기존 키)와 소제목 글자 — 기본은 예전과 같다(썸네일 글자 있음 · 소제목 글자 없음)
+            thumbnailNoText: payload.thumbnailNoText === true,
+            h2TextIncluded: payload.h2TextIncluded === true,
             toneStyle: payload.toneStyle || 'professional',
             contentMode: payload.contentMode || 'external',
             titleMode: payload.titleMode || 'auto',
@@ -14994,6 +14997,11 @@ electron_1.ipcMain.handle('batch-image-generate', async (_evt, payload) => {
             extra.gptImageQuality = quality;
         if (Array.isArray(referenceImageList) && referenceImageList.length > 0)
             extra.referenceImageList = referenceImageList;
+        // v3.8.770: Agent 소제목 이미지의 글자 허용 (켠 경우에만; 글자 가능 엔진만 반영한다)
+        if (payload?.sectionImageText === true) {
+            extra.sectionImageText = true;
+            extra.sectionImageTitle = String(payload.sectionImageTitle || '').slice(0, 120);
+        }
         void aspectRatio; // aspectRatio 옵션은 향후 엔진별 적용
         return await dispatchH2ImageGeneration(engine, finalPrompt, prompt, undefined, undefined, extra);
     }

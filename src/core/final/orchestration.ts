@@ -5526,9 +5526,16 @@ ${quoted}
                 leonardoModel?: string;
                 allowFreeTrialPublishing?: boolean;
                 referenceImageList?: string[];
+                sectionImageText?: boolean;
+                sectionImageTitle?: string;
               } = {
                 allowFreeTrialPublishing: true,
               };
+              // v3.8.770: opt-in heading text. Off unless the queue / multi-account sends h2TextIncluded === true.
+              if (payload.h2TextIncluded === true) {
+                dispatchExtra.sectionImageText = true;
+                dispatchExtra.sectionImageTitle = section.h2;
+              }
               // v3.8.407: 썸네일을 톤 기준으로 넘긴다 — 소제목마다 화풍이 달라 보이지 않게.
               //   i2i 를 지원하는 엔진(나노바나나·GPT 이미지)만 실제로 쓰고 나머지는 무시한다.
               if (toneReferenceImage) dispatchExtra.referenceImageList = [toneReferenceImage];

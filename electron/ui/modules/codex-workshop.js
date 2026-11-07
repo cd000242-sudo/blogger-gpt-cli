@@ -4482,16 +4482,18 @@ function buildAgentThumbnailPrompt(title, topic, includeText) {
   return base.join('. ');
 }
 
-function buildAgentH2ImagePrompt(h2Text, topic) {
+function buildAgentH2ImagePrompt(h2Text, topic, includeText = false) {
   return [
     `Korean blog body image for section "${h2Text}" in article topic "${topic}"`,
     'realistic lifestyle/editorial scene, clean composition, helpful information mood',
-    'no text, no letters, no captions, no logo, no watermark, no signage',
+    includeText
+      ? `include one short bold Korean heading text only: "${h2Text}"`
+      : 'no text, no letters, no captions, no logo, no watermark, no signage',
     '16:9 landscape, natural light, visually distinct from other section images',
   ].join('. ');
 }
 
-async function generateAgentImage(engine, prompt, includeText, label) {
+async function generateAgentImage(engine, prompt, includeText, label, sectionImageTitle = '') {
   const api = getBridgeApi();
   if (!api?.invoke || !engine || engine === 'none') return '';
   try {
@@ -4501,6 +4503,8 @@ async function generateAgentImage(engine, prompt, includeText, label) {
       aspectRatio: '16:9',
       prompt,
       includeText: !!includeText,
+      // v3.8.770: heading-image text (only sent when it is on); the main process hands it to the dispatcher
+      ...(sectionImageTitle ? { sectionImageText: true, sectionImageTitle } : {}),
       publishContext: true,
     });
     const url = getImageResultUrl(result);
@@ -4581,6 +4585,7 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
   const thumbnailEngine = payload.thumbnailMode || payload.thumbnailType || payload.thumbnailSource || 'nanobanana2';
   const h2Engine = payload.h2ImageSource || payload.h2Images?.source || thumbnailEngine;
   const thumbnailTextIncluded = payload.thumbnailTextIncluded !== false && payload.thumbnailIncludeText !== false;
+  const h2TextIncluded = payload.h2TextIncluded === true;
   let thumbnailUrl = '';
   let content = removeAgentSuppliedImages(html);
 
@@ -4636,9 +4641,10 @@ async function enhanceCodexAgentImages_LEGACY_DISPATCHER(html, payload = {}, tit
         updateAgentProgress(Math.min(82, 76 + inserted + 1), `H2 ${index} 이미지 생성 중: ${h2Text.slice(0, 28)}`, 'info');
         imageUrl = await generateAgentImage(
           h2Engine,
-          buildAgentH2ImagePrompt(h2Text, topic),
-          false,
-          `H2 ${index}`
+          buildAgentH2ImagePrompt(h2Text, topic, h2TextIncluded),
+          h2TextIncluded,
+          `H2 ${index}`,
+          h2TextIncluded ? h2Text : ''
         );
       }
 

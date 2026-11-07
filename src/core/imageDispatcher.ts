@@ -421,6 +421,13 @@ export interface DispatchExtraOptions {
    * cover 로 들어가며 좌우가 3분의 2 잘려나갔다 — 글자 카드에서 치명상이다.
    */
   imageAspect?: 'portrait' | 'square' | 'landscape';
+  /**
+   * v3.8.770: opt-in heading (non-thumbnail) image text. Off by default, so heading images stay text-free.
+   * Only engines that can render Korean text (engineAllowsImageText) honor it; every other engine ignores it.
+   */
+  sectionImageText?: boolean;
+  /** v3.8.770: clean heading to draw when sectionImageText is on (the dispatch prompt may carry a variation hint). */
+  sectionImageTitle?: string;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1092,10 +1099,15 @@ async function _tryEngineInternal(
   keyword: string,
   env: Record<string, string>,
   onLog?: (msg: string) => void,
-  isThumbnail: boolean = false,
+  isThumbnailImage: boolean = false,
   contentMode?: string,
   extra?: DispatchExtraOptions,
 ): Promise<ImageResult> {
+  // v3.8.770: a heading image may carry text only when the caller opted in AND the engine can draw Korean text.
+  //   From here on `isThumbnail` means "this image may carry text", so every engine branch follows one switch.
+  const sectionTextOn = !isThumbnailImage && extra?.sectionImageText === true && engineAllowsImageText(engine);
+  const isThumbnail = isThumbnailImage || sectionTextOn;
+  const textTitle = sectionTextOn ? String(extra?.sectionImageTitle || prompt) : prompt;
   // 🧠 AI 추론 프롬프트: 1회만 호출하여 모든 엔진에서 재사용
   // NanoBanana 3종 + Flow + GPT Image + Prodia는 내부에서 generateEnglishPrompt 호출하므로 추론 불필요
   let inferredPrompt = prompt;
@@ -1168,7 +1180,7 @@ async function _tryEngineInternal(
         if (nbRefs?.length) {
           onLog?.(`   🖼️ ${m.label} i2i — 상품 사진 ${Math.min(nbRefs.length, 3)}장 참고`);
         }
-        const result = await makeNanoBananaProThumbnail(prompt, keyword, {
+        const result = await makeNanoBananaProThumbnail(textTitle, keyword, {
           apiKey,
           aspectRatio: '16:9',
           isThumbnail,
@@ -1229,7 +1241,7 @@ async function _tryEngineInternal(
         const gptSize = aspect === 'portrait' ? '1024x1536'
           : aspect === 'square' ? '1024x1024'
           : '1536x1024';
-        const result = await makeGptImageThumbnail(prompt, keyword, {
+        const result = await makeGptImageThumbnail(textTitle, keyword, {
           apiKey: openaiKey,
           modelId: g.id,
           isThumbnail: promptIsThumbnail,
@@ -1426,7 +1438,7 @@ async function _tryEngineInternal(
         if (userWantsNoText || !isThumbnail) {
           dropshotPrompt = enforceNoTextPrompt(inferredPrompt);
         } else if (isThumbnail && prompt) {
-          const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
+          const titleSafe = String(textTitle).replace(/["]/g, "'").trim().slice(0, 80);
           if (titleSafe) {
             dropshotPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. The title text must be clearly legible, well-balanced with the composition, with drop shadow or gradient fill, in a modern premium-blog-thumbnail style. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;
           }
@@ -1461,7 +1473,7 @@ async function _tryEngineInternal(
         if (userWantsNoText || !isThumbnail) {
           gensparkPrompt = enforceNoTextPrompt(inferredPrompt);
         } else if (isThumbnail && prompt) {
-          const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
+          const titleSafe = String(textTitle).replace(/["]/g, "'").trim().slice(0, 80);
           if (titleSafe) {
             gensparkPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;
           }
@@ -1491,7 +1503,7 @@ async function _tryEngineInternal(
         if (userWantsNoText || !isThumbnail) {
           codexPrompt = enforceNoTextPrompt(inferredPrompt);
         } else if (isThumbnail && prompt) {
-          const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
+          const titleSafe = String(textTitle).replace(/["]/g, "'").trim().slice(0, 80);
           if (titleSafe) {
             codexPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;
           }

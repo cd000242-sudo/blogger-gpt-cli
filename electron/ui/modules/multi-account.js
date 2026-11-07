@@ -346,6 +346,12 @@ function renderAdvancedSettings() {
         ['schedule', '예약 발행'],
       ])}
     </div>
+    <div class="ma-image-text" style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:13px;font-weight:700;"
+      title="글자를 그릴 수 있는 엔진(나노바나나·GPT 이미지·Codex 등)에서만 적용됩니다">
+      <span>이미지 글자</span>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="checkbox" id="multiThumbnailText"> 제목(썸네일)</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="checkbox" id="multiH2Text"> 소제목</label>
+    </div>
     <div class="ma-note">Tistory 계정은 보안 세션 안정성을 위해 다중계정 발행에서도 항상 순차 처리됩니다.</div>
   `;
   list.insertAdjacentElement('afterend', card);
@@ -418,8 +424,27 @@ function collectCurrentDetailSettings() {
   };
 }
 
+/** v3.8.770: the thumbnail-text default follows the current screen (the no-text checkbox, or the Agent panel in Agent mode). */
+function currentThumbnailTextDefault() {
+  if (document.getElementById('thumbnailNoText')?.checked) return false;
+  try {
+    const mode = typeof window.getAgentImageSettingsMode === 'function' ? window.getAgentImageSettingsMode() : null;
+    if (mode && mode.isAgentMode && mode.thumbnailTextIncluded === false) return false;
+  } catch { /* keep the default */ }
+  return true;
+}
+
+function checkboxValue(id, fallback) {
+  const el = document.getElementById(id);
+  return el ? !!el.checked : fallback;
+}
+
 function applyCurrentDetailSettingsToAdvancedControls() {
   const defaults = collectCurrentDetailSettings();
+  const thumbText = document.getElementById('multiThumbnailText');
+  if (thumbText) thumbText.checked = currentThumbnailTextDefault();
+  const h2Text = document.getElementById('multiH2Text');
+  if (h2Text) h2Text.checked = false;
   setSelectValue('multiContentMode', defaults.contentMode);
   setSelectValue('multiToneStyle', defaults.toneStyle);
   setSelectValue('multiTitleMode', defaults.titleMode);
@@ -436,8 +461,15 @@ function collectAdvancedSettings() {
   const thumbnailSource = valueFromDom('multiThumbnailSource') || defaults.thumbnailSource;
   const h2Raw = valueFromDom('multiH2ImageSource') || defaults.h2ImageSource;
   const h2ImageSource = h2Raw === 'same' ? thumbnailSource : h2Raw;
+  // v3.8.770: one choice for the whole run, sent under the names both image paths (API / Agent) read
+  const thumbnailTextIncluded = checkboxValue('multiThumbnailText', currentThumbnailTextDefault());
+  const h2TextIncluded = checkboxValue('multiH2Text', false);
   return {
     ...defaults,
+    thumbnailNoText: !thumbnailTextIncluded,
+    thumbnailTextIncluded,
+    thumbnailIncludeText: thumbnailTextIncluded,
+    h2TextIncluded,
     contentMode: valueFromDom('multiContentMode') || defaults.contentMode,
     toneStyle: valueFromDom('multiToneStyle') || defaults.toneStyle,
     titleMode: valueFromDom('multiTitleMode') || defaults.titleMode,

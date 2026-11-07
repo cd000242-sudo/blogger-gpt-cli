@@ -540,6 +540,17 @@ async function executeSchedule(scheduleId) {
     const scheduleThumbnailNoTextOverride = storedThumbnailNoText == null
       ? {}
       : { thumbnailNoText: storedThumbnailNoText === true };
+    // v3.8.770: saved image-text choices (heading text, and the Agent-path names of the thumbnail choice).
+    //   Missing on older schedules → keys are not sent, so the on-screen defaults survive.
+    const storedH2TextIncluded = schedule.h2TextIncluded ?? storedPayload.h2TextIncluded;
+    const storedThumbnailTextIncluded = schedule.thumbnailTextIncluded ?? storedPayload.thumbnailTextIncluded;
+    const scheduleImageTextOverride = {
+      ...(storedH2TextIncluded == null ? {} : { h2TextIncluded: storedH2TextIncluded === true }),
+      ...(storedThumbnailTextIncluded == null ? {} : {
+        thumbnailTextIncluded: storedThumbnailTextIncluded !== false,
+        thumbnailIncludeText: storedThumbnailTextIncluded !== false,
+      }),
+    };
     const scheduleManualCrawlUrls = [
       ...(Array.isArray(schedule.manualCrawlUrls) ? schedule.manualCrawlUrls : []),
       ...(Array.isArray(storedPayload.manualCrawlUrls) ? storedPayload.manualCrawlUrls : []),
@@ -579,6 +590,7 @@ async function executeSchedule(scheduleId) {
         urlBasedGeneration: scheduleUrlBasedGeneration,
         // 🚫 v3.8.336: 예약 당시 저장된 "텍스트 미포함 썸네일" 설정을 그대로 사용
         ...scheduleThumbnailNoTextOverride,
+        ...scheduleImageTextOverride,
       }
     }) : {
       // fallback: createPayload 미로딩시
@@ -594,6 +606,7 @@ async function executeSchedule(scheduleId) {
       manualCrawlUrls: scheduleManualCrawlUrls.length > 0 ? scheduleManualCrawlUrls : undefined,
       urlBasedGeneration: scheduleUrlBasedGeneration,
       ...scheduleThumbnailNoTextOverride,
+      ...scheduleImageTextOverride,
       previewOnly: false
     };
 
