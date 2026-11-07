@@ -9684,7 +9684,8 @@ const AGENT_LOGIN_VERIFY_TIMEOUT_MS = 45 * 1000;
 const CODEX_SESSION_PROBE_TIMEOUT_MS = 8 * 1000;
 // 실측: 죽은 프로필 2.0초 / 살아 있는 프로필 5.5초. 여유를 둬도 25초면 넉넉하다.
 const CODEX_EXEC_PROBE_TIMEOUT_MS = 25 * 1000;
-const CODEX_AGENT_DEFAULT_MODEL = 'gpt-5.5';
+// v3.8.766: 은퇴한 옛 기본 모델(10/14 목록에서 빠짐)을 버리고 앱 기본을 gpt-6.1-terra 로 둔다
+const CODEX_AGENT_DEFAULT_MODEL = 'gpt-6.1-terra';
 const CODEX_CHATGPT_MODEL_ERROR_RE = /not supported when using Codex with a ChatGPT account|gpt-5\.3-codex/i;
 const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of Codex/i;
 // v3.8.84: 워크스페이스 크레딧/쿼터 부족 오류 — ChatGPT 구독으로 로그인했어도 일부 환경에서

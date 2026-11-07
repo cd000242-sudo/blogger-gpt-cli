@@ -10,7 +10,8 @@
  *
  * Claude IDs: https://platform.claude.com/docs/en/models/overview (2026-10-14).
  * 모델 추가를 검증하려고 사용자 비용이 드는 실행을 자동으로 하지 않는다.
- *   codex   `-m gpt-6-astra`(사장님 config 기본값) · `gpt-5.6-terra` · `gpt-5.6-sol` · `gpt-5.6-luna` 전부 수용
+ *   codex   `-m gpt-6-astra`(사장님 config 기본값) · `gpt-6.1-terra`(앱 기본) · `gpt-6.1-sol` · `gpt-6-luna` · `gpt-5.6-*` 전부 수용
+ *           (이름은 로컬 Codex 모델 목록 캐시로 확인. gpt-5.5 는 목록에서 빠졌다)
  *   gemini  모델 이름을 확인하지 못했다 → 목록을 비우고 **에이전트 설정 그대로** 만 쓴다
  */
 
@@ -39,7 +40,10 @@ export const AGENT_MODELS: Record<string, AgentModelChoice[]> = {
   ],
   codex: [
     AGENT_MODEL_DEFAULT,
-    { value: 'gpt-6-astra', label: 'GPT-6 Astra', note: '최신 · 가장 똑똑함' },
+    { value: 'gpt-6.1-terra', label: 'GPT-6.1 Terra', note: '앱 기본 · 균형' },
+    { value: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', note: '고품질' },
+    { value: 'gpt-6-astra', label: 'GPT-6 Astra', note: '가장 똑똑함' },
+    { value: 'gpt-6-luna', label: 'GPT-6 Luna', note: '빠르고 가벼움' },
     { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', note: '고품질' },
     { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', note: '균형' },
     { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', note: '빠르고 가벼움' },
@@ -60,6 +64,8 @@ export function agentModelsFor(provider: string): AgentModelChoice[] {
 export function normalizeAgentModel(provider: string, value: unknown): string {
   let wanted = String(value ?? '').trim();
   if (!wanted) return '';
+  // gpt-5.5 was retired from the Codex model list (2026-10-14). A saved choice moves to the app default.
+  if (String(provider || '').toLowerCase() === 'codex' && wanted === 'gpt-5.5') return 'gpt-6.1-terra';
   if (String(provider || '').toLowerCase() === 'claude') {
     // An old removed model must not fall back to CLI defaults that may still be expensive.
     if (/^(?:claude-)?fable(?:-|$)/i.test(wanted)) return 'claude-sonnet-5-5';

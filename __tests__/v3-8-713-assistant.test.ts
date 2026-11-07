@@ -158,7 +158,7 @@ describe('v3.8.713 AI 비서', () => {
         .toEqual(['', 'claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);
       expect(agentModelsFor('claude').some((m: any) => /fable/i.test(m.value + m.label))).toBe(false);
       expect(agentModelsFor('codex').map((m: any) => m.value))
-        .toEqual(['', 'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
+        .toEqual(['', 'gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']);
       // gemini 는 모델 이름을 확인하지 못했다 — 기본값만 둔다
       expect(agentModelsFor('gemini').map((m: any) => m.value)).toEqual(['']);
     });

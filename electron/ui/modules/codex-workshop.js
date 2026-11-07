@@ -317,6 +317,8 @@ function loadExecutionPrefs() {
 export function normalizeAgentModelSelections(saved) {
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
   const models = { ...saved };
+  // v3.8.766: 은퇴한 gpt-5.5 로 저장돼 있으면 앱 기본으로 옮긴다
+  if (String(models.codex || '').trim() === 'gpt-5.5') models.codex = 'gpt-6.1-terra';
   const claude = String(models.claude || '');
   if (/^claude-fable(?:-|$)/i.test(claude)) models.claude = 'claude-sonnet-5-5';
   else if (/^claude-(haiku|sonnet|opus)(?:-|$)/i.test(claude)) {
