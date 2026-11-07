@@ -5551,7 +5551,10 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
         const perplexityKey = env.PERPLEXITY_API_KEY || env.perplexityKey || env.perplexityApiKey || '';
         const selectedProvider = normalizeProvider(payload.provider || payload.defaultAiProvider || payload.generationEngine || env.DEFAULT_AI_PROVIDER || env.GENERATION_ENGINE);
         const hasAnyTextKey = !!(geminiKey || openaiKey || claudeKey || perplexityKey);
-        if (!hasAnyTextKey) {
+        // v3.8.769 - Agent 가 이미 쓴 글이면 API 로 글을 쓰지 않으므로 API 키도 요구하지 않는다
+        const agentArticle = payload.preGenerated;
+        const useAgentArticle = !!(String(agentArticle?.html || '').trim() && String(agentArticle?.title || '').trim());
+        if (!hasAnyTextKey && !useAgentArticle) {
             return { ok: false, error: '글 생성 API 키가 설정되지 않았습니다. 환경설정에서 Gemini/OpenAI/Claude/Perplexity 중 하나의 API 키를 저장해주세요.' };
         }
         // 플랫폼별 설정 구성
@@ -5641,9 +5644,16 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
             contentMode: postPayload.contentMode,
             postingMode: postPayload.postingMode || postPayload.publishType,
         };
-        const article = await generateMaxModeArticle(postPayload, generationEnv, (msg) => {
-            console.log('[MULTI-ACCOUNT]', msg);
-        });
+        const article = useAgentArticle
+            ? {
+                title: String(agentArticle?.title || '').trim(),
+                html: String(agentArticle?.html || ''),
+                thumbnail: String(agentArticle?.thumbnailUrl || ''),
+                labels: Array.isArray(agentArticle?.labels) ? agentArticle.labels : undefined,
+            }
+            : await generateMaxModeArticle(postPayload, generationEnv, (msg) => {
+                console.log('[MULTI-ACCOUNT]', msg);
+            });
         const articleTitle = article?.title || postPayload.topic;
         const articleHtml = article?.html || article?.content || '';
         const articleThumbnail = article?.thumbnail || article?.thumbnailUrl || '';

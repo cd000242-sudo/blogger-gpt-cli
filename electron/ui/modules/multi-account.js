@@ -1,3 +1,12 @@
+import { getAppState } from './core.js';
+import {
+  generateArticleWithAgent,
+  readAgentExecutionState,
+  runAccountsInOrder,
+  stripAccountSecrets,
+  verifyMultiAccountAgentReady,
+} from './multi-account-agent.js';
+
 const PLATFORM_META = {
   blogger: {
     label: 'Blogger',
@@ -22,6 +31,8 @@ const PLATFORM_META = {
 let multiAccountsState = [];
 let isPublishing = false;
 let publishAbort = false;
+// v3.8.769: Agent 준비 확인(수 초) 중에 시작 버튼이 한 번 더 눌려도 두 번 시작하지 않는다
+let agentCheckRunning = false;
 
 function parseJson(value, fallback) {
   try {
@@ -689,6 +700,18 @@ async function publishToAccount(account) {
   if (!api?.runMultiAccountPost) {
     throw new Error('다중계정 발행 API를 찾을 수 없습니다. 앱을 다시 실행해주세요.');
   }
+  /**
+   * v3.8.769 - 실행 모드가 Agent 면 단일발행과 같은 생성 경로(runAgentJobFromPosting)로 Claude Code/Codex 가 글을 쓴다.
+   * 계정 비밀(구글 비밀키·워드프레스 비밀번호)은 에이전트 작업 폴더에 들어가지 않게 뺀 사본만 넘기고,
+   * 만들어진 글은 payload.preGenerated 로 실어 이 계정의 자격 증명으로 발행한다(API 글 생성은 건너뛴다).
+   */
+  const agent = readAgentExecutionState(window).mode === 'agent';
+  if (agent) {
+    addLog(`[${account.name}] Agent 로 글 생성 중: ${account.settings.keyword}`, 'info');
+    const article = await generateArticleWithAgent(stripAccountSecrets(payload), window, { getAppState });
+    payload.preGenerated = { title: article.title, html: article.html, thumbnailUrl: article.thumbnailUrl };
+    addLog(`[${account.name}] Agent 글 생성 완료${article.title ? `: ${article.title}` : ''} - 이 계정으로 발행합니다`, 'success');
+  }
   const result = await api.runMultiAccountPost(payload);
   if (!result?.ok) {
     throw new Error(result?.error || '발행 실패');
@@ -701,9 +724,14 @@ async function publishGroup(accounts) {
   const tistory = accounts.filter((account) => account.type === 'tistory');
   const results = [];
 
+  // v3.8.769: Agent 모드는 글 생성 작업이 한 번에 하나만 돈다 - 계정을 한 곳씩 차례로 (중단·인증 만료면 남은 계정은 시작하지 않는다)
+  const agent = readAgentExecutionState(window).mode === 'agent';
+  const shouldStop = () => publishAbort || (agent && window.__agentAuthRevoked === true);
   if (regular.length > 0) {
-    addLog(`일반 플랫폼 ${regular.length}개 계정 동시 발행 시작`, 'info');
-    const regularResults = await Promise.all(regular.map(async (account) => {
+    addLog(agent
+      ? `일반 플랫폼 ${regular.length}개 계정 Agent 순차 발행 시작 (글은 한 번에 한 편씩 생성)`
+      : `일반 플랫폼 ${regular.length}개 계정 동시 발행 시작`, 'info');
+    const regularResults = await runAccountsInOrder(regular, async (account) => {
       try {
         addLog(`[${account.name}] 발행 시작: ${account.settings.keyword}`, 'info');
         const result = await publishToAccount(account);
@@ -713,12 +741,12 @@ async function publishGroup(accounts) {
         addLog(`[${account.name}] 발행 실패: ${error.message}`, 'error');
         return { account, ok: false, error };
       }
-    }));
+    }, { agent, shouldStop });
     results.push(...regularResults);
   }
 
   for (const account of tistory) {
-    if (publishAbort) break;
+    if (shouldStop()) break;
     try {
       addLog(`[${account.name}] Tistory 순차 발행 시작: ${account.settings.keyword}`, 'info');
       const result = await publishToAccount(account);
@@ -745,6 +773,25 @@ async function startMultiPublish() {
     alert(`"${missingKeyword.name}" 계정에 키워드가 입력되지 않았습니다.`);
     return;
   }
+
+  /**
+   * v3.8.769 - Agent 모드면 시작 전에 에이전트 로그인·이미지 엔진 연결을 확인한다. 하나라도 안 되면 아무것도 시작하지 않고
+   * 연결 안내만 보여 준다(조용히 API 글 생성으로 넘어가지 않는다).
+   */
+  if (isPublishing || agentCheckRunning) return;
+  agentCheckRunning = true;
+  let readiness;
+  try {
+    readiness = await verifyMultiAccountAgentReady(enabledAccounts, collectAdvancedSettings(), window);
+  } finally {
+    agentCheckRunning = false;
+  }
+  if (!readiness.ok) {
+    addLog(readiness.message, 'error');
+    alert(`${readiness.message}\n\n환경설정에서 Agent 연결을 마친 뒤 다시 시작해주세요. (발행은 시작하지 않았습니다)`);
+    return;
+  }
+  try { window.__agentAuthRevoked = false; } catch { /* 표시용 신호일 뿐이다 */ }
 
   isPublishing = true;
   publishAbort = false;

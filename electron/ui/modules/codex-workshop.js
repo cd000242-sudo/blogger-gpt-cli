@@ -833,12 +833,15 @@ async function verifyAgentExecutionReadiness(options = {}) {
       }
     }
 
-    const config = await getAgentPlatformConfig();
-    const requestedPlatforms = Array.isArray(options.platforms) && options.platforms.length
-      ? options.platforms
-      : [config.platform];
-    for (const platform of [...new Set(requestedPlatforms.map(normalizeAgentIntegrationPlatform))]) {
-      checks.push(await verifyAgentPlatformIntegration(platform, config));
+    // v3.8.769: 다중계정은 계정마다 자격 증명이 달라 화면의 단일 플랫폼 설정으로 확인하지 않는다(메인이 계정별로 검증한다)
+    if (options.skipPlatforms !== true) {
+      const config = await getAgentPlatformConfig();
+      const requestedPlatforms = Array.isArray(options.platforms) && options.platforms.length
+        ? options.platforms
+        : [config.platform];
+      for (const platform of [...new Set(requestedPlatforms.map(normalizeAgentIntegrationPlatform))]) {
+        checks.push(await verifyAgentPlatformIntegration(platform, config));
+      }
     }
 
     const ready = checks.every((check) => check.ready === true);
@@ -4259,6 +4262,8 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     ok: true,
     title: result.title || topic,
     content,
+    // v3.8.769: 다중계정이 계정별로 발행할 수 있게 썸네일도 함께 돌려준다
+    thumbnailUrl: imageEnhancement.thumbnailUrl || '',
     jobId: result.jobId || '',
     provider: profile.provider,
   };
