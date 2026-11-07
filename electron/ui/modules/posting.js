@@ -812,7 +812,9 @@ export async function runPosting() {
       updateAgentProgressModal(84, 'Agent 글과 API 이미지를 적용했습니다. 플랫폼 발행을 시작합니다.', 'success', 'publish');
       window.__agentPublishFlowActive = true;
       addLog('Agent 생성 완료: 플랫폼 발행 흐름으로 이어서 진행합니다.', 'info');
-      const publishResult = await publishToPlatform();
+      // v3.8.767 — 이 표시는 여기서 켰으니 여기서 반드시 내린다. publishToPlatform 의 어느 출구(조기 return·예외 포함)로
+      //   나와도 켜진 채 남으면 다음 항목·다음 실행이 "에이전트 발행 중" 으로 잘못 판정된다.
+      const publishResult = await publishToPlatform().finally(() => { window.__agentPublishFlowActive = false; });
       const publishedOk = !!(publishResult?.ok || publishResult?.success);
       updateAgentProgressModal(
         publishedOk ? 100 : 94,
@@ -1421,9 +1423,14 @@ export async function publishToPlatform(options) {
     return await runPosting();
   }
 
+  // v3.8.767 — 연속발행 중 에이전트 흐름의 글은 방금 이 항목을 위해 만든 것이다(발행 payload 도 항목 값으로 만든다).
+  //   아래 "낡은 글 폐기" 검사는 사용자가 칸을 고친 뒤 옛 글이 다시 나가는 것을 막는 장치인데, 항목 키워드가 입력 칸을 거치며
+  //   달라지면(칸이 줄바꿈을 지움 등) 방금 만든 글을 버리고 아래 맨 끝의 재호출로 떨어졌다. 이 경우만 검사를 건너뛴다.
+  const justMadeForQueueItem = isQueueRun && agentFlowActive;
+
   // v3.8.353: 키워드 변경 감지 → 이전 콘텐츠 폐기 (무한루프 방지)
   // 사용자가 새 키워드를 입력하고 발행 버튼을 눌러도 이전 생성물이 재발행되던 버그 fix.
-  if (appState.generatedContent?.content?.trim()) {
+  if (!justMadeForQueueItem && appState.generatedContent?.content?.trim()) {
     const currentKeyword = (document.getElementById('keywordInput')?.value || '').trim();
     const savedKeyword = String(
       appState.generatedContent.payload?.topic
@@ -1723,6 +1730,14 @@ export async function publishToPlatform(options) {
       } catch {}
     }
   } else {
+    // v3.8.767 — 에이전트 흐름은 runPosting 이 잠금(__runPostingInFlight)을 쥔 채 이 함수를 부른다.
+    //   글 칸이 비었거나(적용 실패) 키워드·요청이 바뀌어 폐기됐을 때 여기서 runPosting 을 다시 부르면
+    //   자기 잠금에 걸려 항목이 already_running 으로 끝난다. 다시 부르지 말고 원인을 그대로 알린다.
+    if (agentFlowActive) {
+      addLog('Agent 글을 발행 칸에서 찾지 못했습니다(비었거나 키워드·요청이 바뀌어 폐기됨). 이 항목은 건너뜁니다.', 'error');
+      window.__agentPublishFlowActive = false;
+      return { ok: false, error: 'agent_article_missing' };
+    }
     // 콘텐츠가 없으면 전체 생성+발행 흐름 (runPosting의 finally가 이벤트 발사)
     return await runPosting();
   }
