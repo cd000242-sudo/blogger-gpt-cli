@@ -627,6 +627,7 @@
                     onfocus="this.style.borderColor='#10b981'; this.style.backgroundColor='#ffffff';"
                     onblur="this.style.borderColor='#e5e7eb'; this.style.backgroundColor='#f9fafb';">
                     <option value="auto" selected>⚙️ 자동 (썸네일 타입 따름)</option>
+                    <option value="codex-image">🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원)</option>
                     <option value="nanobanana2">🍌 나노바나나2 (Nano Banana 2.1 · Pro 품질·Flash 가격 · 권장)</option>
                     <option value="nanobanana">🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
                     <option value="nanobananapro">🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질)</option>
@@ -3496,6 +3497,7 @@
                     </label>
                     <select id="thumbnailGenAiEngine"
                       style="width: 100%; padding: 12px; border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 8px; background: rgba(15, 23, 42, 0.85); color: white; font-size: 14px; backdrop-filter: blur(10px); cursor: pointer;">
+                      <option value="codex-image" style="background:#0f172a;">🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원)</option>
                       <option value="nanobanana2" style="background:#0f172a;">🍌 나노바나나 2 (Gemini 3.1 Flash · 권장)</option>
                       <option value="nanobanana" style="background:#0f172a;">🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
                       <option value="nanobananapro" style="background:#0f172a;">🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질)</option>
@@ -4800,9 +4802,11 @@
                     <div class="acc-field">
                       <label class="acc-label">📸 썸네일 타입</label>
                       <select id="thumbnailType" onchange="handleThumbnailTypeChange && handleThumbnailTypeChange(this.value)">
+                        <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─────── 🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원) ───────</option>
+                        <option value="codex-image" selected>　🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 이미지당 추가비용 0원 · 권장)</option>
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🍌 나노바나나 (Gemini Image) ───────</option>
                         <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
-                        <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격 · 권장)</option>
+                        <option value="nanobanana2">　🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격)</option>
                         <option value="nanobananapro">　🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질·고비용)</option>
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🎯 OpenAI GPT 이미지 (신분증 인증 필수) ───────</option>
                         <option value="gptimage1">　🎯 GPT 이미지 1 (gpt-image-1)</option>
@@ -4851,9 +4855,11 @@
                     <div class="acc-field">
                       <label class="acc-label">🖼️ 소제목 이미지</label>
                       <select id="h2ImageSource" onchange="handleH2ImageSourceChange && handleH2ImageSourceChange(this.value)">
+                        <option disabled style="color:#34d399; background:#0f172a; font-weight:800;">─────── 🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원) ───────</option>
+                        <option value="codex-image" selected>　🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 이미지당 추가비용 0원 · 권장)</option>
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🍌 나노바나나 (Gemini Image) ───────</option>
                         <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 Flash · 저비용)</option>
-                        <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격 · 권장)</option>
+                        <option value="nanobanana2">　🍌 나노바나나 2 (Gemini 3.1 Flash · Pro 품질·Flash 가격)</option>
                         <option value="nanobananapro">　🍌 나노바나나 Pro (Gemini 3 Pro · 최고품질·고비용)</option>
                         <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─────── 🎯 OpenAI GPT 이미지 (신분증 인증 필수) ───────</option>
                         <option value="gptimage1">　🎯 GPT 이미지 1 (gpt-image-1)</option>
@@ -6140,6 +6146,7 @@ https://toss.im/_m/XXXXXXX"
                 <label for="swThumbnailEngine" class="sw-label" style="display:block; margin-bottom: 6px; font-size: 13px;">📸 썸네일 엔진</label>
                 <select id="swThumbnailEngine" onchange="window._spiderWebUpdateEngineCards && window._spiderWebUpdateEngineCards()" class="sw-input" style="width: 100%; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px;">
                   <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─── 🍌 나노바나나 ───</option>
+                  <option value="codex-image">　🐙 Codex 구독 이미지 (본인 ChatGPT 구독)</option>
                   <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
                   <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 · 권장)</option>
                   <option value="nanobananapro">　🍌 나노바나나 Pro (Gemini 3 · 최고품질)</option>
@@ -6165,6 +6172,7 @@ https://toss.im/_m/XXXXXXX"
                 <label for="swH2ImageEngine" class="sw-label" style="display:block; margin-bottom: 6px; font-size: 13px;">🖼️ 본문 이미지 엔진</label>
                 <select id="swH2ImageEngine" onchange="window._spiderWebUpdateEngineCards && window._spiderWebUpdateEngineCards()" class="sw-input" style="width: 100%; padding: 10px 12px; background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.15); border-radius: 8px; color: #e2e8f0; font-size: 13px;">
                   <option disabled style="color:#fbbf24; background:#0f172a; font-weight:800;">─── 🍌 나노바나나 ───</option>
+                  <option value="codex-image">　🐙 Codex 구독 이미지 (본인 ChatGPT 구독)</option>
                   <option value="nanobanana">　🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
                   <option value="nanobanana2" selected>　🍌 나노바나나 2 (Gemini 3.1 · 권장)</option>
                   <option value="nanobananapro">　🍌 나노바나나 Pro (Gemini 3 · 최고품질)</option>
@@ -8189,7 +8197,8 @@ https://toss.im/_m/XXXXXXX"
             <div>
               <label style="display: block; color: rgba(255,255,255,0.6); font-size: 11px; margin-bottom: 4px;">이미지 소스</label>
               <select onchange="updateMultiAccountSetting('${account.id}', 'imageSource', this.value)" style="width: 100%; padding: 10px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 13px;">
-                <option value="nanobanana2" ${(!account.settings.imageSource || account.settings.imageSource === 'nanobanana2') ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
+                <option value="codex-image" ${(!account.settings.imageSource || account.settings.imageSource === 'codex-image') ? 'selected' : ''}>🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원 · 권장)</option>
+                <option value="nanobanana2" ${account.settings.imageSource === 'nanobanana2' ? 'selected' : ''}>🍌 나노바나나2 (Gemini 3.1 · 권장)</option>
                 <option value="nanobanana" ${account.settings.imageSource === 'nanobanana' ? 'selected' : ''}>🍌 나노바나나 (Gemini 2.5 · 저비용)</option>
                 <option value="dropshot-nanobanana-pro" ${account.settings.imageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>🍌 리더스 나노바나나 무제한 (구독자 무제한)</option>
                 <option value="genspark-image" ${account.settings.imageSource === 'genspark-image' ? 'selected' : ''}>✨ 젠스파크 AI 이미지 (본인 젠스파크 계정 · 무료 모델)</option>

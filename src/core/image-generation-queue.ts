@@ -17,6 +17,12 @@ export interface ImageGenerationQueueMeta {
 const BROWSER_ENGINE_PATTERN = /(dropshot|imagefx|image-fx|\bflow\b|labs-flow|labsflow|googleflow|browser|playwright)/i;
 const SLOW_ENGINE_PATTERN = /(nanobanana|nano-banana|gptimage|gpt-image|deepinfra|leonardo|gemini.*image)/i;
 
+/**
+ * Engines that limit their own concurrency (the engine holds a semaphore) skip the one-at-a-time lane.
+ * codex-image draws up to 4 images at once through the Codex CLI; the other engines stay serialized.
+ */
+const SELF_THROTTLED_ENGINES = new Set<string>(['codex-image']);
+
 const BROWSER_STABILIZATION_MS = 15_000;
 const SLOW_STABILIZATION_MS = 8_000;
 
@@ -81,6 +87,10 @@ export async function runImageGenerationQueued<T>(
 ): Promise<T> {
   const engine = String(meta.engine || 'unknown').trim().toLowerCase() || 'unknown';
   const label = meta.label || engine;
+  if (SELF_THROTTLED_ENGINES.has(engine)) {
+    meta.onLog?.(`🧵 이미지 생성 — ${label} (엔진이 동시 4장까지 직접 조절)`);
+    return task();
+  }
   const position = ++queuedCount;
 
   const run = async (): Promise<T> => {

@@ -55,6 +55,7 @@ export const SUPPORTED_IMAGE_ENGINES = [
   'leonardo',
   'dropshot-nanobanana-pro', // v3.6.0: Dropshot UI 자동화 (Pro 구독자 무제한)
   'genspark-image', // v3.8.761: 젠스파크 AI 이미지 (본인 계정 · Nano Banana 2 Flash Lite 무료 모델) — 작업 번호로 결과 수신
+  'codex-image', // v3.8.768: Codex 구독 이미지 (본인 ChatGPT 구독 · codex exec 의 image_gen · 추가 비용 0원)
   'flow',
   'crawled',
   'text',
@@ -128,6 +129,10 @@ export function normalizeImageEngine(raw: string | undefined | null): ImageEngin
     'genspark': 'genspark-image',
     'genspark-ai-image': 'genspark-image',
     'gensparkimage': 'genspark-image',
+    // v3.8.768: Codex 구독 이미지 별칭 (텍스트용 'codex' 에이전트 이름으로 들어와도 같은 엔진)
+    'codex': 'codex-image',
+    'codeximage': 'codex-image',
+    'codex-subscription-image': 'codex-image',
   };
   if (aliasMap[value]) return aliasMap[value];
   if ((SUPPORTED_IMAGE_ENGINES as readonly string[]).includes(value)) {
@@ -441,6 +446,8 @@ const TEXT_CAPABLE_IMAGE_ENGINES = new Set<string>([
   'dropshot',
   'dropshot-nanobanana-pro',
   'genspark-image',
+  // Codex 의 image_gen 은 한글 문구를 엔진이 직접 그린다(네이버 앱 실측 2026-11)
+  'codex-image',
   'gptimage2',
   'gptimage25flare',
   'gptimage25sunburst',
@@ -485,6 +492,7 @@ function engineKeyAvailable(engine: string, env: Record<string, string>): boolea
     case 'dropshot-nanobanana-pro':
     case 'dropshot':
     case 'genspark-image':
+    case 'codex-image':
     case 'flow':
       return true;
     default:
@@ -500,6 +508,8 @@ function buildFallbackChain(chosen: string, env: Record<string, string>): string
   if (chosen === 'dropshot' || chosen === 'dropshot-nanobanana-pro') return [];
   // v3.8.761 — 젠스파크도 본인 계정 엔진(무료 모델)이다. 같은 이유로 유료 API 자동 폴백을 막는다
   if (chosen === 'genspark-image') return [];
+  // v3.8.768 — Codex 구독 이미지도 본인 구독 엔진이다. 실패해도 유료 API 로 자동으로 넘어가지 않는다(자동 폴백 금지).
+  if (chosen === 'codex-image') return [];
   return RELIABILITY_FALLBACK_ORDER
     .filter(e => e !== chosen)
     .filter(e => engineKeyAvailable(e, env));
@@ -548,6 +558,9 @@ export function engineSupportsI2i(engine: string): boolean {
  */
 export function pickI2iEngine(preferred: string, env: Record<string, string>): { engine: string; switched: boolean; reason: string } {
   const want = String(preferred || '').trim();
+  // v3.8.768: Codex 구독 이미지는 상품 사진을 참고하지 못하지만, 그렇다고 유료 API 엔진으로 몰래 바꾸지 않는다.
+  //   사용자가 고른 엔진 그대로 두고 글 내용만으로 그린다(호출부가 로그로 알린다).
+  if (want === 'codex-image') return { engine: want, switched: false, reason: '' };
   if (engineSupportsI2i(want) && engineKeyAvailable(want, env)) {
     return { engine: want, switched: false, reason: '' };
   }
@@ -789,9 +802,12 @@ export async function dispatchH2ImageGeneration(
     imageSource, prompt, keyword, env, onLog, false, contentMode, extra,
     isDropshotPrimary
       ? { maxAttempts: 3, maxCooldownMs: 30000 }
-      : { maxAttempts: 2, maxCooldownMs: 15000 },
+      : imageSource === 'codex-image'
+        ? { maxAttempts: 1, maxCooldownMs: 0 } // 구독 한도를 쓰는 엔진 — 같은 요청을 몰래 다시 보내지 않는다
+        : { maxAttempts: 2, maxCooldownMs: 15000 },
   );
   if (primaryResult.ok) return primaryResult;
+  if (imageSource === 'codex-image') return subscriptionEngineFailure(primaryResult, false, onLog);
 
   /**
    * 💸 v3.8.458 — 수집형 소스(crawled 등)는 **유료 폴백으로 넘어가지 않는다.**
@@ -930,9 +946,12 @@ export async function dispatchThumbnailGeneration(
     thumbnailSource, title, keyword, env, onLog, true, undefined, extra,
     isDropshotPrimary
       ? { maxAttempts: 3, maxCooldownMs: 30000 }
-      : { maxAttempts: 2, maxCooldownMs: 15000 },
+      : thumbnailSource === 'codex-image'
+        ? { maxAttempts: 1, maxCooldownMs: 0 } // 구독 한도를 쓰는 엔진 — 같은 요청을 몰래 다시 보내지 않는다
+        : { maxAttempts: 2, maxCooldownMs: 15000 },
   );
   if (primaryResult.ok) return primaryResult;
+  if (thumbnailSource === 'codex-image') return subscriptionEngineFailure(primaryResult, true, onLog);
 
   console.error(`[DISPATCH-THUMB] ❌ 1순위 ${thumbnailSource} 실패: ${primaryResult.error || '사유 미상'}`);
   onLog?.(`❌ ${thumbnailSource} 썸네일 실패: ${primaryResult.error || '사유 미상'}`);
@@ -978,6 +997,26 @@ export async function dispatchThumbnailGeneration(
 
   // v3.8.761: 모든 AI 엔진 실패 → 썸네일 없이 진행(대체 그림·Pollinations 없음)
   return noImageResult(thumbnailSource, true, onLog);
+}
+
+/**
+ * v3.8.768 — 본인 구독 엔진(Codex 구독 이미지)이 실패했을 때.
+ * 다른 엔진으로 넘어가지 않고, 일반 "모든 엔진 실패" 문구로 덮지도 않는다 — 사용자가 고쳐야 할 것(연결·한도)이 이 문구에 있다.
+ * 호출자는 ok:false 를 받으면 그 칸을 비운다(썸네일 없이 진행 · 소제목 스킵).
+ */
+function subscriptionEngineFailure(
+  failed: ImageResult,
+  isThumbnail: boolean,
+  onLog?: (msg: string) => void,
+): ImageResult {
+  const reason = failed.error || '사유 미상';
+  if (reason !== 'CANCELED_BY_USER') {
+    onLog?.(`❌ Codex 구독 이미지 실패: ${reason}`);
+    onLog?.(isThumbnail
+      ? '⬜ 다른 이미지 엔진으로 자동 전환하지 않습니다 — 썸네일 없이 진행합니다'
+      : '⬜ 다른 이미지 엔진으로 자동 전환하지 않습니다 — 이 이미지는 건너뜁니다');
+  }
+  return { ok: false, dataUrl: '', source: '', error: reason };
 }
 
 /**
@@ -1437,6 +1476,38 @@ async function _tryEngineInternal(
         const detail = `예외: ${e?.message || e}`;
         console.log(`[DISPATCH] ⚠️ 젠스파크 이미지 예외: ${detail}`);
         return { ok: false, dataUrl: '', source: '', error: `젠스파크 ${detail}` };
+      }
+    }
+
+    /**
+     * v3.8.768 — Codex 구독 이미지(본인 ChatGPT 구독 · codex exec 의 image_gen). 한 장 = 세션 하나, 동시 4장.
+     * 지시문이 프롬프트를 그대로 넘기라고 하므로 글자 규칙(썸네일 제목 오버레이 / 본문 글자 금지)은 프롬프트 안에 넣는다.
+     * 실패는 연결·한도 안내 문구 그대로 돌려주고, 다른 엔진으로 넘어가지 않는다.
+     */
+    case 'codex-image': {
+      try {
+        const { makeCodexImage } = await import('./codex-image/codexImageEngine');
+        let codexPrompt = inferredPrompt;
+        if (userWantsNoText || !isThumbnail) {
+          codexPrompt = enforceNoTextPrompt(inferredPrompt);
+        } else if (isThumbnail && prompt) {
+          const titleSafe = String(prompt).replace(/["]/g, "'").trim().slice(0, 80);
+          if (titleSafe) {
+            codexPrompt = `${inferredPrompt}\n\nTEXT OVERLAY (MANDATORY): Render the exact KOREAN title "${titleSafe}" as a large, bold, high-contrast KOREAN typography prominently baked into the image as a hero design element. Do NOT translate, paraphrase, or transliterate the title — preserve the Korean characters verbatim.`;
+          }
+        }
+        if ((extra as any)?.referenceImageList?.length) {
+          onLog?.('   ℹ️ Codex 구독 이미지는 상품 사진을 참고하지 못합니다 — 글 내용만으로 그립니다 (다른 엔진으로 바꾸지 않음)');
+        }
+        const result = await makeCodexImage(codexPrompt, { aspectRatio: '16:9', ...(onLog ? { onLog } : {}) });
+        if (result.ok) return { ok: true, dataUrl: result.dataUrl, source: `Codex 구독 이미지${result.model ? ` (${result.model})` : ''}` };
+        const detail = result.error || '사유 미상';
+        console.log(`[DISPATCH] ⚠️ Codex 구독 이미지 실패: ${detail}`);
+        return { ok: false, dataUrl: '', source: '', error: detail };
+      } catch (e: any) {
+        const detail = `예외: ${e?.message || e}`;
+        console.log(`[DISPATCH] ⚠️ Codex 구독 이미지 예외: ${detail}`);
+        return { ok: false, dataUrl: '', source: '', error: `Codex 구독 이미지 ${detail}` };
       }
     }
 

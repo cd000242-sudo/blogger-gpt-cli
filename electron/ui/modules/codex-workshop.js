@@ -629,6 +629,7 @@ function getAgentImageEnginesForReadiness(options = {}) {
 function getAgentImageEngineMeta(engine = '') {
   const normalized = normalizeAgentImageEngine(engine);
   if (/^dropshot/.test(normalized)) return { kind: 'dropshot', label: 'Dropshot 이미지', action: 'dropshot-login' };
+  if (normalized === 'codex-image') return { kind: 'codex-image', label: 'Codex 구독 이미지', action: 'agent-login' };
   if (normalized === 'flow' || normalized === 'imagefx') return { kind: 'flow', label: 'Flow 이미지', action: 'flow-login' };
   if (/^gptimage|^dall[\-e]/.test(normalized)) return { kind: 'api', label: 'OpenAI 이미지 API', keyId: 'openaiKey', action: 'image-api' };
   if (/^nanobanana|^gemini/.test(normalized)) return { kind: 'api', label: 'Gemini 이미지 API', keyId: 'geminiKey', action: 'image-api' };
@@ -678,6 +679,21 @@ async function verifyAgentImageIntegration(engine) {
         result?.ready
           ? (result?.message || '로그인과 실제 이미지 생성 버튼을 확인했습니다.')
           : (result?.message || 'Dropshot 로그인 또는 생성 연동이 필요합니다.'),
+        result?.ready ? '' : meta.action,
+      );
+    } catch (error) {
+      return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, `확인 실패: ${error?.message || error}`, meta.action);
+    }
+  }
+  if (meta.kind === 'codex-image') {
+    // v3.8.768: 설치·로그인·구독 상태를 메인이 본다. 실패하면 다른 이미지 엔진으로 바꾸지 않고 이 항목이 빨갛게 남는다.
+    try {
+      const result = await bridge?.invoke?.('codex-image:check-ready');
+      return createAgentReadinessCheck(
+        `image:${normalized}`,
+        meta.label,
+        result?.ready === true,
+        result?.ready ? (result?.message || 'Codex 설치와 ChatGPT 구독 로그인을 확인했습니다.') : (result?.message || 'Codex 구독 이미지는 Codex 연결이 필요합니다.'),
         result?.ready ? '' : meta.action,
       );
     } catch (error) {

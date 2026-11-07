@@ -12454,6 +12454,65 @@ function resolveAgentBinaryCommand(provider: AgentModeProvider): string {
   return getAgentBinaryCandidates(binaryName)[0] || binaryName;
 }
 
+/**
+ * v3.8.768 — Codex 구독 이미지 엔진이 쓰는 실행 환경.
+ * 엔진 본체(dist/core/codex-image)는 Electron 을 모른다. 실행 파일 위치·환경·연결 상태는 여기(메인)가 알아서 넘긴다.
+ * 이 PC 의 Codex 로그인(~/.codex 또는 %CODEX_HOME%)을 그대로 쓴다 - 인증 파일을 앱 폴더로 복사하지 않고, 내용은 읽지 않는다(있는지만 본다).
+ */
+async function collectCodexImageReadinessFacts(): Promise<Record<string, unknown>> {
+  const tool = await detectAgentBinary(AGENT_PROVIDERS.codex.binary);
+  const systemProfile = refreshAgentProfileStatuses().find((item) => item.provider === 'codex' && usesSystemHome(item));
+  let loginFilePresent = false;
+  try {
+    if (systemProfile) {
+      loginFilePresent = hasAgentAuthEvidence(systemProfile);
+    } else {
+      const home = agentSystemHomeDir('codex');
+      loginFilePresent = !!home && fs.existsSync(path.join(home, 'auth.json'));
+    }
+  } catch {
+    loginFilePresent = false;
+  }
+  return {
+    installed: tool.installed === true,
+    usable: tool.usable === true,
+    binaryError: tool.error,
+    loginFilePresent,
+    systemProfileStatus: systemProfile?.status,
+  };
+}
+
+function registerCodexImageRuntime(): void {
+  try {
+    const { setCodexImageRuntime, subscriptionEnv } = require('../dist/core/codex-image/codexImageRuntime');
+    const { assessCodexImageReadiness } = require('../dist/core/codex-image/codexImageReadiness');
+    setCodexImageRuntime({
+      resolveCommand: () => resolveAgentBinaryCommand('codex'),
+      buildEnv: () => subscriptionEnv(process.env),
+      assertReady: async () => {
+        const problem = assessCodexImageReadiness(await collectCodexImageReadinessFacts());
+        if (problem) throw problem;
+      },
+    });
+  } catch (error) {
+    console.warn('[CODEX-IMAGE] 실행 환경 등록 실패:', String((error as Error)?.message || error).slice(0, 160));
+  }
+}
+registerCodexImageRuntime();
+
+ipcMain.handle('codex-image:check-ready', async () => {
+  try {
+    const { assessCodexImageReadiness } = require('../dist/core/codex-image/codexImageReadiness');
+    const problem = assessCodexImageReadiness(await collectCodexImageReadinessFacts());
+    if (problem) return { ready: false, code: problem.code, message: problem.message };
+    // 사용자가 연결을 고친 뒤의 확인이므로, 엔진이 기억하던 옛 실패를 버린다
+    try { require('../dist/core/codex-image/codexImageEngine').clearCodexImageFailure(); } catch { /* 엔진을 아직 안 불렀으면 기억도 없다 */ }
+    return { ready: true, message: 'Codex 설치와 ChatGPT 구독 로그인을 확인했습니다. 이미지는 본인 구독 한도로 생성됩니다.' };
+  } catch (error) {
+    return { ready: false, code: 'check_failed', message: `Codex 연결 확인 실패: ${(error as Error)?.message || error}` };
+  }
+});
+
 type AgentLoginVerification = {
   ok: boolean;
   ready: boolean;

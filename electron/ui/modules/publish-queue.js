@@ -620,6 +620,7 @@ const QUEUE_LABELS = {
     nanobananapro: '나노바나나 Pro',
     'dropshot-nanobanana-pro': '리더스 무제한',
     'genspark-image': '젠스파크',
+    'codex-image': 'Codex 구독',
     gptimage1: 'GPT 이미지 1',
     gptimage2: '덕트테이프',
     gptimage25flare: 'GPT 이미지 2.5 플레어',
@@ -672,7 +673,7 @@ function getSelectValue(id, fallback = '') {
 
 function normalizeThumbEngine(value) {
   const raw = String(value || '').trim();
-  if (!raw || raw === 'auto') return 'nanobanana2';
+  if (!raw || raw === 'auto') return 'codex-image';
   if (raw === 'imagefx') return 'flow';
   return raw;
 }
@@ -696,11 +697,11 @@ function synchronizeQueueItemImageMode(item, modeValue) {
     item.thumb = 'none';
     item.h2ImageSource = 'none';
   } else if (mode === 'thumbnail-only') {
-    if (!item.thumb || item.thumb === 'none') item.thumb = item.lastActiveThumb || 'nanobanana2';
+    if (!item.thumb || item.thumb === 'none') item.thumb = item.lastActiveThumb || 'codex-image';
     item.h2ImageSource = 'none';
   } else {
-    if (!item.thumb || item.thumb === 'none') item.thumb = item.lastActiveThumb || 'nanobanana2';
-    if (!item.h2ImageSource || item.h2ImageSource === 'none') item.h2ImageSource = item.lastActiveH2ImageSource || item.thumb || 'nanobanana2';
+    if (!item.thumb || item.thumb === 'none') item.thumb = item.lastActiveThumb || 'codex-image';
+    if (!item.h2ImageSource || item.h2ImageSource === 'none') item.h2ImageSource = item.lastActiveH2ImageSource || item.thumb || 'codex-image';
   }
 }
 
@@ -761,7 +762,7 @@ function getCurrentH2ImageSource() {
     getSelectValue('h2ImageSource')
     || document.querySelector('input[name="h2ImageSource"]:checked')?.value
     || getSelectValue('thumbnailType')
-    || 'nanobanana2'
+    || 'codex-image'
   );
 }
 
@@ -969,7 +970,7 @@ function getCurrentSectionCount() {
 
 function getCurrentQueueSnapshot() {
   const contentMode = getSelectValue('contentMode') || getSelectValue('scheduleContentMode') || 'external';
-  const selectedThumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'nanobanana2');
+  const selectedThumbnailMode = normalizeThumbEngine(getSelectValue('thumbnailType') || getSelectValue('scheduleThumbnailMode') || 'codex-image');
   const selectedH2ImageSource = getCurrentH2ImageSource();
   const leonardoModel = document.getElementById('h2LeonardoModel')?.value
     || document.getElementById('thumbnailTypeLeonardoModel')?.value
@@ -1035,8 +1036,8 @@ function cloneQueueSnapshot(snapshot) {
   return {
     contentMode: snap.contentMode || 'external',
     affiliateProvider: snap.affiliateProvider || '',   // v3.8.433
-    thumbnailMode: normalizeThumbEngine(snap.thumbnailMode || 'nanobanana2'),
-    h2ImageSource: normalizeThumbEngine(snap.h2ImageSource || snap.thumbnailMode || 'nanobanana2'),
+    thumbnailMode: normalizeThumbEngine(snap.thumbnailMode || 'codex-image'),
+    h2ImageSource: normalizeThumbEngine(snap.h2ImageSource || snap.thumbnailMode || 'codex-image'),
     leonardoModel: snap.leonardoModel || 'seedream-4.5',
     h2ImageMode: normalizeH2ImageMode(snap.h2ImageMode || 'all'),
     ctaMode: snap.ctaMode || 'auto',
@@ -1493,6 +1494,7 @@ function buildModalHtml() {
               <span style="color:#cbd5e1;font-size:11px;font-weight:700;">썸네일 엔진</span>
               <select id="pq-bulk-thumb">
                 <option value="">변경 안 함</option>
+                <option value="codex-image">🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원)</option>
                 <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
                 <option value="genspark-image">✨ 젠스파크 AI 이미지 (본인 젠스파크 계정 · 무료 모델)</option>
                 <option value="nanobanana2">🍌 Nano Banana 2 (권장)</option>
@@ -1515,6 +1517,7 @@ function buildModalHtml() {
               <select id="pq-bulk-h2">
                 <option value="">변경 안 함</option>
                 <option value="same">썸네일과 동일하게</option>
+                <option value="codex-image">🐙 Codex 구독 이미지 (본인 ChatGPT 구독 · 추가 비용 0원)</option>
                 <option value="dropshot-nanobanana-pro">🍌 리더스 나노바나나 무제한</option>
                 <option value="genspark-image">✨ 젠스파크 AI 이미지 (본인 젠스파크 계정 · 무료 모델)</option>
                 <option value="nanobanana2">🍌 Nano Banana 2</option>
@@ -1765,9 +1768,10 @@ function buildItemRow(item, idx) {
     <div class="pq-field">
       <label>썸네일</label>
       <select class="pq-item-thumb">
+        <option value="codex-image" ${(!item.thumb || item.thumb === 'codex-image') ? 'selected' : ''}>Codex 구독 이미지</option>
         <option value="dropshot-nanobanana-pro" ${item.thumb === 'dropshot-nanobanana-pro' ? 'selected' : ''}>리더스 무제한</option>
         <option value="genspark-image" ${item.thumb === 'genspark-image' ? 'selected' : ''}>젠스파크 AI 이미지</option>
-        <option value="nanobanana2" ${(!item.thumb || item.thumb === 'nanobanana2') ? 'selected' : ''}>Nano Banana 2</option>
+        <option value="nanobanana2" ${item.thumb === 'nanobanana2' ? 'selected' : ''}>Nano Banana 2</option>
         <option value="nanobanana" ${item.thumb === 'nanobanana' ? 'selected' : ''}>Nano Banana</option>
         <option value="nanobananapro" ${item.thumb === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
         <option value="gptimage1" ${item.thumb === 'gptimage1' ? 'selected' : ''}>GPT 이미지 1</option>
@@ -1785,9 +1789,10 @@ function buildItemRow(item, idx) {
     <div class="pq-field">
       <label>소제목 이미지</label>
       <select class="pq-item-h2">
+        <option value="codex-image" ${(!item.h2ImageSource || item.h2ImageSource === 'codex-image') ? 'selected' : ''}>Codex 구독 이미지</option>
         <option value="dropshot-nanobanana-pro" ${item.h2ImageSource === 'dropshot-nanobanana-pro' ? 'selected' : ''}>리더스 무제한</option>
         <option value="genspark-image" ${item.h2ImageSource === 'genspark-image' ? 'selected' : ''}>젠스파크 AI 이미지</option>
-        <option value="nanobanana2" ${(!item.h2ImageSource || item.h2ImageSource === 'nanobanana2') ? 'selected' : ''}>Nano Banana 2</option>
+        <option value="nanobanana2" ${item.h2ImageSource === 'nanobanana2' ? 'selected' : ''}>Nano Banana 2</option>
         <option value="nanobanana" ${item.h2ImageSource === 'nanobanana' ? 'selected' : ''}>Nano Banana</option>
         <option value="nanobananapro" ${item.h2ImageSource === 'nanobananapro' ? 'selected' : ''}>Nano Banana Pro</option>
         <option value="gptimage1" ${item.h2ImageSource === 'gptimage1' ? 'selected' : ''}>GPT 이미지 1</option>

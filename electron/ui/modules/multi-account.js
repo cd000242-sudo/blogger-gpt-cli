@@ -95,7 +95,7 @@ function defaultSettings(type) {
     tistoryDefaultVisibility: 'private',
     keyword: valueFromDom('topicInput') || valueFromDom('topic') || '',
     crawlUrl: '',
-    imageSource: defaults.thumbnailSource || 'nanobanana2',
+    imageSource: defaults.thumbnailSource || 'codex-image',
     toneStyle: defaults.toneStyle || 'professional',
     contentMode: defaults.contentMode || 'external',
     ...typeSpecificDefaults(type),
@@ -344,6 +344,7 @@ function renderAdvancedSettings() {
 
 function imageEngineOptions(allowSame = false) {
   const options = [
+    ['codex-image', 'Codex 구독 이미지'],
     ['nanobanana2', 'Nano Banana 2'],
     ['dropshot-nanobanana-pro', 'Leaders Nano Banana Pro'],
     ['genspark-image', 'Genspark AI Image'],
@@ -378,7 +379,7 @@ function setSelectValue(id, value) {
 
 function collectCurrentDetailSettings() {
   const settings = readLocalSettings();
-  const thumbnailSource = valueFromDom('thumbnailType') || settings.thumbnailSource || settings.thumbnailType || 'nanobanana2';
+  const thumbnailSource = valueFromDom('thumbnailType') || settings.thumbnailSource || settings.thumbnailType || 'codex-image';
   const h2Source = valueFromDom('h2ImageSource') || settings.h2ImageSource || thumbnailSource;
   return {
     provider: settings.defaultAiProvider || settings.generationEngine || '',
@@ -664,10 +665,10 @@ async function publishToAccount(account) {
     keyword: account.settings.keyword || '',
     topic: account.settings.keyword || '',
     crawlUrl: account.settings.crawlUrl || '',
-    imageSource: account.settings.imageSource || advanced.thumbnailSource || 'nanobanana2',
-    thumbnailSource: account.settings.imageSource || advanced.thumbnailSource || 'nanobanana2',
-    thumbnailType: account.settings.imageSource || advanced.thumbnailType || 'nanobanana2',
-    h2ImageSource: advanced.h2ImageSource || account.settings.imageSource || 'nanobanana2',
+    imageSource: account.settings.imageSource || advanced.thumbnailSource || 'codex-image',
+    thumbnailSource: account.settings.imageSource || advanced.thumbnailSource || 'codex-image',
+    thumbnailType: account.settings.imageSource || advanced.thumbnailType || 'codex-image',
+    h2ImageSource: advanced.h2ImageSource || account.settings.imageSource || 'codex-image',
     toneStyle: account.settings.toneStyle || advanced.toneStyle || 'professional',
     contentMode: account.settings.contentMode || advanced.contentMode || 'external',
     blogId: account.settings.blogId || '',
