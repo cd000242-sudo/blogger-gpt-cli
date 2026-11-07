@@ -39,7 +39,7 @@ describe('제공자 표가 세 개를 안다', () => {
   });
 
   test('격리 변수를 표에서 찾는다 — 삼항으로 고르지 않는다', () => {
-    expect(main).toContain('env[agentProviderInfo(profile.provider).envVar] = profile.profileDir');
+    expect(main).toContain('applyAgentHomeEnv(env, profile, agentProviderInfo(profile.provider).envVar, profile.profileDir)');
     expect(main).not.toContain("provider === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'");
   });
 
