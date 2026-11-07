@@ -26,7 +26,7 @@ const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
   openai: 'openai-gpt41',
   claude: 'claude-sonnet',
   perplexity: 'perplexity-sonar',
-  gemini: 'gemini-3.5-flash',
+  gemini: 'gemini-3.8-flash',
 };
 
 /** 함께 온 모델값이 그 provider 의 것이 맞는가 */

@@ -22,6 +22,9 @@
   -->
   <script src="./modules/focus-guard.js"></script>
 
+  <!-- v3.8.767: 새 설치 기본 = 에이전트 + Claude. 저장값이 있으면 건드리지 않는다. 다른 스크립트가 읽기 전에 심어야 해서 여기서 불러온다. -->
+  <script src="./modules/execution-defaults.js"></script>
+
   <style>
     /* 드롭다운 옵션 텍스트 가시성 개선 */
     select option {
@@ -918,7 +921,7 @@
                       <div style="font-size: 12px; color: #7dd3fc; font-weight: 800;">~₩15/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="균형" data-cost="57"
+                    <label class="tier-card" data-tier="균형" data-cost="29"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(139,92,246,0.45); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="gemini-2.5-flash" checked style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -926,18 +929,18 @@
                         <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형 · 추천</span>
                       </div>
                       <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">품질·속도·가격 균형 · 일반 글에 최적</div>
-                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩57/글</div>
+                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩29/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="프리미엄" data-cost="61"
+                    <label class="tier-card" data-tier="프리미엄" data-cost="76"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.4); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="gemini-2.5-pro" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">🧠 Gemini 3.5 Flash</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🧠 Gemini 4 Argon</span>
                         <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">프리미엄</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">긴 글 지속 추론 · 출력 단가 3.6보다 높음</div>
-                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩61/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">최상위 추론 · 비용 큼(3.8 Flash의 약 2.6배) · 12/1부터 단가 2배</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩76/글</div>
                     </label>
                   </div>
                 </div>
@@ -946,39 +949,39 @@
                 <div style="margin-bottom: 14px;">
                   <div style="font-size: 11px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.5px; margin-bottom: 8px; text-transform: uppercase;">🧠 OpenAI</div>
                   <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
-                    <!-- v3.8.686: 라벨·data-cost 를 pricing.ts 계산값과 맞췄다 (루나 80% 인하 · 솔 프로모션가 · 아스트라 추가).
+                    <!-- v3.8.686: 라벨·data-cost 를 pricing.ts 계산값과 맞췄다. 2026-11-07: GPT-6 Luna · GPT-6.1 Terra · GPT-6.1 Sol 공식 단가로 갱신.
                          런타임엔 pricing-sync 가 덮어쓰지만, IPC 가 실패하면 이 값이 그대로 보인다. -->
-                    <label class="tier-card" data-tier="가성비" data-cost="8"
+                    <label class="tier-card" data-tier="가성비" data-cost="4"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(16,185,129,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o-mini" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">💰 GPT-5.6 Luna</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">💰 GPT-6 Luna</span>
                         <span style="background: linear-gradient(135deg,#34d399,#059669); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">가성비</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Luna · 초저비용(2026-07 80% 인하) · 빠른 속도</div>
-                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩8/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-6 Luna · 초저비용 · 빠른 속도 · 대량 발행</div>
+                      <div style="font-size: 12px; color: #6ee7b7; font-weight: 800;">~₩4/글</div>
                     </label>
 
-                    <label id="tierCardTerra" class="tier-card" data-tier="균형" data-cost="81"
+                    <label id="tierCardTerra" class="tier-card" data-tier="균형" data-cost="38"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(139,92,246,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt41" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ GPT-5.6 Terra</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">⚖️ GPT-6.1 Terra</span>
                         <span style="background: linear-gradient(135deg,#a78bfa,#7c3aed); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">균형 · 추천</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Terra · 품질/가격 균형 · 일반 글에 최적</div>
-                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩81/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-6.1 Terra · 품질/가격 균형 · 일반 글에 최적</div>
+                      <div style="font-size: 12px; color: #c4b5fd; font-weight: 800;">~₩38/글</div>
                     </label>
 
-                    <label class="tier-card" data-tier="프리미엄" data-cost="153"
+                    <label class="tier-card" data-tier="프리미엄" data-cost="76"
                       style="cursor: pointer; background: rgba(15,23,42,0.55); border: 1px solid rgba(245,158,11,0.35); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; transition: all 0.2s;">
                       <input type="radio" name="primaryGeminiTextModel" value="openai-gpt4o" style="display:none;">
                       <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span style="font-weight: 800; color: white; font-size: 13px;">🚀 GPT-5.6 Sol</span>
+                        <span style="font-weight: 800; color: white; font-size: 13px;">🚀 GPT-6.1 Sol</span>
                         <span style="background: linear-gradient(135deg,#fbbf24,#d97706); color: white; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">프리미엄</span>
                       </div>
-                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-5.6 Sol · 강력한 추론 · 2026-11-21까지 프로모션가</div>
-                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩153/글</div>
+                      <div style="font-size: 11px; color: rgba(255,255,255,0.55); line-height: 1.4;">GPT-6.1 Sol · 강력한 추론 · 고품질 글</div>
+                      <div style="font-size: 12px; color: #fcd34d; font-weight: 800;">~₩76/글</div>
                     </label>
 
                     <label class="tier-card" data-tier="프리미엄" data-cost="382"

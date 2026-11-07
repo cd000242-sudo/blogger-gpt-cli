@@ -199,11 +199,12 @@ describe('⑤ 가격표 — GPT-6 Astra · 루나 인하 · 화면 라벨 일치
     expect(tierCostKrw(t)).toBe(382);
   });
 
-  it('루나 ₩8(80% 인하) · 테라 ₩81 · 솔 프로모션 ₩153', () => {
+  // 2026-11-07: GPT-6 계열 공식 단가로 기대값만 갱신(루나 $0.10/$0.50 · 테라 $1/$5 · 솔 $2/$10). 이전: 루나 ₩8 · 테라 ₩81 · 솔 프로모션 ₩153.
+  it('루나 ₩4 · 테라 ₩38 · 솔 ₩76 (2026-11-07 공식 단가)', () => {
     const by = (v: string) => tierCostKrw(TIER_MODELS.find((m) => m.value === v)!);
-    expect(by('openai-gpt4o-mini')).toBe(8);
-    expect(by('openai-gpt41')).toBe(81);
-    expect(by('openai-gpt4o')).toBe(153);
+    expect(by('openai-gpt4o-mini')).toBe(4);
+    expect(by('openai-gpt41')).toBe(38);
+    expect(by('openai-gpt4o')).toBe(76);
   });
 
   it('⭐ 숫자를 표시하면 단일 출처와 같고, 동적 비용 슬롯은 추정 금액을 표시하지 않는다', () => {

@@ -525,14 +525,15 @@ describe('⑨ 모델 하향 — 사용자가 모르게 저가 모델이 쓰지 �
     const g: any = globalThis as any;
     const prev = process.env['PRIMARY_TEXT_MODEL'];
     process.env['PRIMARY_TEXT_MODEL'] = 'openai-gpt41';
-    g.__llmActualModels = { 'openai/gpt-5.6-terra': 6, 'openai/gpt-5.6-luna': 1 };
-    g.__llmDowngrades = [{ provider: 'openai', from: 'gpt-5.6-terra', to: 'gpt-5.6-luna', reason: 'timeout' }];
+    // 2026-11-07: openai-gpt41 티어의 모델이 gpt-6.1-terra 로 바뀌어 입력·기대값의 모델 이름만 같이 바꿨다(검증 내용은 그대로)
+    g.__llmActualModels = { 'openai/gpt-6.1-terra': 6, 'openai/gpt-6-luna': 1 };
+    g.__llmDowngrades = [{ provider: 'openai', from: 'gpt-6.1-terra', to: 'gpt-6-luna', reason: 'timeout' }];
     const use = describeModelUse();
-    expect(use.requestedModel).toBe('openai/gpt-5.6-terra');
-    expect(use.actualModel).toContain('openai/gpt-5.6-luna×1');
+    expect(use.requestedModel).toBe('openai/gpt-6.1-terra');
+    expect(use.actualModel).toContain('openai/gpt-6-luna×1');
     expect(use.downgraded).toBe(true);
-    expect(use.downgradeReason).toBe('gpt-5.6-terra→gpt-5.6-luna(timeout)');
-    g.__llmActualModels = { 'openai/gpt-5.6-terra': 7 }; g.__llmDowngrades = [];
+    expect(use.downgradeReason).toBe('gpt-6.1-terra→gpt-6-luna(timeout)');
+    g.__llmActualModels = { 'openai/gpt-6.1-terra': 7 }; g.__llmDowngrades = [];
     expect(describeModelUse().downgraded).toBe(false);
     if (prev === undefined) delete process.env['PRIMARY_TEXT_MODEL']; else process.env['PRIMARY_TEXT_MODEL'] = prev;
   });

@@ -27,7 +27,6 @@ import {
 const GEMINI_BASE_MODELS = [
   'gemini-3.8-flash',
   'gemini-3.6-flash',
-  'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
 ];
 
@@ -182,7 +181,7 @@ function buildGeminiChain(): string[] {
    */
   const selected = tier && tier.provider === 'gemini'
     ? [tier.modelId]
-    : [GEMINI_BASE_MODELS[0] || 'gemini-3.5-flash'];
+    : [GEMINI_BASE_MODELS[0] || 'gemini-3.8-flash'];
 
   /**
    * v3.8.483 — Preview 모델을 폴백 체인에서 걷어낸다.

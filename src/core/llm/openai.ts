@@ -14,7 +14,7 @@ export async function genWithOpenAI(apiKey: string, input: Input): Promise<strin
   const client = new OpenAI({ apiKey });
   const prompt = buildContentPrompt(input);
 
-  const model = process.env['OPENAI_MODEL'] || 'gpt-5.6-terra';
+  const model = process.env['OPENAI_MODEL'] || 'gpt-6.1-terra';
   const request: any = {
     model,
     messages: [

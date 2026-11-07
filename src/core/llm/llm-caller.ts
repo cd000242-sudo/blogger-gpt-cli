@@ -178,7 +178,7 @@ const PROVIDERS: Record<string, LLMProviderConfig> = {
     name: 'OpenAI',
     provider: 'openai',
     endpoint: 'https://api.openai.com/v1/chat/completions',
-    models: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol'],
+    models: ['gpt-6.1-terra', 'gpt-6-luna', 'gpt-6.1-sol'],
     timeout: 90_000,
     rateLimitPattern: /429|rate.*limit|quota|insufficient_quota/i,
     authErrorPattern: /401|403|unauthorized|forbidden|invalid.*key/i,
@@ -296,9 +296,12 @@ function resolveCallTimeout(config: LLMProviderConfig, model: string): number {
  */
 const FASTER_SIBLING: Record<string, Record<string, string>> = {
   openai: {
-    'gpt-6-astra': 'gpt-5.6-luna',
-    'gpt-5.6-sol': 'gpt-5.6-luna',
-    'gpt-5.6-terra': 'gpt-5.6-luna',
+    'gpt-6-astra': 'gpt-6-luna',
+    'gpt-6.1-sol': 'gpt-6-luna',
+    'gpt-6.1-terra': 'gpt-6-luna',
+    // 옛 이름으로 저장된 설정도 같은 곳으로 내려간다
+    'gpt-5.6-sol': 'gpt-6-luna',
+    'gpt-5.6-terra': 'gpt-6-luna',
   },
   claude: {
     'claude-opus-5': 'claude-sonnet-5-5',

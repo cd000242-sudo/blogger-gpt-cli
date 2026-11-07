@@ -426,7 +426,8 @@ describe('v3.8.713 AI 비서', () => {
 
     test('그 표가 실제로 옛 id 를 지금 이름으로 바꿔 준다', () => {
       const { findTier } = require('../src/core/llm/pricing');
-      expect(findTier('openai-gpt41')?.title).toBe('GPT-5.6 Terra');
+      // 2026-11-07: 저장 키 openai-gpt41 은 그대로, 표시 이름만 GPT-6.1 Terra 로 갱신됐다
+      expect(findTier('openai-gpt41')?.title).toBe('GPT-6.1 Terra');
       expect(findTier('gemini-2.5-flash')?.title).toBe('Gemini 3.8 Flash');
     });
 

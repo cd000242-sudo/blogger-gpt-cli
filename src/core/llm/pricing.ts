@@ -98,7 +98,8 @@ export const TIER_MODELS: readonly TierModel[] = [
     costKrw: 15,
     provider: 'gemini',
     modelId: 'gemini-3.1-flash-lite',
-    fallback: ['gemini-3.1-flash-lite', 'gemini-3.5-flash'],
+    // 2026-11-07: 3.5 Flash 는 10/8 폐기라 체인에서 뺐다(저장값 'gemini-3.5-flash' 는 3.8 Flash 티어가 받는다)
+    fallback: ['gemini-3.1-flash-lite', 'gemini-3.8-flash'],
   },
   /**
    * v3.8.483 — Gemini 3.6 Flash 도입, 3.1 Pro Preview 제거.
@@ -134,22 +135,30 @@ export const TIER_MODELS: readonly TierModel[] = [
     title: 'Gemini 3.8 Flash',
     tier: '균형',
     description: '최신 · 품질·속도·가격 균형 · 일반 블로그 글에 최적',
-    costKrw: 57,
+    costKrw: 29,
     provider: 'gemini',
     modelId: 'gemini-3.8-flash',
     fallback: ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'],
     default: true,
+    // 2026-11-07 공식 단가. 2027-01-01 부터 $1.50 / $7.50 으로 오른다 — 그날 이 줄과 화면 금액을 같이 고친다.
+    usdPer1M: { input: 0.75, output: 3.75, source: 'Gemini API 공식 가격표 2026-11-07 (3.8 Flash · 2027-01-01 부터 $1.50/$7.50)' },
   },
+  /**
+   * 2026-11-07 — 최상위 칸을 Gemini 3.5 Flash(10/8 폐기)에서 Gemini 4 Argon 으로 교체.
+   * `value` 키(gemini-2.5-pro)는 저장 설정 호환을 위해 그대로 둔다. 3.5 Flash 는 폐기라 이 칸에서 뺐고,
+   * 저장값이 'gemini-3.5-flash' 로 오는 경로는 3.8 Flash 티어의 fallback 이 받는다.
+   * 비용이 큰 모델이다(3.8 Flash 의 2.6배, 2026-12-01 부터 단가 2배) — 설명에 그대로 적는다.
+   */
   {
     value: 'gemini-2.5-pro',
-    title: 'Gemini 3.5 Flash',
+    title: 'Gemini 4 Argon',
     tier: '프리미엄',
-    description: '지속 추론 강점 · 긴 글·복잡한 주제에 유리',
-    costKrw: 61,
+    description: '최상위 추론 · 비용 큼(3.8 Flash의 약 2.6배) · 12/1부터 단가 2배',
+    costKrw: 76,
     provider: 'gemini',
-    modelId: 'gemini-3.5-flash',
-    fallback: ['gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'],
-    usdPer1M: { input: 1.50, output: 9.00, source: 'Gemini API 공식 가격표 2026-08-11 (Standard)' },
+    modelId: 'gemini-4-argon',
+    fallback: ['gemini-4-argon', 'gemini-3.8-flash'],
+    usdPer1M: { input: 2, output: 10, source: 'Gemini API 공식 가격표 2026-11-07 (4 Argon · 2026-12-01 부터 $4/$20)' },
   },
 
   // ─── OpenAI (GPT-5 시리즈로 최신화, 2026-04) ───────────────────────────────
@@ -157,39 +166,39 @@ export const TIER_MODELS: readonly TierModel[] = [
   //   modelId/title/description/costKrw만 최신 GPT-5 플래그십으로 업그레이드.
   {
     value: 'openai-gpt4o-mini',
-    title: 'GPT-5.6 Luna',
+    title: 'GPT-6 Luna',
     tier: '가성비',
-    // 2026-07-30 인하: 입력 $1 → $0.20, 출력 $6 → $1.20 (80% 인하)
-    description: 'GPT-5.6 Luna · 초저비용 · 빠른 속도 · 대량 발행',
-    costKrw: 8,
+    // 2026-11-07 공식 단가: 입력 $0.10, 출력 $0.50
+    description: 'GPT-6 Luna · 초저비용 · 빠른 속도 · 대량 발행',
+    costKrw: 4,
     provider: 'openai',
-    modelId: 'gpt-5.6-luna',
-    fallback: ['gpt-5.6-luna', 'gpt-5.6-terra'],
-    usdPer1M: { input: 0.20, output: 1.20, source: 'OpenAI 공식 블로그 2026-07-30 인하 (입력 $1→$0.20, 출력 $6→$1.20)' },
+    modelId: 'gpt-6-luna',
+    fallback: ['gpt-6-luna', 'gpt-6.1-terra', 'gpt-5.6-luna'],
+    usdPer1M: { input: 0.10, output: 0.50, source: 'OpenAI 공식 가격 2026-11-07 (GPT-6 Luna 입력 $0.10 / 출력 $0.50)' },
   },
   {
     value: 'openai-gpt41',
-    title: 'GPT-5.6 Terra',
+    title: 'GPT-6.1 Terra',
     tier: '균형',
-    // 2026-07-30 인하: 입력 $2.5 → $2, 출력 $15 → $12 (20% 인하)
-    description: 'GPT-5.6 Terra · 품질/가격 균형 · 일반 블로그에 최적',
-    costKrw: 81,
+    // 2026-11-07 공식 단가: 입력 $1, 출력 $5
+    description: 'GPT-6.1 Terra · 품질/가격 균형 · 일반 블로그에 최적',
+    costKrw: 38,
     provider: 'openai',
-    modelId: 'gpt-5.6-terra',
-    fallback: ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5-mini'],
-    usdPer1M: { input: 2, output: 12, source: 'OpenAI 공식 블로그 2026-07-30 인하 (입력 $2.5→$2, 출력 $15→$12)' },
+    modelId: 'gpt-6.1-terra',
+    fallback: ['gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.6-terra'],
+    usdPer1M: { input: 1, output: 5, source: 'OpenAI 공식 가격 2026-11-07 (GPT-6.1 Terra 입력 $1 / 출력 $5)' },
   },
   {
     value: 'openai-gpt4o',
-    title: 'GPT-5.6 Sol',
+    title: 'GPT-6.1 Sol',
     tier: '프리미엄',
-    // 2026-08-21 프로모션: $5/$30 → $4/$20 (11-21 까지). 끝나면 $5/$30 으로 되돌려야 한다.
-    description: 'GPT-5.6 Sol · 강력한 추론 · 2026-11-21까지 프로모션가',
-    costKrw: 153,
+    // 2026-11-07 공식 단가: 입력 $2, 출력 $10
+    description: 'GPT-6.1 Sol · 강력한 추론 · 고품질 글',
+    costKrw: 76,
     provider: 'openai',
-    modelId: 'gpt-5.6-sol',
-    fallback: ['gpt-5.6-sol', 'gpt-5.6-terra'],
-    usdPer1M: { input: 4, output: 20, source: 'OpenAI 2026-08-21 프로모션가 (입력 $4 / 출력 $20 · 11-21까지, 이전 $5/$30)' },
+    modelId: 'gpt-6.1-sol',
+    fallback: ['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-5.6-sol'],
+    usdPer1M: { input: 2, output: 10, source: 'OpenAI 공식 가격 2026-11-07 (GPT-6.1 Sol 입력 $2 / 출력 $10)' },
   },
   /**
    * v3.8.686 — GPT-6 Astra (2026-09-03 출시. 사장님: "지피티6 아스트라 나왔고 비용표 업데이트해").
@@ -204,7 +213,7 @@ export const TIER_MODELS: readonly TierModel[] = [
     costKrw: 382,
     provider: 'openai',
     modelId: 'gpt-6-astra',
-    fallback: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'],
+    fallback: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra'],
     usdPer1M: { input: 10, output: 50, source: 'OpenAI 2026-09-03 출시가 (입력 $10 / 출력 $50 · 캐시 입력 $1)' },
   },
 
@@ -307,7 +316,8 @@ export function describeModelForLog(tierValue: string): string {
   return tier ? `${tier.title} (${tier.modelId})` : value;
 }
 
-export const DEFAULT_TIER_VALUE = 'gemini-3.6-flash';
+// 2026-11-07: 3.8 Flash 티어를 가리킨다(3.6 은 그 티어의 fallback 이라 findTier 가 같은 곳으로 보냈다 — 이름만 최신으로 맞춘다)
+export const DEFAULT_TIER_VALUE = 'gemini-3.8-flash';
 
 /**
  * 화면·로그·설정이 공통으로 읽는 표시 금액.
@@ -384,7 +394,8 @@ const PROVIDER_DEFAULT_TIER: Record<string, string> = {
   openai: 'openai-gpt41',
   claude: 'claude-sonnet',
   perplexity: 'perplexity-sonar',
-  gemini: 'gemini-3.5-flash',
+  // 2026-11-07: 3.5 Flash 는 10/8 폐기 — modelId 로 찾으면 최상위(Argon) 칸이 걸리므로 3.8 Flash 로 올린다
+  gemini: 'gemini-3.8-flash',
 };
 
 /**

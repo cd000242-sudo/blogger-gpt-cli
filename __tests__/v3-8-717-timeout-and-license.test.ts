@@ -59,7 +59,8 @@ describe('② 시간초과일 때만 같은 회사의 빠른 모델로 한 번 �
 
   it('⭐⭐ 다른 회사로는 절대 안 넘어간다 — 표의 모든 대체가 같은 회사 안에 있다', () => {
     const table = src.slice(src.indexOf('const FASTER_SIBLING'), src.indexOf('function fasterSiblingOf'));
-    expect(table).toContain("'gpt-6-astra': 'gpt-5.6-luna'");
+    // 2026-11-07: 빠른 형제 모델이 gpt-5.6-luna → gpt-6-luna 로 바뀌었다(같은 회사 안에서 내려간다는 검증은 그대로)
+    expect(table).toContain("'gpt-6-astra': 'gpt-6-luna'");
     // openai 칸에 claude/sonar 가, claude 칸에 gpt 가 섞여 있으면 회사를 넘는 것이다
     const block = (name: string) => {
       const start = table.indexOf(`${name}: {`);

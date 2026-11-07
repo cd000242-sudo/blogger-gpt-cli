@@ -33,10 +33,11 @@ describe('v3.8.650 편당 비용', () => {
     test('공식 단가로 계산한다', () => {
       (globalThis as any).__llmUsage = {
         calls: 6, failedCalls: 0, input: 100_000, output: 10_000,
-        byModel: { 'openai/gpt-5.6-terra': { calls: 6, input: 100_000, output: 10_000 } },
+        byModel: { 'openai/gpt-6.1-terra': { calls: 6, input: 100_000, output: 10_000 } },
       };
-      // gpt-5.6-terra: 입력 $2 / 출력 $12 per 1M → 0.2 + 0.12
-      expect(estimateCost().usd).toBeCloseTo(0.32, 3);
+      // 2026-11-07 단가 갱신으로 기대값만 바꿨다(계산식은 그대로): gpt-6.1-terra 입력 $1 / 출력 $5 per 1M → 0.1 + 0.05
+      // (옛 기대값 0.32 는 gpt-5.6-terra $2/$12 였다)
+      expect(estimateCost().usd).toBeCloseTo(0.15, 3);
     });
 
     /** 실패해도 요청은 나갔다 — 안 세면 편당 비용이 실제보다 싸 보인다 */

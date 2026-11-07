@@ -3,13 +3,13 @@
 // 원본: cd000242-sudo/naver — src/runtime/modelRegistry.ts (v2.7.62)
 
 export const VISION_MODELS = {
-  // v3.8.483: 3.6 Flash 가 Stable 이면서 3.5 보다 출력이 싸다 ($7.50 vs $9.00)
-  GEMINI_FLASH: 'gemini-3.6-flash',
-  // v3.8.483: 3.1 Pro 는 Preview 라 선불 티어에서 막힌다 → Stable 인 3.5 Flash 로
-  GEMINI_PRO: 'gemini-3.5-flash',
+  // 2026-11-07: 3.5 Flash 는 10/8 폐기. 3.8 Flash 가 기본 티어다.
+  GEMINI_FLASH: 'gemini-3.8-flash',
+  // 이미지 검증은 최상위(4 Argon, 비용 큼)로 올리지 않는다 — Stable 3.8 Flash 를 그대로 쓴다.
+  GEMINI_PRO: 'gemini-3.8-flash',
   CLAUDE_SONNET: 'claude-sonnet-5-5',
-  OPENAI_41: 'gpt-5.6-terra',
-  OPENAI_41_MINI: 'gpt-5.6-luna',
+  OPENAI_41: 'gpt-6.1-terra',
+  OPENAI_41_MINI: 'gpt-6-luna',
 } as const;
 
 export type VisionProviderKey =
@@ -41,9 +41,11 @@ export function routeTextToVision(textKey: string): VisionRouting {
     case 'gemini-2.5-flash':
     case 'gemini-3.5-flash':
     case 'gemini-3.6-flash':
+    case 'gemini-3.8-flash':
     case 'gemini':
       return { provider: 'gemini-flash', model: VISION_MODELS.GEMINI_FLASH, vendor: 'gemini', fellBack: false };
     case 'gemini-2.5-pro':
+    case 'gemini-4-argon':
     // v3.8.483: 3.1 Pro Preview 를 골라둔 기존 설정도 Stable 로 받는다
     case 'gemini-3.1-pro-preview':
       return { provider: 'gemini-pro', model: VISION_MODELS.GEMINI_PRO, vendor: 'gemini', fellBack: false };
@@ -62,6 +64,8 @@ export function routeTextToVision(textKey: string): VisionRouting {
       return { provider: 'claude-sonnet', model: VISION_MODELS.CLAUDE_SONNET, vendor: 'claude', fellBack: false };
     case 'openai-gpt41':
     case 'openai-gpt4o':
+    case 'gpt-6.1-terra':
+    case 'gpt-6.1-sol':
     case 'gpt-5.6-terra':
     case 'gpt-5.6-sol':
     case 'openai-gpt6-astra':
@@ -69,6 +73,7 @@ export function routeTextToVision(textKey: string): VisionRouting {
     case 'openai':
       return { provider: 'openai-41', model: VISION_MODELS.OPENAI_41, vendor: 'openai', fellBack: false };
     case 'openai-gpt4o-mini':
+    case 'gpt-6-luna':
     case 'gpt-5.6-luna':
     case 'gpt-5-nano':
     case 'openai-mini':

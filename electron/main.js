@@ -608,7 +608,7 @@ async function selectGeminiModel(genAI) {
     }
     // Current stable Gemini text models, ordered for balanced quality then resilience.
     const modelNames = [
-        'gemini-3.5-flash',
+        'gemini-3.8-flash',
         'gemini-3.1-flash-lite',
         'gemini-3.1-pro-preview',
     ];
@@ -3401,7 +3401,7 @@ Requirements:
 Output only the image prompt (no explanations, no quotes, no markdown):`;
                 // Use the same current Gemini text family used by the article engine.
                 if (geminiKey) {
-                    const geminiModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
+                    const geminiModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
                     let geminiLastError = null;
                     for (const model of geminiModels) {
                         try {
@@ -14968,7 +14968,7 @@ electron_1.ipcMain.handle('url-image:crawl-and-collect', async (_evt, payload) =
             downloadsBase,
             projectName: 'LEADERNAM-Orbit',
             aiCheckEnabled: !!payload.aiCheckEnabled,
-            textGenerator: payload.textGenerator || 'gemini-3.5-flash',
+            textGenerator: payload.textGenerator || 'gemini-3.8-flash',
             apiKeys,
             threshold: payload.threshold ?? 60,
             visible: !!payload.visible,

@@ -769,7 +769,7 @@ export async function generateUltimateMaxModeArticleFinal(
     openai: 'openai-gpt41',
     claude: 'claude-sonnet',
     perplexity: 'perplexity-sonar',
-    gemini: 'gemini-3.5-flash',
+    gemini: 'gemini-3.8-flash',
   };
 
   // 🎲 LLM 모델 로테이션 (옵션) — adsense 모드에서 같은 모델로 양산하면 "scaled content abuse" 패턴 잡힘.

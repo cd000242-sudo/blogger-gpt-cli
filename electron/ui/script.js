@@ -7522,19 +7522,24 @@ async function updateAiModelStatus() {
       // Gemini (2026 최신 라벨)
       'gemini-2.5-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
       'gemini-2.5-flash': { label: 'Gemini 3.8 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
-      'gemini-2.5-pro': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '💎', color: '#10b981' },
+      'gemini-2.5-pro': { label: 'Gemini 4 Argon', short: 'Gemini Argon', emoji: '💎', color: '#10b981' },
+      'gemini-4-argon': { label: 'Gemini 4 Argon', short: 'Gemini Argon', emoji: '💎', color: '#10b981' },
       'gemini-3.1-flash-lite': { label: 'Gemini 3.1 Flash-Lite', short: 'Gemini Lite', emoji: '⚡', color: '#10b981' },
       'gemini-3.5-flash': { label: 'Gemini 3.5 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       'gemini-3.6-flash': { label: 'Gemini 3.6 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
       'gemini-3.8-flash': { label: 'Gemini 3.8 Flash', short: 'Gemini Flash', emoji: '🤖', color: '#10b981' },
-      // OpenAI GPT-5.6 시리즈
-      'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
-      'openai-gpt41-mini': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
-      'openai-gpt41': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
-      'openai-gpt4o': { label: 'OpenAI GPT-5.6 Sol', short: 'GPT-5.6 Sol', emoji: '💎', color: '#a855f7' },
-      'gpt-5.6-luna': { label: 'OpenAI GPT-5.6 Luna', short: 'GPT-5.6 Luna', emoji: '⚡', color: '#a855f7' },
-      'gpt-5.6-terra': { label: 'OpenAI GPT-5.6 Terra', short: 'GPT-5.6 Terra', emoji: '🟢', color: '#a855f7' },
-      'gpt-5.6-sol': { label: 'OpenAI GPT-5.6 Sol', short: 'GPT-5.6 Sol', emoji: '💎', color: '#a855f7' },
+      // OpenAI GPT-6 시리즈 (2026-11-07: 저장 키는 그대로, 모델만 GPT-6 계열)
+      'openai-gpt4o-mini': { label: 'OpenAI GPT-6 Luna', short: 'GPT-6 Luna', emoji: '⚡', color: '#a855f7' },
+      'openai-gpt41-mini': { label: 'OpenAI GPT-6 Luna', short: 'GPT-6 Luna', emoji: '⚡', color: '#a855f7' },
+      'openai-gpt41': { label: 'OpenAI GPT-6.1 Terra', short: 'GPT-6.1 Terra', emoji: '🟢', color: '#a855f7' },
+      'openai-gpt4o': { label: 'OpenAI GPT-6.1 Sol', short: 'GPT-6.1 Sol', emoji: '💎', color: '#a855f7' },
+      'gpt-6-luna': { label: 'OpenAI GPT-6 Luna', short: 'GPT-6 Luna', emoji: '⚡', color: '#a855f7' },
+      'gpt-6.1-terra': { label: 'OpenAI GPT-6.1 Terra', short: 'GPT-6.1 Terra', emoji: '🟢', color: '#a855f7' },
+      'gpt-6.1-sol': { label: 'OpenAI GPT-6.1 Sol', short: 'GPT-6.1 Sol', emoji: '💎', color: '#a855f7' },
+      // 옛 이름으로 저장된 값도 새 라벨로 보인다
+      'gpt-5.6-luna': { label: 'OpenAI GPT-6 Luna', short: 'GPT-6 Luna', emoji: '⚡', color: '#a855f7' },
+      'gpt-5.6-terra': { label: 'OpenAI GPT-6.1 Terra', short: 'GPT-6.1 Terra', emoji: '🟢', color: '#a855f7' },
+      'gpt-5.6-sol': { label: 'OpenAI GPT-6.1 Sol', short: 'GPT-6.1 Sol', emoji: '💎', color: '#a855f7' },
       // v3.8.686 — GPT-6 Astra (2026-09-03 출시)
       'openai-gpt6-astra': { label: 'OpenAI GPT-6 Astra', short: 'GPT-6 Astra', emoji: '🌌', color: '#a855f7' },
       'gpt-6-astra': { label: 'OpenAI GPT-6 Astra', short: 'GPT-6 Astra', emoji: '🌌', color: '#a855f7' },

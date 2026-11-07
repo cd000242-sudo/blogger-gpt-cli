@@ -15,18 +15,20 @@ describe('GPT model routing regression guard', () => {
   });
 
   test('legacy GPT radio values keep resolving to the current OpenAI tier', () => {
-    expect(pricing.findTier('openai-gpt4o-mini')?.modelId).toBe('gpt-5.6-luna');
-    expect(pricing.findTier('openai-gpt41')?.modelId).toBe('gpt-5.6-terra');
-    expect(pricing.findTier('openai-gpt4o')?.modelId).toBe('gpt-5.6-sol');
+    // 2026-11-07: 저장 키는 그대로 두고 가리키는 모델만 GPT-6 계열로 올렸다(기대값만 변경)
+    expect(pricing.findTier('openai-gpt4o-mini')?.modelId).toBe('gpt-6-luna');
+    expect(pricing.findTier('openai-gpt41')?.modelId).toBe('gpt-6.1-terra');
+    expect(pricing.findTier('openai-gpt4o')?.modelId).toBe('gpt-6.1-sol');
   });
 
   test('posting engine badge shows the routed GPT-5.6 tier instead of legacy GPT labels', () => {
     const script = read('electron/ui/script.js');
 
-    expect(script).toContain("'openai-gpt4o-mini': { label: 'OpenAI GPT-5.6 Luna'");
-    expect(script).toContain("'openai-gpt41': { label: 'OpenAI GPT-5.6 Terra'");
-    expect(script).toContain("'openai-gpt4o': { label: 'OpenAI GPT-5.6 Sol'");
-    expect(script).toContain("'gpt-5.6-terra': { label: 'OpenAI GPT-5.6 Terra'");
+    // 2026-11-07: 라벨을 GPT-6 계열로 갱신(옛 gpt-5.6-* 저장값도 새 라벨로 보인다)
+    expect(script).toContain("'openai-gpt4o-mini': { label: 'OpenAI GPT-6 Luna'");
+    expect(script).toContain("'openai-gpt41': { label: 'OpenAI GPT-6.1 Terra'");
+    expect(script).toContain("'openai-gpt4o': { label: 'OpenAI GPT-6.1 Sol'");
+    expect(script).toContain("'gpt-5.6-terra': { label: 'OpenAI GPT-6.1 Terra'");
     expect(script).not.toContain("'openai-gpt41': { label: 'OpenAI GPT-4.1'");
   });
 

@@ -38,37 +38,38 @@ describe('금액 계산 — 검증 가능한 산식', () => {
   });
 });
 
-describe('GPT-5.6 가격 인하 반영 (2026-07-30)', () => {
+// 2026-11-07: 공식 단가가 GPT-6 계열로 바뀌어 이름·단가·금액 기대값을 갱신했다(검증 구조는 그대로).
+describe('OpenAI 티어 공식 단가 (2026-11-07)', () => {
   const byTitle = (t: string) => TIER_MODELS.find(m => m.title === t)!;
 
-  it('Luna — 입력 $1→$0.20, 출력 $6→$1.20 (80% 인하)', () => {
-    const luna = byTitle('GPT-5.6 Luna');
-    expect(luna.usdPer1M).toEqual(expect.objectContaining({ input: 0.20, output: 1.20 }));
-    expect(tierCostKrw(luna)).toBe(8);
+  it('Luna — 입력 $0.10, 출력 $0.50', () => {
+    const luna = byTitle('GPT-6 Luna');
+    expect(luna.usdPer1M).toEqual(expect.objectContaining({ input: 0.10, output: 0.50 }));
+    expect(tierCostKrw(luna)).toBe(4);
   });
 
-  it('Terra — 입력 $2.5→$2, 출력 $15→$12 (20% 인하)', () => {
-    const terra = byTitle('GPT-5.6 Terra');
-    expect(terra.usdPer1M).toEqual(expect.objectContaining({ input: 2, output: 12 }));
-    expect(tierCostKrw(terra)).toBe(81);
+  it('Terra — 입력 $1, 출력 $5', () => {
+    const terra = byTitle('GPT-6.1 Terra');
+    expect(terra.usdPer1M).toEqual(expect.objectContaining({ input: 1, output: 5 }));
+    expect(tierCostKrw(terra)).toBe(38);
   });
 
-  // v3.8.686: 2026-08-21 프로모션가 $4/$20 (11-21 까지). 끝나면 $5/$30 으로 되돌리고 이 기대값도 함께 바꾼다.
-  it('Sol — 2026-08-21 프로모션가 ($4/$20 · 11-21까지)', () => {
-    const sol = byTitle('GPT-5.6 Sol');
-    expect(sol.usdPer1M).toEqual(expect.objectContaining({ input: 4, output: 20 }));
-    expect(tierCostKrw(sol)).toBe(153);
+  // 이전 기대값은 GPT-5.6 Sol 프로모션가 $4/$20 (11-21 까지) 였다. 2026-11-07 공식 GPT-6.1 Sol 단가는 $2/$10.
+  it('Sol — 입력 $2, 출력 $10', () => {
+    const sol = byTitle('GPT-6.1 Sol');
+    expect(sol.usdPer1M).toEqual(expect.objectContaining({ input: 2, output: 10 }));
+    expect(tierCostKrw(sol)).toBe(76);
   });
 
   it('GPT-6 Astra — 출시가 $10/$50, Sol 보다 비싸고 Fable 5.1 과 같은 값', () => {
     const astra = byTitle('GPT-6 Astra');
     expect(astra.usdPer1M).toEqual(expect.objectContaining({ input: 10, output: 50 }));
-    expect(tierCostKrw(astra)).toBeGreaterThan(tierCostKrw(byTitle('GPT-5.6 Sol')));
+    expect(tierCostKrw(astra)).toBeGreaterThan(tierCostKrw(byTitle('GPT-6.1 Sol')));
   });
 
   it('Luna 가 Terra 보다 싸다 — 인하 후에도 티어 순서가 유지된다', () => {
-    expect(tierCostKrw(byTitle('GPT-5.6 Luna'))).toBeLessThan(tierCostKrw(byTitle('GPT-5.6 Terra')));
-    expect(tierCostKrw(byTitle('GPT-5.6 Terra'))).toBeLessThan(tierCostKrw(byTitle('GPT-5.6 Sol')));
+    expect(tierCostKrw(byTitle('GPT-6 Luna'))).toBeLessThan(tierCostKrw(byTitle('GPT-6.1 Terra')));
+    expect(tierCostKrw(byTitle('GPT-6.1 Terra'))).toBeLessThan(tierCostKrw(byTitle('GPT-6.1 Sol')));
   });
 
   it('단가에는 출처가 반드시 붙는다 — 근거 없는 숫자를 막는다', () => {
@@ -138,8 +139,10 @@ describe('렌더러로 넘기는 금액표', () => {
   });
 
   it('findTier 가 UI value 와 modelId 양쪽으로 찾는다', () => {
-    expect(findTier('openai-gpt4o-mini')?.title).toBe('GPT-5.6 Luna');
-    expect(findTier('gpt-5.6-luna')?.title).toBe('GPT-5.6 Luna');
+    expect(findTier('openai-gpt4o-mini')?.title).toBe('GPT-6 Luna');
+    expect(findTier('gpt-6-luna')?.title).toBe('GPT-6 Luna');
+    // 옛 이름으로 저장된 값도 같은 티어로 읽힌다
+    expect(findTier('gpt-5.6-luna')?.title).toBe('GPT-6 Luna');
   });
 });
 

@@ -25,7 +25,7 @@ const DEFAULT_LABELS = (process.env['DEFAULT_LABELS'] || '').split(',').map(s =>
 const ALLOW_COMMENTS = (process.env['ALLOW_COMMENTS'] || 'true') === 'true';
 const RATE_LIMIT_SECONDS = parseInt(process.env['RATE_LIMIT_SECONDS'] || '30', 10);
 
-const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-5.6-terra';
+const OPENAI_MODEL = process.env['OPENAI_MODEL'] || 'gpt-6.1-terra';
 const openai = new OpenAI({ apiKey: process.env['OPENAI_API_KEY'] });
 
 function buildOpenAIChatRequest(messages: any[], temperature: number): any {
