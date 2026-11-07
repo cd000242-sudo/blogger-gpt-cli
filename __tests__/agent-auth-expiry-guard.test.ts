@@ -68,7 +68,7 @@ describe('인증 실패 전파 (v3.8.382)', () => {
     expect(idx).toBeGreaterThan(-1);
     const block = braceBlock(mainSource, 'if (!hasContent) {');
     expect(block).toContain('authRequired');
-    expect(block).toContain("updateAgentProfileStatus(profile.id, 'needs-login')");
+    expect(block).toContain("updateAgentProfileStatus(profile.id, 'needs-login', { rejectedAuthStamp: readAgentAuthStamp(profile) })");
   });
 
   it('runAgentJob이 authRequired를 전역 신호로 남긴다', () => {

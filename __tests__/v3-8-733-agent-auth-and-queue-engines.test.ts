@@ -167,10 +167,11 @@ describe('① 이 PC 로그인 가져오기 — 버튼과 핸들러가 맞물린
     expect(block.slice(0, 4000)).toContain('await verifyAgentLoginSession(profile)');
   });
 
-  it('⭐ 원본은 건드리지 않고 복사만 한다', () => {
+  it('⭐ 원본은 건드리지 않는다 - v3.8.766부터 복사도 하지 않고 이 PC 로그인 폴더를 그대로 쓴다(복사본은 1회용 토큰 때문에 죽는다)', () => {
     const block = mainTs.slice(mainTs.indexOf("ipcMain.handle('agent-mode:import-system-login'"));
     const body = block.slice(0, 4000);
-    expect(body).toContain('fs.copyFileSync(');
+    expect(body).not.toContain('fs.copyFileSync(');
+    expect(body).toContain('useSystemHome: true');
     expect(body).not.toContain('fs.renameSync(');
     expect(body).not.toContain('fs.rmSync(');
   });

@@ -29,7 +29,7 @@ describe('agent login session regression', () => {
     expect(mainSource).toContain("ipcMain.handle('agent-mode:check-login'");
     expect(mainSource).toContain('args?.verify && profile');
     expect(mainSource).toContain('const verification = await verifyAgentLoginSession(profile)');
-    expect(mainSource).toContain("updateAgentProfileStatus(profile.id, 'needs-login')");
+    expect(mainSource).toContain("updateAgentProfileStatus(profile.id, 'needs-login', { rejectedAuthStamp: readAgentAuthStamp(profile) })");
   });
 
   test('agent publish job refuses to start when live login verification fails', () => {

@@ -43,6 +43,7 @@ const browser_paths_1 = require("./browser-paths");
 const agent_install_1 = require("./agent-install");
 const codex_portable_1 = require("./codex-portable");
 const gemini_portable_1 = require("./gemini-portable");
+const agent_profile_state_1 = require("./agent-profile-state");
 // Install before lazy browser imports capture child_process launch functions.
 (0, windows_browser_process_1.installWindowsBrowserProcessGuard)();
 let _puppeteer = null;
@@ -4715,9 +4716,11 @@ const AGENT_CMDLINE_SAFE_LIMIT = 7000;
 /** 비서가 절대 쓰면 안 되는 도구들 — 1단계는 읽기 전용이다 */
 const ASSISTANT_BLOCKED_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task'];
 async function runAgentTextTask(providerId, prompt, log, opts) {
-    const profiles = loadAgentProfiles();
-    const profile = profiles.find((p) => p.provider === providerId && p.status === 'ready')
-        || profiles.find((p) => p.provider === providerId);
+    // v3.8.766: 첫 프로필(죽은 것일 수 있음) 대신 사용자가 고른 프로필을 쓴다
+    const profile = (0, agent_profile_state_1.pickAgentProfile)(loadAgentProfiles(), {
+        provider: providerId,
+        preferredId: readPreferredAgentProfileIds()[providerId],
+    });
     if (!profile) {
         throw new Error(`에이전트 "${providerId}" 로그인이 없습니다. 환경설정 → Agent 계정에서 로그인해 주세요.`);
     }
@@ -9285,6 +9288,8 @@ function normalizeAgentProfile(raw) {
         profileDir,
         envVar: agentProviderInfo(provider).envVar,
         status: raw.status === 'ready' || raw.status === 'needs-login' ? raw.status : 'unknown',
+        ...(raw.useSystemHome === true ? { useSystemHome: true } : {}),
+        ...(typeof raw.rejectedAuthStamp === 'string' && raw.rejectedAuthStamp ? { rejectedAuthStamp: raw.rejectedAuthStamp } : {}),
         createdAt: String(raw.createdAt || new Date().toISOString()),
         updatedAt: String(raw.updatedAt || new Date().toISOString()),
     };
@@ -9314,10 +9319,26 @@ function quotePowerShell(value) {
 }
 function buildAgentLoginCommand(profile) {
     const dir = quotePowerShell(profile.profileDir);
+    // v3.8.766: 이 PC 로그인을 그대로 쓰는 프로필은 폴더를 바꾸지 않는다(터미널과 같은 폴더에 로그인)
+    const home = (name) => ((0, agent_profile_state_1.usesSystemHome)(profile) ? '' : `$env:${name}=${dir}; `);
     if (profile.provider === 'claude') {
-        return `$env:CLAUDE_CONFIG_DIR=${dir}; Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue; claude auth login`;
+        return `${home('CLAUDE_CONFIG_DIR')}Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue; claude auth login`;
     }
-    return `$env:CODEX_HOME=${dir}; Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue; codex login`;
+    return `${home('CODEX_HOME')}Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue; Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue; codex login`;
+}
+/** 이 PC 의 로그인 폴더 (Codex: CODEX_HOME 또는 ~/.codex, Claude: CLAUDE_CONFIG_DIR 또는 ~/.claude). 함수 선언이라 위치와 무관하게 쓸 수 있다. */
+function agentSystemHomeDir(provider) {
+    if (provider === 'codex')
+        return process.env['CODEX_HOME'] || path.join(electron_1.app.getPath('home'), '.codex');
+    if (provider === 'claude')
+        return process.env['CLAUDE_CONFIG_DIR'] || path.join(electron_1.app.getPath('home'), '.claude');
+    return null;
+}
+/** 이 프로필의 인증 파일이 실제로 있는 폴더 */
+function agentAuthDir(profile) {
+    if ((0, agent_profile_state_1.usesSystemHome)(profile))
+        return agentSystemHomeDir(profile.provider) || profile.profileDir;
+    return profile.profileDir;
 }
 // v3.8.86: 로그인 계정 식별 — codex/claude 인증 토큰에서 이메일·계정 정보 추출.
 //   사용자 보고: 5h 한도 메시지가 떠도 "어느 계정으로 로그인됐는지" 알 수 없어 디버깅 불가.
@@ -9355,7 +9376,7 @@ function decodeJwtPayloadEmail(token) {
     }
 }
 function extractAgentLoginIdentity(profile) {
-    const root = profile.profileDir;
+    const root = agentAuthDir(profile);
     if (!root || !fs.existsSync(root))
         return null;
     const candidates = [];
@@ -9430,8 +9451,15 @@ function toAgentProfileView(profile) {
         loginIdentity = extractAgentLoginIdentity(profile);
     }
     catch { }
+    // v3.8.766: 서버가 거절한 로그인이면 화면이 "다시 로그인 필요"로 보여 준다(인증 파일은 남아 있어도)
+    let authRejected = false;
+    try {
+        authRejected = profile.status === 'needs-login' && (0, agent_profile_state_1.isAuthRejected)(profile, readAgentAuthStamp(profile));
+    }
+    catch { }
     return {
         ...profile,
+        authRejected,
         loginCommand: buildAgentLoginCommand(profile),
         loginIdentity,
     };
@@ -9469,10 +9497,10 @@ function fileLooksLikeAgentAuth(filePath) {
         return false;
     }
 }
-function hasAgentAuthEvidence(profile) {
-    const root = profile.profileDir;
+/** 격리 프로필 폴더 안의 인증처럼 보이는 파일을 하나씩 본다. visit 이 true 를 돌려주면 멈춘다. */
+function walkAgentAuthFiles(root, visit) {
     if (!root || !fs.existsSync(root))
-        return false;
+        return;
     const stack = [{ dir: root, depth: 0 }];
     const maxDepth = 5;
     while (stack.length) {
@@ -9494,20 +9522,60 @@ function hasAgentAuthEvidence(profile) {
                 stack.push({ dir: fullPath, depth: current.depth + 1 });
                 continue;
             }
-            if (entry.isFile() && fileLooksLikeAgentAuth(fullPath)) {
-                return true;
-            }
+            if (entry.isFile() && fileLooksLikeAgentAuth(fullPath) && visit(fullPath))
+                return;
         }
     }
-    return false;
+}
+/** 이 PC 로그인을 그대로 쓰는 프로필의 인증 파일. ~/.codex 는 크므로 폴더 전체를 뒤지지 않고 이 파일 하나만 본다. */
+function agentSystemAuthFile(profile) {
+    const dir = agentSystemHomeDir(profile.provider);
+    if (!dir)
+        return null;
+    return path.join(dir, profile.provider === 'claude' ? '.credentials.json' : 'auth.json');
+}
+function hasAgentAuthEvidence(profile) {
+    if ((0, agent_profile_state_1.usesSystemHome)(profile)) {
+        const file = agentSystemAuthFile(profile);
+        try {
+            return !!file && fs.statSync(file).size > 20;
+        }
+        catch {
+            return false;
+        }
+    }
+    let found = false;
+    walkAgentAuthFiles(profile.profileDir, () => { found = true; return true; });
+    return found;
+}
+/** 서버 거절 판정이 아직 유효한지 가르는 인증 파일 지문. 내용은 읽지 않고 이름·수정시각·크기만 본다. */
+function readAgentAuthStamp(profile) {
+    const entries = [];
+    const add = (file) => {
+        try {
+            const st = fs.statSync(file);
+            entries.push({ name: path.basename(file), mtimeMs: st.mtimeMs, size: st.size });
+        }
+        catch { /* 파일이 사라졌으면 지문에서 빠진다 */ }
+    };
+    if ((0, agent_profile_state_1.usesSystemHome)(profile)) {
+        const file = agentSystemAuthFile(profile);
+        if (file)
+            add(file);
+    }
+    else {
+        walkAgentAuthFiles(profile.profileDir, (file) => { add(file); return false; });
+    }
+    return (0, agent_profile_state_1.authStampOf)(entries);
 }
 function refreshAgentProfileStatuses() {
     const profiles = loadAgentProfiles();
     let changed = false;
     const now = new Date().toISOString();
     const next = profiles.map((profile) => {
-        const ready = hasAgentAuthEvidence(profile);
-        const status = ready ? 'ready' : 'needs-login';
+        // v3.8.766: "인증 파일이 있다"는 서버가 거절한 판정을 되돌리지 못한다(decideRefreshedStatus)
+        const hasEvidence = hasAgentAuthEvidence(profile);
+        const status = (0, agent_profile_state_1.decideRefreshedStatus)(profile, hasEvidence, hasEvidence ? readAgentAuthStamp(profile) : '');
         if (profile.status === status)
             return profile;
         changed = true;
@@ -9517,24 +9585,63 @@ function refreshAgentProfileStatuses() {
         saveAgentProfiles(next);
     return next;
 }
+/**
+ * v3.8.766: 사용자가 고른 프로필 기억 - 화면이 프로필 id 를 실어 보낸 요청(점검·실행·로그인)에서 갱신한다.
+ * 화면이 id 를 안 싣는 백그라운드 글쓰기(비서·비평·거미줄 등)가 첫 프로필 대신 이 프로필을 쓰게 한다.
+ */
+function getPreferredAgentProfilePath() {
+    return path.join(getAgentProfilesRoot(), 'preferred-profiles.json');
+}
+function readPreferredAgentProfileIds() {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(getPreferredAgentProfilePath(), 'utf-8'));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    }
+    catch {
+        return {};
+    }
+}
+function rememberPreferredAgentProfile(profile) {
+    if (!profile?.id)
+        return;
+    try {
+        const current = readPreferredAgentProfileIds();
+        if (current[profile.provider] === profile.id)
+            return;
+        ensureAgentProfilesRoot();
+        fs.writeFileSync(getPreferredAgentProfilePath(), JSON.stringify({ ...current, [profile.provider]: profile.id }, null, 2), 'utf-8');
+    }
+    catch (error) {
+        console.warn('[AGENT-MODE] 선택 프로필 기억 실패(무시):', error);
+    }
+}
 function findAgentProfile(profileId, provider) {
     const profiles = refreshAgentProfileStatuses();
-    if (profileId) {
-        const profile = profiles.find((item) => item.id === profileId);
-        if (profile)
-            return profile;
-    }
-    const normalizedProvider = provider ? normalizeAgentProvider(provider) : null;
-    return profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider) || null;
+    const normalizedProvider = provider ? normalizeAgentProvider(provider) : undefined;
+    const picked = (0, agent_profile_state_1.pickAgentProfile)(profiles, {
+        profileId,
+        provider: normalizedProvider,
+        preferredId: normalizedProvider ? readPreferredAgentProfileIds()[normalizedProvider] : undefined,
+    });
+    if (picked && profileId && picked.id === profileId)
+        rememberPreferredAgentProfile(picked);
+    return picked;
 }
-function updateAgentProfileStatus(profileId, status) {
+function updateAgentProfileStatus(profileId, status, options) {
     const profiles = loadAgentProfiles();
     let updated = null;
     const now = new Date().toISOString();
     const next = profiles.map((profile) => {
         if (profile.id !== profileId)
             return profile;
-        updated = { ...profile, status, updatedAt: now };
+        // 서버가 거절했을 때만 지문을 남기고, 그 밖의 상태 변경은 지문을 지운다
+        const { rejectedAuthStamp: _previousStamp, ...rest } = profile;
+        updated = {
+            ...rest,
+            status,
+            ...(status === 'needs-login' && options?.rejectedAuthStamp ? { rejectedAuthStamp: options.rejectedAuthStamp } : {}),
+            updatedAt: now,
+        };
         return updated;
     });
     if (updated)
@@ -10385,7 +10492,8 @@ function buildAgentRunEnv(profile) {
         delete env.CLAUDE_CODE_OAUTH_TOKEN;
     }
     // v3.8.608: 제공자마다 다른 격리 변수를 표에서 찾는다 (gemini = GEMINI_CLI_HOME)
-    env[agentProviderInfo(profile.provider).envVar] = profile.profileDir;
+    // v3.8.766: 이 PC 로그인을 그대로 쓰는 프로필은 변수를 넣지 않아 CLI 가 ~/.codex 를 직접 쓴다
+    (0, agent_profile_state_1.applyAgentHomeEnv)(env, profile, agentProviderInfo(profile.provider).envVar, profile.profileDir);
     // v3.8.241: Claude Code 네이티브 설치 경로 (~/.local/bin)를 PATH에 자동 주입
     // 공식 설치기가 PATH를 등록하지 않은 케이스에서도 claude.exe가 자식 프로세스(node, sh 등)를 찾을 수 있도록
     if (profile.provider === 'claude') {
@@ -11282,8 +11390,8 @@ function buildAgentLoginScript(profile) {
         `Write-Host ${quotePowerShell('로그인이 끝나면 이 창을 닫아도 됩니다.')}`,
         `Write-Host ''`,
         profile.provider === 'claude'
-            ? `$env:CLAUDE_CONFIG_DIR=${dir}`
-            : `$env:CODEX_HOME=${dir}`,
+            ? ((0, agent_profile_state_1.usesSystemHome)(profile) ? '' : `$env:CLAUDE_CONFIG_DIR=${dir}`)
+            : ((0, agent_profile_state_1.usesSystemHome)(profile) ? '' : `$env:CODEX_HOME=${dir}`),
         'Remove-Item Env:CODEX_API_KEY -ErrorAction SilentlyContinue',
         'Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue',
         'Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue',
@@ -11291,7 +11399,7 @@ function buildAgentLoginScript(profile) {
         loginCommand,
         `Write-Host ''`,
         `Write-Host ${quotePowerShell('완료되면 이 창을 닫으세요.')}`,
-    ].join('; ');
+    ].filter(Boolean).join('; ');
 }
 function getPowerShellExecutable() {
     if (process.platform !== 'win32')
@@ -11859,7 +11967,7 @@ function runCodexExecProbe(profile) {
 async function probeCodexSessionLive(profile) {
     if (profile.provider !== 'codex' || profile.authMode !== 'subscription')
         return 'unknown';
-    const stored = readCodexAccessToken(profile.profileDir);
+    const stored = readCodexAccessToken(agentAuthDir(profile));
     if (!stored)
         return 'unknown';
     // access_token 이 이미 만료면 1단계로는 못 가른다 — 바로 CLI 에게 갱신을 시킨다
@@ -11986,7 +12094,7 @@ async function verifyAgentLoginSession(profile) {
             if (ready)
                 updateAgentProfileStatus(profile.id, 'ready');
             else if (authRequired)
-                updateAgentProfileStatus(profile.id, 'needs-login');
+                updateAgentProfileStatus(profile.id, 'needs-login', { rejectedAuthStamp: readAgentAuthStamp(profile) });
             const label = agentProviderLabel(profile.provider);
             resolve({
                 ok: ready || authRequired || quotaExceeded || timedOut,
@@ -12326,34 +12434,25 @@ electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
  *   6~7월 토큰이라 죽어 있었다. 앱은 계정을 격리 폴더에 따로 두기 때문에
  *   터미널에서 아무리 로그인해도 앱은 그걸 쓰지 않는다 — 이게 "로그인했는데 왜"의 정체다.
  *
- * 그래서 터미널 쪽 인증 파일을 새 프로필로 **복사**한다(원본은 건드리지 않는다).
- *   제미나이는 인증을 파일 한 곳에 두지 않아(실측 0.51.0) 가져올 수 없다 — 로그인 창을 쓴다.
+ * v3.8.766 — 복사하지 않는다. Codex 갱신 토큰은 1회용이라 복사본은 원본이 갱신되는 순간 죽는다
+ *   (실측: 이 방식으로 만든 프로필 5개가 전부 서버에서 거절). 프로필에 useSystemHome 표시만 두고
+ *   실행·점검은 이 PC 의 로그인 폴더(~/.codex)를 CODEX_HOME 없이 직접 쓴다. 이미 복사돼 있던 프로필은 사용자 데이터라 지우지 않는다.
+ *   제미나이는 인증을 파일 한 곳에 두지 않아(실측 0.51.0) 쓸 수 없다 — 로그인 창을 쓴다.
  */
-const AGENT_SYSTEM_HOME_FILES = {
-    codex: {
-        dir: () => process.env['CODEX_HOME'] || path.join(electron_1.app.getPath('home'), '.codex'),
-        files: ['auth.json', 'config.toml'],
-    },
-    claude: {
-        dir: () => process.env['CLAUDE_CONFIG_DIR'] || path.join(electron_1.app.getPath('home'), '.claude'),
-        files: ['.credentials.json', 'settings.json'],
-    },
-};
 electron_1.ipcMain.handle('agent-mode:import-system-login', async (_evt, args) => {
     try {
         const access = await getAgentModeAccessStatus();
         if (!access.allowed)
             return { ok: false, error: access.message };
         const provider = normalizeAgentProvider(args?.provider);
-        const source = AGENT_SYSTEM_HOME_FILES[provider];
-        if (!source) {
+        const sourceDir = agentSystemHomeDir(provider);
+        if (!sourceDir) {
             return {
                 ok: false,
-                error: `${agentProviderLabel(provider)} 는 인증 파일을 한 곳에 두지 않아 가져올 수 없습니다. [로그인 창 열기]로 로그인해주세요.`,
+                error: `${agentProviderLabel(provider)} 는 인증 파일을 한 곳에 두지 않아 이 PC 로그인을 쓸 수 없습니다. [로그인 창 열기]로 로그인해주세요.`,
             };
         }
-        const sourceDir = source.dir();
-        const primary = path.join(sourceDir, source.files[0]);
+        const primary = path.join(sourceDir, provider === 'claude' ? '.credentials.json' : 'auth.json');
         if (!fs.existsSync(primary)) {
             return {
                 ok: false,
@@ -12361,44 +12460,44 @@ electron_1.ipcMain.handle('agent-mode:import-system-login', async (_evt, args) =
                 error: `이 PC 에는 가져올 ${agentProviderLabel(provider)} 로그인이 없습니다 (${primary} 없음). [${agentProviderLabel(provider)} 설치하기] → [${agentProviderLabel(provider)} 로그인 창 열기] 순서로 진행해주세요.`,
             };
         }
-        const id = createAgentProfileId(provider);
-        const profileDir = path.join(ensureAgentProfilesRoot(), provider, id);
-        const now = new Date().toISOString();
-        const profile = {
-            id,
-            provider,
-            label: sanitizeAgentLabel(args?.label || `${agentProviderLabel(provider)} (이 PC 로그인)`, provider),
-            authMode: 'subscription',
-            profileDir,
-            envVar: agentProviderInfo(provider).envVar,
-            status: 'needs-login',
-            createdAt: now,
-            updatedAt: now,
-        };
-        writeDefaultAgentProfileFiles(profile);
-        const copied = [];
-        for (const name of source.files) {
-            const from = path.join(sourceDir, name);
-            if (!fs.existsSync(from))
-                continue;
-            fs.copyFileSync(from, path.join(profileDir, name));
-            copied.push(name);
+        // 같은 제공자의 "이 PC 로그인" 프로필이 이미 있으면 새로 만들지 않고 그것을 다시 확인한다
+        let profile = loadAgentProfiles().find((item) => item.provider === provider && (0, agent_profile_state_1.usesSystemHome)(item)) || null;
+        if (!profile) {
+            const id = createAgentProfileId(provider);
+            const profileDir = path.join(ensureAgentProfilesRoot(), provider, id);
+            const now = new Date().toISOString();
+            const created = {
+                id,
+                provider,
+                label: sanitizeAgentLabel(args?.label || `${agentProviderLabel(provider)} (이 PC 로그인)`, provider),
+                authMode: 'subscription',
+                profileDir,
+                envVar: agentProviderInfo(provider).envVar,
+                status: 'needs-login',
+                useSystemHome: true,
+                createdAt: now,
+                updatedAt: now,
+            };
+            writeDefaultAgentProfileFiles(created);
+            const profiles = loadAgentProfiles();
+            profiles.push(created);
+            saveAgentProfiles(profiles);
+            profile = created;
         }
-        const profiles = loadAgentProfiles();
-        profiles.push(profile);
-        saveAgentProfiles(profiles);
-        // 복사한 인증이 **서버에서도 살아 있는지** 바로 확인한다 — 죽은 걸 가져와 놓고 준비됐다고 하면 안 된다
+        // 이 PC 로그인이 **서버에서도 살아 있는지** 바로 확인한다 — 죽은 걸 준비됐다고 하면 안 된다
         const verification = await verifyAgentLoginSession(profile);
         const refreshed = refreshAgentProfileStatuses();
+        const finalProfile = refreshed.find((item) => item.id === profile.id) || profile;
+        // 사용자가 이 프로필을 골랐으니 화면이 id 를 안 싣는 백그라운드 작업도 이것을 쓴다
+        rememberPreferredAgentProfile(finalProfile);
         return {
             ok: true,
             ready: verification.ready,
-            copied,
             sourceDir,
             message: verification.ready
-                ? `이 PC 의 ${agentProviderLabel(provider)} 로그인을 가져왔습니다 (${copied.join(', ')}). 바로 쓸 수 있습니다.`
-                : `인증 파일은 가져왔지만 확인에 실패했습니다 — ${verification.message}`,
-            profile: toAgentProfileView(refreshed.find((item) => item.id === profile.id) || profile),
+                ? `이 PC 의 ${agentProviderLabel(provider)} 로그인을 그대로 쓰도록 연결했습니다. 바로 쓸 수 있습니다.`
+                : `이 PC 로그인으로 연결했지만 확인에 실패했습니다 — ${verification.message}`,
+            profile: toAgentProfileView(finalProfile),
             profiles: refreshed.map(toAgentProfileView),
         };
     }
@@ -12425,6 +12524,9 @@ electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
         const profile = (args?.id ? profiles.find((item) => item.id === args.id) : null)
             || profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider)
             || null;
+        // v3.8.766: 화면이 id 를 실어 점검한 프로필 = 사용자가 고른 프로필
+        if (args?.id && profile?.id === args.id)
+            rememberPreferredAgentProfile(profile);
         if (args?.verify && profile) {
             const verification = await verifyAgentLoginSession(profile);
             const refreshedProfiles = refreshAgentProfileStatuses();
@@ -12992,7 +13094,7 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
                 ? CODEX_AUTH_REQUIRED_RE.test(failureText)
                 : AGENT_AUTH_REQUIRED_RE.test(failureText);
             if (authRequired) {
-                updateAgentProfileStatus(profile.id, 'needs-login');
+                updateAgentProfileStatus(profile.id, 'needs-login', { rejectedAuthStamp: readAgentAuthStamp(profile) });
                 console.warn(`[AGENT] 실행 중 인증 만료 감지 → 프로필 ${profile.id} 상태를 needs-login으로 변경`);
             }
             return {
