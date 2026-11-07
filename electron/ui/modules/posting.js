@@ -1414,7 +1414,10 @@ export async function publishToPlatform(options) {
     isQueueRun,
   });
 
-  if (isQueueRun) {
+  // v3.8.766 — 에이전트 흐름은 이미 runPosting 안에서 글을 만든 뒤 이 함수를 불렀다.
+  //   여기서 runPosting 을 다시 부르면 자기 자신이 쥔 잠금(__runPostingInFlight)에 걸려
+  //   연속발행의 모든 항목이 already_running 으로 실패한다. 에이전트 흐름은 아래 "생성된 글 발행" 경로를 탄다.
+  if (isQueueRun && !agentFlowActive) {
     return await runPosting();
   }
 
@@ -1463,7 +1466,13 @@ export async function publishToPlatform(options) {
         showProgressModal();
       }
 
-      const currentPayload = await createPayload({ previewOnly: false });
+      // v3.8.766 — 연속발행이면 항목 값(플랫폼·발행 방식·예약 시각)을 화면 값보다 앞에 둔다. 아니면 화면 값이 저장값을 덮는다.
+      const queueOverridesForPublish = (isQueueRun
+        && window.__publishQueuePayloadOverrides
+        && typeof window.__publishQueuePayloadOverrides === 'object')
+        ? window.__publishQueuePayloadOverrides
+        : {};
+      const currentPayload = await createPayload({ previewOnly: false, overrides: queueOverridesForPublish });
       // v3.8.778 — forcePublish 는 이 함수의 인자(사람의 승인)로만 실린다. 생성 결과·저장 payload 에 들어 있던 값은 버린다(에이전트가 켤 수 없다)
       const { forcePublish: _storedForce, ...storedPayload } = appState.generatedContent.payload || {};
       const { forcePublish: _currentForce, ...freshPayload } = currentPayload || {};

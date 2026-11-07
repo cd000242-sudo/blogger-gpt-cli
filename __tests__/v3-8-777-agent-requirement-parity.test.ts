@@ -318,7 +318,7 @@ describe('7 재시도·재사용 — 원래 계약 보존 · 같은 키워드 + 
   });
   test('에이전트 글도 776 재사용 가드를 탄다 — 적용된 payload 에 원래 userRequest 가 실린다', () => {
     // applyCodexResult 가 payload 를 펼쳐 싣고(위 테스트), publishToPlatform 은 그 payload.userRequest 와 화면 값을 비교한다
-    const pub = between(POSTING, 'export async function publishToPlatform(options)','const currentPayload = await createPayload({ previewOnly: false });');
+    const pub = between(POSTING, 'export async function publishToPlatform(options)','const currentPayload = await createPayload({ previewOnly: false, overrides: queueOverridesForPublish });');
     expect(pub).toContain("!sameUserRequest(appState.generatedContent.payload?.userRequest, document.getElementById('userRequestNote')?.value)");
     const semi = between(PREVIEW, "if (executionMode === 'agent') {", 'runAgentJobFromPosting(payload)');
     expect(semi.length).toBeGreaterThan(0);
