@@ -243,10 +243,12 @@ describe('v3.8.755 배선 — 원클릭', () => {
     expect(body).toContain('options.thenLogin !== false');
   });
 
-  test('설치 전에 로그인을 눌러도 설치부터 한다(한 번만 — 무한 반복 금지)', () => {
+  test('설치 전에 로그인을 누르면 먼저 묻고, 예일 때만 설치한 뒤 이어서 로그인한다(한 번만 — 무한 반복 금지)', () => {
     const body = untilNextTopLevel(ui, 'async function startAgentLogin(');
     expect(body).toContain('!options.skipInstall');
-    expect(body).toContain('installAgentTool(normalizedProvider, null, { thenLogin: false })');
+    expect(body).toContain('confirmAgentInstall(label)');
+    expect(body).toContain('installAgentTool(normalizedProvider, null, { thenLogin: false, confirmed: true })');
     expect(body).toContain('startAgentLogin(normalizedProvider, profileId, { skipInstall: true })');
+    expect(body.indexOf('confirmAgentInstall(label)')).toBeLessThan(body.indexOf('installAgentTool('));
   });
 });

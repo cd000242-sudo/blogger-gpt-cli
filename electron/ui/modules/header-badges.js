@@ -381,9 +381,14 @@ function buildExecutionModePop(pop) {
        */
       const loginCheck = Array.isArray(readiness?.checks) ? readiness.checks.find((c) => c && c.id === 'agent') : null;
       if (loginCheck && loginCheck.ready === false) {
-        window.setAgentExecutionMode('api');
+        // No automatic fallback: the user's engine choice stays. Say what is wrong; a slow check is not a logout.
         renderExecutionModeBadge();
-        try { await window.updateAiModelStatus?.(); } catch { /* 표시 갱신 실패는 발행과 무관 */ }
+        if (loginCheck.delayed === true) {
+          addLog('⏳ 에이전트 확인 지연 — 로그인은 그대로 유지됩니다', 'warning');
+          notifyUser(`에이전트 확인 지연 — 로그인은 그대로 유지됩니다.
+잠시 뒤 환경설정에서 [다시 확인]을 눌러 주세요.`, 'warning');
+          return;
+        }
         addLog('⚠️ 에이전트가 연결되지 않았습니다 — 환경설정을 엽니다', 'warning');
         try { window.openSettingsModal?.(); } catch { /* 못 열면 아래 안내로 */ }
         try { await window.refreshAgentModeSettings?.(); } catch { /* 설정 갱신 실패는 무시 */ }

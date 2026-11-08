@@ -44,6 +44,7 @@ const agent_install_1 = require("./agent-install");
 const codex_portable_1 = require("./codex-portable");
 const gemini_portable_1 = require("./gemini-portable");
 const agent_profile_state_1 = require("./agent-profile-state");
+const agent_login_verdict_1 = require("./agent-login-verdict");
 // Install before lazy browser imports capture child_process launch functions.
 (0, windows_browser_process_1.installWindowsBrowserProcessGuard)();
 let _puppeteer = null;
@@ -9557,6 +9558,11 @@ function hasAgentAuthEvidence(profile) {
             return false;
         }
     }
+    // An isolated folder is logged in only when the CLI's own credential file holds a real token.
+    // Config files such as .claude.json used to make an empty July folder look "ready".
+    if ((0, agent_login_verdict_1.requiresTokenEvidence)(profile.provider)) {
+        return (0, agent_login_verdict_1.isolatedProfileHasRealLogin)(profile.profileDir, profile.provider);
+    }
     let found = false;
     walkAgentAuthFiles(profile.profileDir, () => { found = true; return true; });
     return found;
@@ -9628,18 +9634,59 @@ function rememberPreferredAgentProfile(profile) {
         console.warn('[AGENT-MODE] 선택 프로필 기억 실패(무시):', error);
     }
 }
+/**
+ * Picks the profile for a run. It only READS the preference: the preference is written by the
+ * explicit select-profile channel (the user changed the account), never by a run or a check
+ * that merely echoes the account the screen was showing.
+ */
 function findAgentProfile(profileId, provider) {
     const profiles = refreshAgentProfileStatuses();
     const normalizedProvider = provider ? normalizeAgentProvider(provider) : undefined;
-    const picked = (0, agent_profile_state_1.pickAgentProfile)(profiles, {
+    return (0, agent_profile_state_1.pickAgentProfile)(profiles, {
         profileId,
         provider: normalizedProvider,
         preferredId: normalizedProvider ? readPreferredAgentProfileIds()[normalizedProvider] : undefined,
     });
-    if (picked && profileId && picked.id === profileId)
-        rememberPreferredAgentProfile(picked);
-    return picked;
 }
+/**
+ * Verified-login memo. A probe can be slow (cold CLI start, busy PC); the last verification is
+ * reused for 6 hours so a healthy login is not drawn as broken. It is kept on disk so the first
+ * probe after a restart can use it too. Created lazily: userData may still be re-pointed at startup.
+ */
+function getAgentLoginMemoPath() {
+    return path.join(getAgentProfilesRoot(), 'verified-logins.json');
+}
+let agentLoginMemoStore = null;
+function loadAgentLoginMemo() {
+    if (!agentLoginMemoStore) {
+        let initial = {};
+        try {
+            const parsed = JSON.parse(fs.readFileSync(getAgentLoginMemoPath(), 'utf-8'));
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+                initial = parsed;
+        }
+        catch { /* no memo yet */ }
+        agentLoginMemoStore = (0, agent_login_verdict_1.createVerifiedLoginMemo)({ initial });
+    }
+    return agentLoginMemoStore;
+}
+function persistAgentLoginMemo() {
+    try {
+        ensureAgentProfilesRoot();
+        fs.writeFile(getAgentLoginMemoPath(), JSON.stringify(loadAgentLoginMemo().serialize()), 'utf-8', (error) => {
+            if (error)
+                console.warn('[AGENT-MODE] verified-login memo save failed (ignored):', error.message);
+        });
+    }
+    catch (error) {
+        console.warn('[AGENT-MODE] verified-login memo save failed (ignored):', error);
+    }
+}
+const agentLoginMemo = {
+    recall: (profileId) => loadAgentLoginMemo().recall(profileId),
+    remember: (profileId) => { loadAgentLoginMemo().remember(profileId); persistAgentLoginMemo(); },
+    forget: (profileId) => { loadAgentLoginMemo().forget(profileId); persistAgentLoginMemo(); },
+};
 function updateAgentProfileStatus(profileId, status, options) {
     const profiles = loadAgentProfiles();
     let updated = null;
@@ -11897,6 +11944,10 @@ function getAgentBinaryCandidates(binaryName) {
         }
     });
 }
+/** True when a program with this name already exists on this PC (file presence only, nothing is run). */
+function agentProgramExists(binaryName) {
+    return getAgentBinaryCandidates(binaryName).length > 0;
+}
 function resolveAgentBinaryCommand(provider) {
     const binaryName = agentProviderInfo(provider).binary;
     return getAgentBinaryCandidates(binaryName)[0] || binaryName;
@@ -12168,14 +12219,23 @@ async function verifyAgentLoginSession(profile) {
                 }
             }
             const authRequired = cliSaysAuthRequired || sessionProbe === 'revoked';
-            const ready = !timedOut && !authRequired && !quotaExceeded && loginStatus === true && exitCode === 0;
-            if (ready)
+            // A probe that timed out, could not start, or printed nothing is "delayed" - it says nothing about the login.
+            const launchError = !timedOut && !!errorMessage;
+            const probeState = (0, agent_login_verdict_1.classifyLoginProbe)({ timedOut, launchError, loginStatus, authRequired, quotaExceeded, exitCode });
+            const recalled = probeState === 'delayed' && hasAgentAuthEvidence(profile) ? agentLoginMemo.recall(profile.id) : null;
+            const verdict = (0, agent_login_verdict_1.settleLoginState)(probeState, recalled);
+            const ready = verdict.ready;
+            if (verdict.state === 'ready' && !verdict.reused) {
                 updateAgentProfileStatus(profile.id, 'ready');
+                agentLoginMemo.remember(profile.id);
+            }
             else if (authRequired)
                 updateAgentProfileStatus(profile.id, 'needs-login', { rejectedAuthStamp: readAgentAuthStamp(profile) });
+            if (authRequired)
+                agentLoginMemo.forget(profile.id);
             const label = agentProviderLabel(profile.provider);
             resolve({
-                ok: ready || authRequired || quotaExceeded || timedOut,
+                ok: true,
                 ready,
                 verified: true,
                 provider: profile.provider,
@@ -12184,20 +12244,21 @@ async function verifyAgentLoginSession(profile) {
                 exitCode,
                 quotaExceeded,
                 authRequired,
-                message: ready
-                    ? `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`
-                    : quotaExceeded
-                        ? `${label} 로그인은 되어 있지만 구독 사용량/한도에 걸려 지금은 실행할 수 없습니다.`
-                        : sessionProbe === 'revoked'
-                            // v3.8.733: CLI 는 로그인됐다고 답했지만 서버가 거절한 경우 — 이유를 정확히 적는다
-                            ? `${label} 은(는) 이 PC 에 로그인 기록이 남아 있지만 **서버가 세션을 거절했습니다**(토큰 무효화). 다른 곳에서 다시 로그인했거나 세션이 해지된 경우입니다. 이 계정으로 [로그인 창 열기]를 눌러 다시 로그인해야 발행이 됩니다.`
-                            : authRequired
-                                ? `${label} 인증이 만료되었거나 현재 프로필에 로그인 세션이 없습니다. 로그인 창 열기로 다시 로그인해주세요.`
-                                : timedOut
-                                    ? `${label} 로그인 세션 확인이 시간 초과되었습니다. CLI 로그인 창이 막혀 있거나 네트워크가 느릴 수 있습니다.`
-                                    : loginStatus === null
-                                        ? `${label} CLI가 로그인 상태를 응답하지 않았습니다. CLI를 최신 버전으로 업데이트한 뒤 다시 확인해주세요.`
-                                        : `${label} 로그인 세션 확인 실패: ${errorMessage || stderr || stdout || `exitCode=${exitCode}`}`,
+                delayed: verdict.delayed,
+                reused: verdict.reused,
+                state: verdict.state,
+                message: verdict.reused
+                    ? `${label} 확인이 지연돼 최근 6시간 안에 확인된 로그인 결과를 그대로 씁니다.`
+                    : ready
+                        ? `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`
+                        : quotaExceeded
+                            ? `${label} 로그인은 되어 있지만 구독 사용량/한도에 걸려 지금은 실행할 수 없습니다.`
+                            : sessionProbe === 'revoked'
+                                // v3.8.733: CLI 는 로그인됐다고 답했지만 서버가 거절한 경우 — 이유를 정확히 적는다
+                                ? `${label} 은(는) 이 PC 에 로그인 기록이 남아 있지만 **서버가 세션을 거절했습니다**(토큰 무효화). 다른 곳에서 다시 로그인했거나 세션이 해지된 경우입니다. 이 계정으로 [로그인 창 열기]를 눌러 다시 로그인해야 발행이 됩니다.`
+                                : authRequired
+                                    ? `${label} 인증이 만료되었거나 현재 프로필에 로그인 세션이 없습니다. 로그인 창 열기로 다시 로그인해주세요.`
+                                    : (0, agent_login_verdict_1.delayedLoginMessage)(label),
                 stdout: stdout.slice(-4000),
                 stderr: stderr.slice(-4000),
             });
@@ -12248,7 +12309,8 @@ function testAgentBinary(binaryPath, binaryName) {
             };
             const done = (error, stdout, stderr) => {
                 if (error) {
-                    resolve({ usable: false, error: error.message || String(stderr || '') || '실행 확인 실패' });
+                    // The check did not finish cleanly (slow start, busy PC, blocked): nothing is known, so say "delayed".
+                    resolve({ usable: false, delayed: true, error: error.message || String(stderr || '') || '실행 확인 실패' });
                     return;
                 }
                 resolve({
@@ -12284,6 +12346,7 @@ async function detectAgentBinary(binaryName) {
         return {
             installed: true,
             usable: false,
+            delayed: true,
             path: firstFailure?.path || foundPaths[0],
             error: firstFailure?.error || '도구는 감지됐지만 실행 확인에 실패했습니다.',
         };
@@ -12413,14 +12476,18 @@ electron_1.ipcMain.handle('sync-license-with-server', async (_evt, { serverUrl, 
 const AGENT_BINARY_CACHE_TTL_MS = 5 * 60000;
 let agentBinaryCache = null;
 async function detectAgentBinariesCached(providerIds) {
-    const fresh = agentBinaryCache && (Date.now() - agentBinaryCache.at) < AGENT_BINARY_CACHE_TTL_MS;
-    if (fresh && providerIds.every((id) => agentBinaryCache.tools[id])) {
-        return agentBinaryCache.tools;
-    }
-    const detected = await Promise.all(providerIds.map((id) => detectAgentBinary(AGENT_PROVIDERS[id].binary)));
-    const tools = Object.fromEntries(providerIds.map((id, i) => [id, detected[i]]));
-    agentBinaryCache = { at: Date.now(), tools };
-    return tools;
+    const fresh = !!agentBinaryCache && (Date.now() - agentBinaryCache.at) < AGENT_BINARY_CACHE_TTL_MS;
+    const known = fresh ? agentBinaryCache.tools : {};
+    const missing = providerIds.filter((id) => !known[id]);
+    if (!missing.length)
+        return Object.fromEntries(providerIds.map((id) => [id, known[id]]));
+    const detected = await Promise.all(missing.map((id) => detectAgentBinary(AGENT_PROVIDERS[id].binary)));
+    const merged = { ...known };
+    missing.forEach((id, i) => { merged[id] = detected[i]; });
+    // A failed or slow check says nothing lasting: it is shown now but never remembered for 5 minutes.
+    const conclusive = Object.fromEntries(Object.entries(merged).filter(([, tool]) => tool.usable === false ? false : !tool.delayed));
+    agentBinaryCache = { at: fresh ? agentBinaryCache.at : Date.now(), tools: conclusive };
+    return Object.fromEntries(providerIds.map((id) => [id, merged[id]]));
 }
 /** 설치·로그인처럼 상태가 실제로 바뀌는 일을 한 뒤에는 기억을 버린다 */
 function invalidateAgentBinaryCache() {
@@ -12451,6 +12518,22 @@ electron_1.ipcMain.handle('agent-mode:get-status', async () => {
         return { ok: false, error: error instanceof Error ? error.message : 'Agent Mode 상태 조회 실패' };
     }
 });
+/**
+ * The ONLY place a preferred account is stored (besides the explicit "use PC login" button).
+ * The screen calls it when the user changes the account on purpose. Runs and checks never write it.
+ */
+electron_1.ipcMain.handle('agent-mode:select-profile', async (_evt, args) => {
+    try {
+        const profile = loadAgentProfiles().find((item) => item.id === args?.id);
+        if (!profile)
+            return { ok: false, error: 'Agent 계정을 찾을 수 없습니다.' };
+        rememberPreferredAgentProfile(profile);
+        return { ok: true, profileId: profile.id };
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : '계정 선택 저장 실패' };
+    }
+});
 electron_1.ipcMain.handle('agent-mode:list-profiles', async () => {
     try {
         return { ok: true, profiles: refreshAgentProfileStatuses().map(toAgentProfileView) };
@@ -12473,18 +12556,33 @@ electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
             };
         }
         const provider = normalizeAgentProvider(args?.provider);
+        // Default: this PC's own login folder (~/.claude, ~/.codex). An isolated app folder is the
+        // "advanced" choice and must be asked for (isolated: true). One system-home profile per provider is enough.
+        const wantsSystemHome = args?.isolated !== true && agentSystemHomeDir(provider) !== null;
+        if (wantsSystemHome) {
+            const existing = loadAgentProfiles().find((item) => item.provider === provider && (0, agent_profile_state_1.usesSystemHome)(item));
+            if (existing) {
+                const refreshedExisting = refreshAgentProfileStatuses();
+                return {
+                    ok: true,
+                    profile: toAgentProfileView(refreshedExisting.find((item) => item.id === existing.id) || existing),
+                    profiles: refreshedExisting.map(toAgentProfileView),
+                };
+            }
+        }
         const id = createAgentProfileId(provider);
         const profileDir = path.join(ensureAgentProfilesRoot(), provider, id);
         const now = new Date().toISOString();
         const profile = {
             id,
             provider,
-            label: sanitizeAgentLabel(args?.label, provider),
+            label: wantsSystemHome ? sanitizeAgentLabel(`${agentProviderLabel(provider)} (이 PC 로그인)`, provider) : sanitizeAgentLabel(args?.label, provider),
             authMode: args?.authMode === 'api' ? 'api' : 'subscription',
             profileDir,
             // v3.8.608: 새 프로필을 만들 때도 표에서 격리 변수를 찾는다 (gemini = GEMINI_CLI_HOME)
             envVar: agentProviderInfo(provider).envVar,
             status: 'needs-login',
+            ...(wantsSystemHome ? { useSystemHome: true } : {}),
             createdAt: now,
             updatedAt: now,
         };
@@ -12599,12 +12697,14 @@ electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
     try {
         const profiles = refreshAgentProfileStatuses();
         const normalizedProvider = args?.provider ? normalizeAgentProvider(args.provider) : null;
+        // A check only READS the preference. The screen echoes whatever account it displays, so storing
+        // it here pinned a stale isolated folder as the "choice". Choosing is select-profile's job.
         const profile = (args?.id ? profiles.find((item) => item.id === args.id) : null)
-            || profiles.find((item) => !normalizedProvider || item.provider === normalizedProvider)
+            || (0, agent_profile_state_1.pickAgentProfile)(profiles, {
+                provider: normalizedProvider || undefined,
+                preferredId: normalizedProvider ? readPreferredAgentProfileIds()[normalizedProvider] : undefined,
+            })
             || null;
-        // v3.8.766: 화면이 id 를 실어 점검한 프로필 = 사용자가 고른 프로필
-        if (args?.id && profile?.id === args.id)
-            rememberPreferredAgentProfile(profile);
         if (args?.verify && profile) {
             const verification = await verifyAgentLoginSession(profile);
             const refreshedProfiles = refreshAgentProfileStatuses();
@@ -12616,6 +12716,9 @@ electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
                 authRequired: verification.authRequired,
                 quotaExceeded: verification.quotaExceeded,
                 timedOut: verification.timedOut,
+                delayed: verification.delayed,
+                reused: verification.reused,
+                state: verification.state,
                 message: verification.message,
                 error: verification.ready ? '' : verification.message,
                 exitCode: verification.exitCode,
@@ -12661,6 +12764,28 @@ electron_1.ipcMain.handle('agent-mode:install-tool', async (evt, args) => {
             };
         }
         const provider = normalizeAgentProvider(args?.provider);
+        // Nothing is installed without the user's yes (the screen asks "install it?" and says so here).
+        if (args?.confirmed !== true) {
+            return {
+                ok: false,
+                provider,
+                needsConfirm: true,
+                error: `${agentProviderLabel(provider)} 설치는 확인을 받은 뒤에만 진행합니다.`,
+            };
+        }
+        // The official Claude Code installer writes into the user's own ~/.local/bin and would replace
+        // a program they already have. An existing program is never overwritten: report "delayed" and let them re-check.
+        if (provider === 'claude' && agentProgramExists(AGENT_PROVIDERS.claude.binary)) {
+            const existing = await detectAgentBinary(AGENT_PROVIDERS.claude.binary);
+            return {
+                ok: false,
+                provider,
+                alreadyInstalled: true,
+                delayed: true,
+                tool: existing,
+                error: 'Claude Code 가 이미 설치돼 있어 덮어쓰지 않습니다. 확인 지연 — 로그인은 그대로 유지됩니다. [다시 확인]을 눌러 주세요.',
+            };
+        }
         // v3.8.755: 내려받기 진행률을 설치 창으로 — 멈춘 줄 알고 끄지 않게
         const install = await installAgentForThisPc(provider, (progress) => {
             try {
@@ -12767,6 +12892,7 @@ electron_1.ipcMain.handle('agent-mode:run-job', async (_evt, request) => {
                 authRequired: loginVerification.authRequired,
                 quotaExceeded: loginVerification.quotaExceeded,
                 timedOut: loginVerification.timedOut,
+                delayed: loginVerification.delayed,
                 stdout: loginVerification.stdout,
                 stderr: loginVerification.stderr,
             };

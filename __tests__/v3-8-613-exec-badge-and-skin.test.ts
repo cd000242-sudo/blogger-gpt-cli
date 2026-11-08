@@ -95,9 +95,11 @@ describe('에이전트를 고르면 연결부터 확인한다', () => {
     expect(loginFail).toContain('Agent 계정에서 로그인한 뒤');
   });
 
-  test('연결 안 된 채로 에이전트 모드에 남지 않는다 — 발행할 때야 실패하면 늦다', () => {
-    // 로그인 실패 분기 안에서 api 로 되돌린다
-    expect(loginFail).toMatch(/loginCheck\.ready === false[\s\S]*window\.setAgentExecutionMode\('api'\)/);
+  test('연결이 안 되면 알리고 막는다 — 몰래 API 로 되돌리지 않는다 (자동 폴백 금지)', () => {
+    // 2026-11-08: 사장님 원칙 "실패하면 막고 알린다". 로그인 실패 분기는 엔진 선택을 건드리지 않는다.
+    const branch = loginFail.slice(loginFail.indexOf('loginCheck.ready === false'));
+    expect(branch).not.toContain("window.setAgentExecutionMode('api')");
+    expect(branch).toContain('notifyUser(');
   });
 });
 

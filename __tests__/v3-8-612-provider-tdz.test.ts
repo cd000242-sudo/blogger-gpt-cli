@@ -124,10 +124,10 @@ describe('환경설정 Agent 계정에 Gemini 가 있다', () => {
 
   test('main 이 세 제공자를 모두 감지한다 — 안 하면 항상 "미설치" 로 보인다', () => {
     expect(main).not.toContain("detectAgentBinary('claude'),");
-    expect(main).toContain('providerIds.map((id) => detectAgentBinary(AGENT_PROVIDERS[id].binary))');
+    expect(main).toMatch(/\.map\(\(id\) => detectAgentBinary\(AGENT_PROVIDERS\[id\]\.binary\)\)/);
   });
 
-  test('안 깔린 제공자를 고르면 깔린 쪽으로 옮긴다', () => {
-    expect(workshop).toContain('const fallback = AGENT_PROVIDER_IDS.find');
+  test('안 깔린 제공자를 골라도 다른 엔진으로 몰래 옮기지 않는다 (자동 폴백 금지 - 카드에 상태만 알린다)', () => {
+    expect(workshop).not.toContain('const fallback = AGENT_PROVIDER_IDS.find');
   });
 });

@@ -54,8 +54,12 @@ function decideRefreshedStatus(profile, hasEvidence, currentStamp) {
  * Pick the profile to run with:
  *  1. the explicit id,
  *  2. the profile the user chose (preferredId) while it is not known to be dead,
- *  3. the first ready profile of the provider,
- *  4. the chosen / first profile (so the caller reports a clear "log in again" error).
+ *  3. this PC's login (system-home profile) while it is ready - the default,
+ *  4. the first ready profile of the provider,
+ *  5. the chosen profile, else this PC's login, else the first one (so the caller reports a clear "log in" error).
+ *
+ * preferredId must only ever hold a choice the user made on purpose. A screen that echoes back
+ * whatever it happened to display would pin a stale isolated folder as the "choice" forever.
  */
 function pickAgentProfile(profiles, query) {
     if (query.profileId) {
@@ -69,5 +73,10 @@ function pickAgentProfile(profiles, query) {
     const preferred = query.preferredId ? pool.find((item) => item.id === query.preferredId) : undefined;
     if (preferred && preferred.status !== 'needs-login')
         return preferred;
-    return pool.find((item) => item.status === 'ready') || preferred || pool[0];
+    const systemHome = pool.filter((item) => usesSystemHome(item));
+    return systemHome.find((item) => item.status === 'ready')
+        || pool.find((item) => item.status === 'ready')
+        || preferred
+        || systemHome[0]
+        || pool[0];
 }

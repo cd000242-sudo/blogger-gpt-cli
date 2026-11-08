@@ -387,8 +387,16 @@ function getActiveAgentProfile(provider) {
   const selectedId = getActiveAgentProfileId(normalizedProvider);
   const selectedProfile = getProfileById(normalizedProvider, selectedId);
   const profiles = getAgentProfilesByProvider(normalizedProvider);
-  // v3.8.766: 고른 것이 없으면 죽은 첫 프로필보다 살아 있는 프로필을 먼저 쓴다
-  return selectedProfile || profiles.find(isAgentProfileReady) || profiles[0] || null;
+  // The user's own choice wins while it is not known to be dead; otherwise this PC's login comes first
+  // (the same order main uses), then any ready profile. A stale empty isolated folder never wins by itself.
+  const aliveChoice = selectedProfile && selectedProfile.status !== 'needs-login' ? selectedProfile : null;
+  return aliveChoice
+    || profiles.find((profile) => profile.useSystemHome && isAgentProfileReady(profile))
+    || profiles.find(isAgentProfileReady)
+    || selectedProfile
+    || profiles.find((profile) => profile.useSystemHome)
+    || profiles[0]
+    || null;
 }
 
 function setActiveAgentProfile(provider, profileId) {
@@ -406,6 +414,13 @@ function setActiveAgentProfile(provider, profileId) {
   state.activeAgentProfileIds = map;
   const storage = getStorage();
   storage?.setSync?.(ACTIVE_AGENT_PROFILE_IDS_KEY, map, true);
+  // Only an explicit choice reaches here (a change of the account select, a new account, a login for a given id).
+  // Main stores it as the preferred account; rendering and checks never do.
+  if (profile) {
+    try {
+      Promise.resolve(getBridgeApi()?.selectAgentProfile?.({ id: profile.id, provider: normalizedProvider })).catch(() => {});
+    } catch { /* the preference is a convenience, never a blocker */ }
+  }
   return map[normalizedProvider] || '';
 }
 
@@ -821,7 +836,8 @@ async function verifyAgentExecutionReadiness(options = {}) {
       `${label} Agent`,
       login?.ready === true,
       login?.ready ? (login?.message || 'CLI 로그인 세션을 확인했습니다.') : (login?.message || login?.error || 'Agent 로그인이 필요합니다.'),
-      login?.ready ? '' : 'agent-login',
+      login?.ready ? '' : (login?.delayed ? 'agent-recheck' : 'agent-login'),
+      { delayed: login?.delayed === true },
     ));
 
     const engines = getAgentImageEnginesForReadiness(options);
@@ -1086,21 +1102,8 @@ async function loadAgentModeStatus(force = false) {
           message: result?.error || 'Agent Mode 상태를 확인하지 못했습니다.',
         };
 
-    /**
-     * v3.8.612 — 고른 제공자가 안 깔려 있으면 **깔려 있는 아무 쪽**으로 옮긴다.
-     * 예전엔 claude → codex 한 방향만 봐서, gemini 를 골랐는데 안 깔려 있으면
-     * 그대로 머물러 실행할 때야 실패했다.
-     */
-    const activeTool = state.agentStatus?.tools?.[state.activeAgentProvider];
-    const usable = (t) => !!t?.installed && t.usable !== false;
-    if (!usable(activeTool)) {
-      const fallback = AGENT_PROVIDER_IDS.find((id) => usable(state.agentStatus?.tools?.[id]));
-      if (fallback && fallback !== state.activeAgentProvider) {
-        state.activeAgentProvider = fallback;
-        saveExecutionPrefs();
-        refreshGlobalAiModelBadge();
-      }
-    }
+    // The engine the user chose stays chosen. A CLI that is missing or slow is reported on its card;
+    // it is never swapped for another engine behind the user's back (no automatic fallback).
   } catch (error) {
     state.agentStatus = {
       ok: false,
@@ -1369,7 +1372,6 @@ function renderSettingsProfileSelect() {
 
   if (selected) {
     select.value = selected.id;
-    setActiveAgentProfile(state.activeAgentProvider, selected.id);
     syncAgentProfileSelectValues(state.activeAgentProvider, selected.id);
     if (commandEl) commandEl.value = selected.loginCommand || '';
   } else {
@@ -1664,11 +1666,14 @@ function renderAgentProviderPanel() {
 
         <aside class="agent-mode-action-panel">
           <strong>빠른 작업</strong>
-          <button type="button" class="agent-mode-primary-action" data-install-agent="${escapeHtml(provider)}">${escapeHtml(tool?.installed && tool.usable !== false ? `${meta.label} 설치/업데이트` : `${meta.label} 설치하기`)}</button>
+          ${tool?.installed ? '' : `<button type="button" class="agent-mode-primary-action" data-install-agent="${escapeHtml(provider)}">${escapeHtml(`${meta.label} 설치하기`)}</button>`}
           ${provider === 'gemini' ? '' : `
           <!-- v3.8.766: 복사하지 않고 이 PC 로그인 폴더를 그대로 쓴다(복사본은 1회용 토큰 때문에 죽었다). 기본 선택지라 맨 앞에 둔다. -->
           <button type="button" class="agent-mode-primary-action" data-agent-import-system="${escapeHtml(provider)}">PC 로그인 그대로 쓰기</button>`}
-          <button type="button" class="agent-mode-primary-action" data-agent-add-account="${escapeHtml(provider)}">로그인 계정 추가하기</button>
+          <details class="agent-mode-advanced">
+            <summary>고급</summary>
+            <button type="button" class="agent-mode-primary-action" data-agent-add-account="${escapeHtml(provider)}">따로 쓸 계정 만들기</button>
+          </details>
           <button type="button" class="agent-mode-primary-action" data-agent-login="${escapeHtml(provider)}">${escapeHtml(ready ? `${meta.label} 로그인 완료 확인` : `${meta.label} 로그인 창 열기`)}</button>
           <button type="button" data-agent-refresh="true">상태 새로고침</button>
           <div class="agent-mode-link-grid">
@@ -1695,7 +1700,7 @@ function renderAgentProviderPanel() {
       const previousText = button.textContent;
       button.textContent = '계정 추가 중...';
       try {
-        const profile = await createAgentProfile(selectedProvider);
+        const profile = await createAgentProfile(selectedProvider, { isolated: true });
         if (profile?.id) {
           await startAgentLogin(selectedProvider, profile.id);
         }
@@ -1782,6 +1787,7 @@ function renderAgentProviderPanel() {
 function getAgentReadinessActionLabel(check = {}) {
   const action = check.action || '';
   if (action === 'agent-login') return 'Agent 로그인하기';
+  if (action === 'agent-recheck') return '다시 확인';
   if (action === 'dropshot-login') return 'Dropshot 로그인/연동';
   if (action === 'flow-login') return 'Flow 로그인하기';
   if (action === 'blogger-auth') return 'Blogger OAuth 인증';
@@ -1802,6 +1808,10 @@ function openAgentPlatformSettings(fieldId = '') {
 
 async function openAgentIntegrationFix(check = {}) {
   const action = check.action || '';
+  if (action === 'agent-recheck') {
+    await refreshAgentSettingsAndVerify(state.activeAgentProvider);
+    return;
+  }
   if (action === 'agent-login') {
     let profile = getSelectedAgentProfile();
     if (!profile) profile = await createAgentProfile(state.activeAgentProvider);
@@ -3562,7 +3572,6 @@ function renderAgentProfileSelect() {
 
   if (previous && profiles.some((profile) => profile.id === previous)) {
     select.value = previous;
-    setActiveAgentProfile(state.activeAgentProvider, previous);
     syncAgentProfileSelectValues(state.activeAgentProvider, previous);
     return;
   }
@@ -3570,7 +3579,6 @@ function renderAgentProfileSelect() {
   const activeProfile = getActiveAgentProfile(state.activeAgentProvider);
   if (activeProfile && profiles.some((profile) => profile.id === activeProfile.id)) {
     select.value = activeProfile.id;
-    setActiveAgentProfile(state.activeAgentProvider, activeProfile.id);
     syncAgentProfileSelectValues(state.activeAgentProvider, activeProfile.id);
   }
 }
@@ -3579,16 +3587,10 @@ function getSelectedAgentProfile() {
   const profiles = Array.isArray(state.agentStatus?.profiles) ? state.agentStatus.profiles : [];
   const provider = state.activeAgentProvider || 'codex';
   const uiProfile = getSelectedProfileByUi(provider);
-  if (uiProfile) {
-    setActiveAgentProfile(provider, uiProfile.id);
-    return uiProfile;
-  }
+  if (uiProfile) return uiProfile;
 
   const activeProfile = getActiveAgentProfile(provider);
-  if (activeProfile) {
-    setActiveAgentProfile(provider, activeProfile.id);
-    return activeProfile;
-  }
+  if (activeProfile) return activeProfile;
 
   return profiles.find((profile) => profile.provider === provider) || null;
 }
@@ -3636,7 +3638,7 @@ function renderAgentStatusPanel() {
   renderAgentProfileSelect();
 }
 
-async function createAgentProfile(provider) {
+async function createAgentProfile(provider, options = {}) {
   const status = await loadAgentModeStatus(true);
   if (!isMaxAgentAllowed(status)) {
     alert(status?.message || 'Max Agent Mode는 3개월 이상 코드에서 사용할 수 있습니다.');
@@ -3649,6 +3651,8 @@ async function createAgentProfile(provider) {
       provider,
       authMode: 'subscription',
       label: `${agentProviderLabel(provider)} 구독 계정`,
+      // Default is this PC's login; a separate isolated folder only when "advanced" asks for it.
+      ...(options.isolated === true ? { isolated: true } : {}),
     };
     const result = typeof api?.createAgentProfile === 'function'
       ? await api.createAgentProfile(payload)
@@ -3716,6 +3720,8 @@ function stopAgentLoginPolling() {
 
 function getAgentLoginResultType(result = {}) {
   if (result?.ready) return 'success';
+  // A delayed check is not an error: the login is untouched.
+  if (result?.delayed) return 'info';
   return 'error';
 }
 
@@ -3724,11 +3730,11 @@ function getAgentLoginResultMessage(provider, result = {}) {
   if (result?.ready) {
     return result.message || `${label} 로그인 세션이 실제 실행으로 확인되었습니다.`;
   }
+  if (result?.delayed) {
+    return `${label} 확인 지연 — 로그인은 그대로 유지됩니다. [다시 확인]을 눌러 주세요.`;
+  }
   if (result?.quotaExceeded) {
     return result.message || `${label} 로그인은 되어 있지만 구독 사용량/한도 때문에 지금은 실행할 수 없습니다.`;
-  }
-  if (result?.timedOut) {
-    return result.message || `${label} 세션 확인이 시간 초과되었습니다. 로그인 창이나 네트워크 상태를 확인해주세요.`;
   }
   return result?.message || result?.error || `${label} 인증이 만료되었거나 로그인 세션을 확인하지 못했습니다.`;
 }
@@ -3826,10 +3832,23 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
   state.loginPollTimer = setInterval(tick, 8000);
 }
 
+/** Plain yes/no before anything is installed. The answer is also told to main, which refuses without it. */
+function confirmAgentInstall(label) {
+  try {
+    return window.confirm(`${label} 를 설치할까요?\n\n공식 설치 파일을 받아 이 PC 에 설치합니다. 이미 있는 프로그램은 바꾸지 않습니다.`) === true;
+  } catch {
+    return false;
+  }
+}
+
 async function installAgentTool(provider = state.activeAgentProvider, triggerButton = null, options = {}) {
   const normalizedProvider = normalizeAgentProviderId(provider);
   const label = agentProviderLabel(normalizedProvider);
   const api = getBridgeApi();
+  if (options.confirmed !== true && !confirmAgentInstall(label)) {
+    setSettingsStatus(`${label} 설치를 하지 않았습니다.`);
+    return null;
+  }
   const previousText = triggerButton?.textContent || '';
   // v3.8.755: 설치 창에 단계·% 를 보여준다 — 시니어 고객이 멈춘 줄 알고 끄지 않게
   const progressLines = [];
@@ -3864,9 +3883,10 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
           : '공식 설치 명령 실행 중...',
       type: 'info',
     });
+    const installArgs = { provider: normalizedProvider, confirmed: true };
     const result = typeof api?.installAgentTool === 'function'
-      ? await api.installAgentTool({ provider: normalizedProvider })
-      : await api?.invoke?.('agent-mode:install-tool', { provider: normalizedProvider });
+      ? await api.installAgentTool(installArgs)
+      : await api?.invoke?.('agent-mode:install-tool', installArgs);
 
     if (!result?.ok) {
       const output = [
@@ -3960,19 +3980,24 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   const normalizedProvider = normalizeAgentProviderId(provider);
   const tool = status?.tools?.[normalizedProvider];
   const label = agentProviderLabel(normalizedProvider);
-  // v3.8.755: 원클릭 — 설치 전에 로그인부터 눌러도 설치를 먼저 하고 이어서 로그인한다(한 번만)
-  if ((!tool?.installed || tool.usable === false) && !options.skipInstall) {
-    setSettingsStatus(`${label} 가 아직 이 PC 에 없어 먼저 설치합니다. 끝나면 로그인 창이 열립니다.`);
-    const installed = await installAgentTool(normalizedProvider, null, { thenLogin: false });
+  // A program that is on this PC but whose check did not finish is "delayed": re-check it, never install over it.
+  if (tool?.installed && tool.usable === false) {
+    setSettingsStatus(`${label} 확인 지연 — 로그인은 그대로 유지됩니다. [다시 확인]을 눌러 주세요.`);
+    addLog(`${label} 확인이 지연됐습니다. 설치하지 않고 다시 확인을 기다립니다.`, 'warning');
+    return;
+  }
+  // Nothing is installed without a yes. After the yes the flow goes on to the login window (once).
+  if (!tool?.installed && !options.skipInstall) {
+    if (!confirmAgentInstall(label)) {
+      setSettingsStatus(`${label} 설치를 하지 않았습니다. 필요하면 [연결하기]를 다시 눌러 주세요.`);
+      return;
+    }
+    const installed = await installAgentTool(normalizedProvider, null, { thenLogin: false, confirmed: true });
     if (installed?.ok) await startAgentLogin(normalizedProvider, profileId, { skipInstall: true });
     return;
   }
   if (!tool?.installed) {
     setSettingsStatus(`${label} 설치가 먼저 필요합니다. 설치 버튼으로 설치/확인을 끝낸 뒤 로그인 창을 열어주세요.`, 'error');
-    return;
-  }
-  if (tool.usable === false) {
-    setSettingsStatus(`${label} 실행 확인이 아직 완료되지 않았습니다. 설치 버튼에서 실행 확인을 먼저 끝낸 뒤 로그인 창을 열어주세요.`, 'error');
     return;
   }
 
@@ -3983,10 +4008,13 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   if (!profile) {
     profile = getProviderProfile(normalizedProvider);
   }
+  let createdForLogin = false;
   if (!profile) {
     profile = await createAgentProfile(normalizedProvider);
+    createdForLogin = !!profile;
   }
-  if (profile) {
+  // Only an account the caller named (or one just created for this login) counts as a choice.
+  if (profile && (profileId || createdForLogin)) {
     setActiveAgentProfile(normalizedProvider, profile.id);
   }
   if (!profile) {
