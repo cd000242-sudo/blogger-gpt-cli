@@ -40,3 +40,40 @@ export function agentStatusSignature(status) {
     profilePart,
   ]);
 }
+
+// ---- one engine = one status line + one button -------------------------------------------------------------
+
+/**
+ * Which of four states an engine is in, from what the screen already knows.
+ *   install  - the program is not on this PC
+ *   delayed  - the program is there but its check did not finish (slow PC, busy): nothing is known to be wrong
+ *   login    - installed, but no working login
+ *   ready    - installed and logged in
+ *   checking - the status has not arrived yet
+ * `check` is the latest verified login result (optional): a delayed or rejected one overrides a stale "ready".
+ */
+export function classifyAgentConnect({ tool, profile, check } = {}) {
+  if (!tool) return 'checking';
+  if (!tool.installed) return 'install';
+  if (tool.usable === false || tool.delayed) return 'delayed';
+  if (check && check.ready !== true) {
+    if (check.delayed) return 'delayed';
+    if (check.authRequired) return 'login';
+  }
+  if (profile && profile.status === 'ready' && !profile.authRejected) return 'ready';
+  return 'login';
+}
+
+const CONNECT_COPY = {
+  ready: { text: '연결됨', tone: 'ok', button: '연결 확인' },
+  delayed: { text: '확인 지연 — 로그인은 그대로 유지됩니다', tone: 'warn', button: '다시 확인' },
+  login: { text: '로그인 필요', tone: 'bad', button: '연결하기' },
+  install: { text: '설치 필요', tone: 'bad', button: '연결하기' },
+  checking: { text: '확인 중…', tone: 'muted', button: '연결하기' },
+};
+
+/** Short, plain wording for the screen: the status line and the label of the one button. */
+export function describeAgentConnect(kind, label) {
+  const copy = CONNECT_COPY[kind] || CONNECT_COPY.checking;
+  return { kind: CONNECT_COPY[kind] ? kind : 'checking', line: `${label} · ${copy.text}`, tone: copy.tone, buttonLabel: copy.button, disabled: kind === 'checking' };
+}

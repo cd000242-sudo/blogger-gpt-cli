@@ -13612,6 +13612,32 @@ ipcMain.handle('agent-mode:install-tool', async (evt, args: { provider?: string;
   }
 });
 
+/**
+ * Step 4/4 of the one-button connection: ask the selected account one tiny question and look for a marker in
+ * the reply. A slow or failed run is "delayed" (the login is untouched); only an explicit auth failure is authRequired.
+ */
+ipcMain.handle('agent-mode:verify-answer', async (_evt, args: { provider?: string }) => {
+  const provider = normalizeAgentProvider(args?.provider);
+  const label = agentProviderLabel(provider);
+  try {
+    const marker = `BLN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const reply = await runAgentTextTask(
+      provider,
+      `다음 글자만 그대로 답하세요: ${marker}\nReply with exactly this text and nothing else: ${marker}`,
+      () => undefined,
+      { noTools: true },
+    );
+    if (reply.includes(marker)) return { ok: true, message: '실제 답이 왔습니다.' };
+    return { ok: false, message: '답은 왔지만 확인 글자가 들어 있지 않습니다. 계정 상태를 확인해 주세요.' };
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error || '');
+    if (AGENT_AUTH_REQUIRED_RE.test(text) || CODEX_AUTH_REQUIRED_RE.test(text) || /로그인이 없습니다/.test(text)) {
+      return { ok: false, authRequired: true, message: `${label} 로그인이 필요합니다.` };
+    }
+    return { ok: false, delayed: true, message: delayedLoginMessage(label) };
+  }
+});
+
 ipcMain.handle('agent-mode:start-login', async (_evt, args: { id?: string; provider?: string }) => {
   // v3.8.722: 로그인하면 사용 가능 여부가 달라질 수 있다 — 기억해 둔 감지 결과를 버린다
   invalidateAgentBinaryCache();

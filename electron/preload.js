@@ -135,6 +135,7 @@ const api = {
     startAgentLogin: (args) => electron_1.ipcRenderer.invoke('agent-mode:start-login', args),
     checkAgentLogin: (args) => electron_1.ipcRenderer.invoke('agent-mode:check-login', args),
     selectAgentProfile: (args) => electron_1.ipcRenderer.invoke('agent-mode:select-profile', args),
+    verifyAgentAnswer: (args) => electron_1.ipcRenderer.invoke('agent-mode:verify-answer', args),
     runAgentJob: (args) => electron_1.ipcRenderer.invoke('agent-mode:run-job', args),
     onLicenseUpdated: (listener) => {
         const handler = (_e, d) => { try {

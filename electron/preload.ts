@@ -118,6 +118,7 @@ export type BloggerApi = {
   startAgentLogin?(args: { id?: string; provider?: 'codex' | 'claude' }): Promise<any>;
   checkAgentLogin?(args: { id?: string; provider?: 'codex' | 'claude' }): Promise<any>;
   selectAgentProfile?(args: { id?: string; provider?: string }): Promise<any>;
+  verifyAgentAnswer?(args: { provider?: string }): Promise<any>;
   runAgentJob?(args: any): Promise<any>;
   onLicenseUpdated(listener: (d: LicenseData) => void): () => void;
   logout(): Promise<{ success: boolean; message?: string }>;
@@ -548,6 +549,7 @@ const api: BloggerApi = {
   startAgentLogin: (args) => ipcRenderer.invoke('agent-mode:start-login', args),
   checkAgentLogin: (args) => ipcRenderer.invoke('agent-mode:check-login', args),
   selectAgentProfile: (args) => ipcRenderer.invoke('agent-mode:select-profile', args),
+  verifyAgentAnswer: (args) => ipcRenderer.invoke('agent-mode:verify-answer', args),
   runAgentJob: (args) => ipcRenderer.invoke('agent-mode:run-job', args),
 
   onLicenseUpdated: (listener) => {

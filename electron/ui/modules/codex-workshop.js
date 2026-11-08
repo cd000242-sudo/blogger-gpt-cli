@@ -2,7 +2,8 @@
 import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, getProgressManager } from './core.js';
 import { createPreviewPayload, sameUserRequest } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
-import { agentStatusSignature } from './agent-connect-state.js';
+import { agentStatusSignature, classifyAgentConnect, describeAgentConnect } from './agent-connect-state.js';
+import { runAgentConnect } from './agent-connect-flow.js';
 
 const MODAL_ID = 'codexWorkshopModal';
 const INSTALL_MODAL_ID = 'agentInstallModal';
@@ -1431,6 +1432,12 @@ function renderModeButtons() {
   if (apiButton) apiButton.className = `agent-mode-choice ${prefs.mode === 'api' ? 'is-active' : ''}`;
   if (agentButton) agentButton.className = `agent-mode-choice ${prefs.mode === 'agent' ? 'is-active' : ''}`;
 
+  // API mode needs the key inputs: open the folded "고급" once per session (the user can close it again).
+  const keysAdvanced = $('apiKeysAdvanced');
+  if (keysAdvanced && prefs.mode === 'api' && keysAdvanced.dataset.autoOpened !== '1') {
+    keysAdvanced.open = true;
+    keysAdvanced.dataset.autoOpened = '1';
+  }
   const apiPanel = $('apiExecutionPanel');
   const agentPanel = $('agentExecutionPanel');
   const dualGrid = document.querySelector('.agent-mode-dual-grid');
@@ -1466,9 +1473,9 @@ function renderApiProviderCards() {
     { type: '이미지 생성', provider: image },
   ];
 
-  const cardsChanged = writeIfChanged(target, cards.map(({ type, provider }) => {
+  const cardsChanged = writeIfChanged(target, cards.map(({ type, provider }, index) => {
     const ready = isApiProviderReady(provider);
-    return `
+    const card = `
       <div class="agent-mode-provider-card">
         <div class="agent-mode-provider-top">
           <div>
@@ -1487,6 +1494,8 @@ function renderApiProviderCards() {
         </div>
       </div>
     `;
+    // The image API card is only needed when images are drawn by an API: keep it folded.
+    return index === 1 ? `<details class="agent-mode-more"><summary>이미지 API 카드 (자세히)</summary>${card}</details>` : card;
   }).join(''));
 
   // Identical HTML keeps the old buttons - binding again would stack one more handler per redraw.
@@ -1560,8 +1569,14 @@ function renderAgentProviderPanel() {
   const history = getLocalAgentHistory(provider);
   const allowed = isMaxAgentAllowed(state.agentStatus);
   const ready = isAgentProfileReady(profile);
+  // One status line and one button. A check result older than 5 minutes no longer overrides what main reports.
+  const recentCheck = state.lastLoginCheck?.[provider];
+  const connect = describeAgentConnect(
+    classifyAgentConnect({ tool, profile, check: recentCheck && Date.now() - recentCheck.at < 5 * 60 * 1000 ? recentCheck : null }),
+    meta.label,
+  );
+  const progress = state.agentConnectProgress?.[provider];
   const loginLabel = getProviderLoginLabel(provider, profile);
-  const toolLabel = getToolInstalledLabel(tool);
   const gaugeLabel = provider === 'claude'
     ? '공식 5시간 세션 잔여량'
     : '공식 구독 잔여량';
@@ -1571,14 +1586,19 @@ function renderAgentProviderPanel() {
       <div class="agent-mode-provider-top">
         <div>
           <strong>${escapeHtml(meta.title)}</strong>
-          <span>${escapeHtml(`${meta.label} ${toolLabel} · ${loginLabel}`)}</span>
+          <span class="agent-connect-line is-${connect.tone}">${escapeHtml(connect.line)}</span>
         </div>
         <!-- v3.8.714: 확인 전이면 "확인 중" — 무제한 사용자에게 "3개월 이상 필요"는 거짓말이다 -->
-        <span class="agent-mode-pill ${allowed && ready ? 'is-ready' : 'is-locked'}">${
-          allowed ? loginLabel : (state.agentStatus?.ok === true ? '등급 부족' : '확인 중…')
-        }</span>
+        ${allowed ? '' : `<span class="agent-mode-pill is-locked">${state.agentStatus?.ok === true ? '등급 부족' : '확인 중…'}</span>`}
       </div>
 
+      <div class="agent-connect-row">
+        <button type="button" class="agent-mode-primary-action" data-agent-connect="${escapeHtml(provider)}" ${connect.disabled ? 'disabled' : ''}>${escapeHtml(connect.buttonLabel)}</button>
+      </div>
+      <div id="agentConnectProgress" class="agent-connect-progress is-${progress?.tone || 'info'}" role="status" aria-live="polite">${escapeHtml(progress?.line || '')}</div>
+
+      <details class="agent-mode-more"${state.agentMoreOpen ? ' open' : ''}>
+      <summary>자세히</summary>
       <div class="agent-mode-provider-layout">
         <div class="agent-mode-provider-main">
           <div class="agent-mode-plan-grid">
@@ -1713,6 +1733,7 @@ function renderAgentProviderPanel() {
           </div>
         </aside>
       </div>
+      </details>
     </div>
   `);
 
@@ -1730,6 +1751,11 @@ function renderAgentProviderPanel() {
  * (a click then ran the action several times).
  */
 function bindAgentProviderPanel(detail, provider) {
+  detail.querySelectorAll('[data-agent-connect]').forEach((button) => {
+    button.addEventListener('click', () => connectAgent(button.getAttribute('data-agent-connect') || provider, button));
+  });
+  const more = detail.querySelector('details.agent-mode-more');
+  more?.addEventListener('toggle', () => { state.agentMoreOpen = more.open; });
   detail.querySelectorAll('[data-open-url]').forEach((button) => {
     button.addEventListener('click', () => openExternalUrl(button.getAttribute('data-open-url') || ''));
   });
@@ -2163,7 +2189,7 @@ function ensureAgentSettingsSection() {
       <div>
         <div class="agent-mode-eyebrow">AI 실행 방식</div>
         <h3>API 키 모드 / Agent 모드</h3>
-        <p id="agentModeSettingsDescription">API 모드에서는 키 입력칸을 보여주고, Agent 모드에서는 키 입력칸과 모델 선택을 숨깁니다.</p>
+        <details class="agent-mode-help"><summary>설명 보기</summary><p id="agentModeSettingsDescription">API 모드에서는 키 입력칸을 보여주고, Agent 모드에서는 키 입력칸과 모델 선택을 숨깁니다.</p></details>
       </div>
       <span id="agentModeSettingsBadge" class="agent-mode-pill">확인 중</span>
     </div>
@@ -2237,7 +2263,7 @@ function ensureAgentSettingsSection() {
   if (firstBlock) {
     firstBlock.insertAdjacentElement('afterend', section);
   } else {
-    tab.appendChild(section);
+    tab.insertBefore(section, tab.firstChild);
   }
 
   $('executionModeApiBtn')?.addEventListener('click', () => setExecutionMode('api'));
@@ -3038,6 +3064,18 @@ function ensureStyles() {
       gap: 10px;
       margin-top: 12px;
     }
+    .agent-connect-line { font-size: 15px; font-weight: 800; }
+    .agent-connect-line.is-ok { color: #86efac; }
+    .agent-connect-line.is-warn { color: #fcd34d; }
+    .agent-connect-line.is-bad { color: #fca5a5; }
+    .agent-connect-line.is-muted { color: rgba(226,232,240,0.7); }
+    .agent-connect-row { margin: 12px 0 6px; }
+    .agent-connect-row .agent-mode-primary-action { min-width: 160px; font-size: 15px; padding: 12px 22px; }
+    .agent-connect-progress { min-height: 20px; margin-bottom: 8px; font-size: 13px; color: rgba(226,232,240,0.85); }
+    .agent-connect-progress.is-error { color: #fca5a5; }
+    .agent-connect-progress.is-success { color: #86efac; }
+    details.agent-mode-more, details.agent-mode-help { margin-top: 10px; }
+    details.agent-mode-more > summary, details.agent-mode-help > summary { cursor: pointer; font-size: 13px; font-weight: 700; color: rgba(191,219,254,0.95); padding: 6px 0; }
     .agent-mode-provider-card {
       padding: 18px;
       border-radius: 16px;
@@ -3789,6 +3827,7 @@ async function checkAgentLoginStatus(provider = state.activeAgentProvider, profi
     ? await api.checkAgentLogin(payload)
     : await api?.invoke?.('agent-mode:check-login', payload);
 
+  if (result) state.lastLoginCheck = { ...(state.lastLoginCheck || {}), [normalizedProvider]: { ...result, at: Date.now() } };
   applyAgentLoginStatus(result);
   if (options.showStatus) {
     setSettingsStatus(getAgentLoginResultMessage(normalizedProvider, result), getAgentLoginResultType(result));
@@ -3880,6 +3919,69 @@ function confirmAgentInstall(label) {
   }
 }
 
+/** Progress of the one-button connection, kept per engine so a redraw of the panel shows the same line. */
+function setAgentConnectProgress(provider, line, tone = 'info') {
+  state.agentConnectProgress = { ...(state.agentConnectProgress || {}), [provider]: { line, tone } };
+  const el = $('agentConnectProgress');
+  if (el && normalizeAgentProviderId(state.activeAgentProvider) === provider) {
+    el.textContent = line;
+    el.className = `agent-connect-progress is-${tone}`;
+  }
+}
+
+/**
+ * The one [연결하기] button: 1/4 check -> 2/4 install (asks first) -> 3/4 login -> 4/4 real answer.
+ * Finished steps are skipped; a merely slow check stops without installing or logging in; the user's
+ * engine choice is never changed.
+ */
+async function connectAgent(provider = state.activeAgentProvider, button = null) {
+  const normalized = normalizeAgentProviderId(provider);
+  const label = agentProviderLabel(normalized);
+  if (state.connectRunning?.[normalized]) return null;
+  const status = await loadAgentModeStatus(true);
+  if (!isMaxAgentAllowed(status)) {
+    setSettingsStatus(status?.message || 'Agent 모드는 3개월 이상 코드에서 사용할 수 있습니다.', 'error');
+    return null;
+  }
+  state.connectRunning = { ...(state.connectRunning || {}), [normalized]: true };
+  const previousText = button?.textContent || '';
+  if (button) { button.disabled = true; button.textContent = '연결 중…'; }
+
+  const api = getBridgeApi();
+  const call = (method, channel, payload) => (typeof api?.[method] === 'function' ? api[method](payload) : api?.invoke?.(channel, payload));
+  const flowApi = {
+    loadStatus: () => loadAgentModeStatus(true),
+    getProfile: () => getActiveAgentProfile(normalized),
+    ensureProfile: () => createAgentProfile(normalized),
+    checkLogin: (profileId) => checkAgentLoginStatus(normalized, profileId, { verify: true }),
+    installTool: async () => {
+      const installed = await installAgentTool(normalized, null, { thenLogin: false, confirmed: true });
+      return installed?.ok ? { ok: true } : { ok: false, delayed: installed?.delayed === true, message: installed?.error };
+    },
+    startLogin: async (profileId) => {
+      const started = await call('startAgentLogin', 'agent-mode:start-login', { id: profileId, provider: normalized });
+      return { ok: started?.ok === true, message: started?.error };
+    },
+    verifyAnswer: () => call('verifyAgentAnswer', 'agent-mode:verify-answer', { provider: normalized }),
+  };
+  try {
+    return await runAgentConnect({
+      provider: normalized,
+      label,
+      api: flowApi,
+      confirmInstall: () => confirmAgentInstall(label),
+      report: (line, tone) => {
+        setAgentConnectProgress(normalized, line, tone);
+        addLog(line, tone === 'error' ? 'warning' : tone === 'success' ? 'success' : 'info');
+      },
+    });
+  } finally {
+    state.connectRunning = { ...(state.connectRunning || {}), [normalized]: false };
+    if (button?.isConnected) { button.disabled = false; button.textContent = previousText; }
+    renderAgentSettingsSection();
+  }
+}
+
 async function installAgentTool(provider = state.activeAgentProvider, triggerButton = null, options = {}) {
   const normalizedProvider = normalizeAgentProviderId(provider);
   const label = agentProviderLabel(normalizedProvider);
@@ -3941,7 +4043,8 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
       });
       alert(result?.error || `${label} 설치에 실패했습니다.`);
       setSettingsStatus(result?.error || `${label} 설치에 실패했습니다.`, 'error');
-      return null;
+      // main never overwrites an existing program: tell the connect chain it is "delayed", not "failed"
+      return result?.alreadyInstalled ? { ok: false, delayed: true, error: result.error } : null;
     }
 
     const verified = result.verified || result.tool?.usable === true;
