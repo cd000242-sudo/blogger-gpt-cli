@@ -168,7 +168,7 @@ describe('v3.8.755 Gemini — 배선', () => {
   });
 
   test('앱이 받아 둔 gemini.cmd 가 감지 후보 맨 앞', () => {
-    const body = between('function getAgentBinaryCandidates(', 'process.env.npm_config_prefix');
+    const body = between('function assembleAgentBinaryCandidates(', 'process.env.npm_config_prefix');
     expect(body).toContain("readManagedGemini(path.join(toolsRoot(), 'gemini'))");
   });
 });

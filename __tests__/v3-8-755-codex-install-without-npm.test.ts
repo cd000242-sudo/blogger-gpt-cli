@@ -148,7 +148,7 @@ describe('v3.8.755 main.ts 배선', () => {
   });
 
   test('감지 후보에 winget 설치 위치가 들어간다', () => {
-    const block = braceBlock(mainSource, 'function getAgentBinaryCandidates(');
+    const block = braceBlock(mainSource, 'function assembleAgentBinaryCandidates(');
     expect(block).toContain('getWingetCodexCandidates(process.env, process.arch');
   });
 

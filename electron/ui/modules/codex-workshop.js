@@ -2,6 +2,7 @@
 import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, getProgressManager } from './core.js';
 import { createPreviewPayload, sameUserRequest } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
+import { agentStatusSignature } from './agent-connect-state.js';
 
 const MODAL_ID = 'codexWorkshopModal';
 const INSTALL_MODAL_ID = 'agentInstallModal';
@@ -1115,6 +1116,11 @@ async function loadAgentModeStatus(force = false) {
     };
   }
 
+  // The same answer as the one already on screen redraws nothing (it is asked for after almost every click).
+  const signature = agentStatusSignature(state.agentStatus);
+  if (signature === state.agentStatusSignature) return state.agentStatus;
+  state.agentStatusSignature = signature;
+
   renderEntryStatus();
   renderAgentStatusPanel();
   renderAgentSettingsSection();
@@ -1170,7 +1176,7 @@ function renderEntryStatus() {
 function getToolInstalledLabel(tool) {
   if (!tool) return '확인 전';
   if (!tool.installed) return '미감지';
-  if (tool.usable === false) return '실행 권한 확인 필요';
+  if (tool.usable === false) return tool.delayed ? '확인 지연' : '실행 권한 확인 필요';
   return '설치됨';
 }
 
@@ -1253,10 +1259,30 @@ function usagePanelsVisible() {
   return !!target && target.offsetParent !== null;
 }
 
+/** Everything the two usage panels draw from the clock and the key fields; the tick redraws only when it changes. */
+function usageSignature() {
+  const parts = [state.activeAgentProvider, state.activeApiTextProvider, state.activeApiImageProvider];
+  for (const id of AGENT_PROVIDER_IDS) {
+    try {
+      const summary = getUsageSummary(id);
+      parts.push(`${id}:${summary.used}:${summary.limit}:${summary.remaining}:${formatRemainingTime(summary.nextResetAt - Date.now())}`);
+    } catch {
+      parts.push(`${id}:?`);
+    }
+  }
+  const text = API_TEXT_PROVIDERS.find((item) => item.id === state.activeApiTextProvider) || API_TEXT_PROVIDERS[0];
+  const image = API_IMAGE_PROVIDERS.find((item) => item.id === state.activeApiImageProvider) || API_IMAGE_PROVIDERS[0];
+  parts.push(isApiProviderReady(text) ? 'T1' : 'T0', isApiProviderReady(image) ? 'I1' : 'I0');
+  return parts.join('|');
+}
+
 function startUsageTimer() {
   if (state.usageTimer) return;
   state.usageTimer = setInterval(() => {
     if (!usagePanelsVisible()) return;
+    const signature = usageSignature();
+    if (signature === state.usageSignature) return;
+    state.usageSignature = signature;
     renderUsagePanels();
   }, USAGE_TIMER_INTERVAL_MS);
 }
@@ -1346,20 +1372,20 @@ function renderSettingsProfileSelect() {
   const previous = (select.value || '').trim();
 
   if (!providerProfiles.length) {
-    select.innerHTML = '<option value="">계정 준비 중</option>';
+    writeIfChanged(select, '<option value="">계정 준비 중</option>');
     select.disabled = true;
     if (commandEl) commandEl.value = '';
     return;
   }
 
   select.disabled = false;
-  select.innerHTML = providerProfiles
+  writeIfChanged(select, providerProfiles
     .map((profile) => {
       // v3.8.274: 이메일만 표시 (사용자 헷갈림 방지)
       const label = buildAgentSelectLabel(profile);
       return `<option value="${escapeHtml(profile.id)}">${escapeHtml(label)}</option>`;
     })
-    .join('');
+    .join(''));
 
   const activeProfile = getActiveAgentProfile(state.activeAgentProvider);
   const fallbackProfile = providerProfiles[0] || null;
@@ -1390,12 +1416,12 @@ function renderSettingsProfileSelect() {
 function renderToolCards(status = state.agentStatus) {
   const row = $('agentModeToolStatus');
   if (!row) return;
-  row.innerHTML = AGENT_PROVIDER_IDS.map((id) => `
+  writeIfChanged(row, AGENT_PROVIDER_IDS.map((id) => `
     <div class="agent-mode-mini-card">
       <strong>${escapeHtml(AGENT_PROVIDER_META[id]?.label || id)}</strong>
       <span>${escapeHtml(getToolInstalledLabel(status?.tools?.[id]))}</span>
     </div>
-  `).join('');
+  `).join(''));
 }
 
 function renderModeButtons() {
@@ -1440,7 +1466,7 @@ function renderApiProviderCards() {
     { type: '이미지 생성', provider: image },
   ];
 
-  writeIfChanged(target, cards.map(({ type, provider }) => {
+  const cardsChanged = writeIfChanged(target, cards.map(({ type, provider }) => {
     const ready = isApiProviderReady(provider);
     return `
       <div class="agent-mode-provider-card">
@@ -1463,9 +1489,12 @@ function renderApiProviderCards() {
     `;
   }).join(''));
 
-  target.querySelectorAll('[data-open-url]').forEach((button) => {
-    button.addEventListener('click', () => openExternalUrl(button.getAttribute('data-open-url') || ''));
-  });
+  // Identical HTML keeps the old buttons - binding again would stack one more handler per redraw.
+  if (cardsChanged) {
+    target.querySelectorAll('[data-open-url]').forEach((button) => {
+      button.addEventListener('click', () => openExternalUrl(button.getAttribute('data-open-url') || ''));
+    });
+  }
 }
 
 /**
@@ -1537,7 +1566,7 @@ function renderAgentProviderPanel() {
     ? '공식 5시간 세션 잔여량'
     : '공식 구독 잔여량';
 
-  writeIfChanged(detail, `
+  const panelChanged = writeIfChanged(detail, `
     <div class="agent-mode-provider-card">
       <div class="agent-mode-provider-top">
         <div>
@@ -1687,6 +1716,20 @@ function renderAgentProviderPanel() {
     </div>
   `);
 
+  if (panelChanged) bindAgentProviderPanel(detail, provider);
+
+  const modalRunButton = $(RUN_AGENT_JOB_BTN_ID);
+  if (modalRunButton && !modalRunButton.disabled) modalRunButton.textContent = `${meta.label}로 생성`;
+  renderAgentProviderTabs();
+  renderSettingsProfileSelect();
+}
+
+/**
+ * Click handlers of the provider panel. Called only when the panel HTML was actually replaced:
+ * redrawing identical HTML keeps the old buttons, so binding again stacked one more handler per redraw
+ * (a click then ran the action several times).
+ */
+function bindAgentProviderPanel(detail, provider) {
   detail.querySelectorAll('[data-open-url]').forEach((button) => {
     button.addEventListener('click', () => openExternalUrl(button.getAttribute('data-open-url') || ''));
   });
@@ -1777,11 +1820,6 @@ function renderAgentProviderPanel() {
       refreshGlobalAiModelBadge();
     });
   });
-
-  const modalRunButton = $(RUN_AGENT_JOB_BTN_ID);
-  if (modalRunButton && !modalRunButton.disabled) modalRunButton.textContent = `${meta.label}로 생성`;
-  renderAgentProviderTabs();
-  renderSettingsProfileSelect();
 }
 
 function getAgentReadinessActionLabel(check = {}) {
@@ -3532,7 +3570,7 @@ function ensureModal() {
 
 function renderToolStatus(tool, label) {
   if (!tool) return `${label}: 확인 전`;
-  if (tool.installed && tool.usable === false) return `${label}: 실행 권한 확인 필요`;
+  if (tool.installed && tool.usable === false) return tool.delayed ? `${label}: 확인 지연` : `${label}: 실행 권한 확인 필요`;
   if (tool.installed) return `${label}: 설치됨`;
   return `${label}: 미감지`;
 }
@@ -3556,19 +3594,19 @@ function renderAgentProfileSelect() {
   const previous = select.value;
 
   if (!profiles.length) {
-    select.innerHTML = `<option value="">${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} 계정 준비 중</option>`;
+    writeIfChanged(select, `<option value="">${state.activeAgentProvider === 'claude' ? 'Claude' : 'Codex'} 계정 준비 중</option>`);
     select.disabled = true;
     return;
   }
 
   select.disabled = false;
-  select.innerHTML = profiles
+  writeIfChanged(select, profiles
     .map((profile) => {
       // v3.8.274: 이메일만 표시 (사용자 헷갈림 방지)
       const label = buildAgentSelectLabel(profile);
       return `<option value="${escapeHtml(profile.id)}">${escapeHtml(label)}</option>`;
     })
-    .join('');
+    .join(''));
 
   if (previous && profiles.some((profile) => profile.id === previous)) {
     select.value = previous;
@@ -3611,7 +3649,7 @@ function renderAgentStatusPanel() {
 
   const status = state.agentStatus;
   if (!status) {
-    panel.innerHTML = 'Agent Mode 상태를 확인 중입니다.';
+    writeIfChanged(panel, 'Agent Mode 상태를 확인 중입니다.');
     return;
   }
 
@@ -3621,7 +3659,7 @@ function renderAgentStatusPanel() {
   const modeLabel = isMaxAgentAllowed(status) ? 'Max Agent Mode' : 'API 키 모드';
   const modeClass = isMaxAgentAllowed(status) ? 'is-ready' : 'is-locked';
 
-  panel.innerHTML = `
+  writeIfChanged(panel, `
     <div class="codex-workshop-status ${modeClass}" style="margin-top:0;">${escapeHtml(modeLabel)}</div>
     <div class="codex-workshop-agent-grid">
       <div class="codex-workshop-agent-card">
@@ -3634,7 +3672,7 @@ function renderAgentStatusPanel() {
         ${toolLines.map((line) => `<span>${escapeHtml(line)}</span>`).join('')}
       </div>
     </div>
-  `;
+  `);
   renderAgentProfileSelect();
 }
 
@@ -3706,6 +3744,7 @@ function applyAgentLoginStatus(result) {
     ...(state.agentStatus || {}),
     profiles: Array.isArray(result.profiles) ? result.profiles : (state.agentStatus?.profiles || []),
   };
+  state.agentStatusSignature = agentStatusSignature(state.agentStatus);
   renderEntryStatus();
   renderAgentStatusPanel();
   renderAgentSettingsSection();

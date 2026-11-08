@@ -216,7 +216,7 @@ describe('v3.8.755 배선 — 원클릭', () => {
   const ui = read('electron', 'ui', 'modules', 'codex-workshop.js');
 
   test('앱이 받아 둔 Codex 가 감지 후보 맨 앞(npm 보다 먼저)', () => {
-    const body = untilNextTopLevel(main, 'function getAgentBinaryCandidates(');
+    const body = untilNextTopLevel(main, 'function assembleAgentBinaryCandidates(');
     const managed = body.indexOf('readManagedCodex(codexToolsRoot())');
     expect(managed).toBeGreaterThan(-1);
     expect(managed).toBeLessThan(body.indexOf('process.env.npm_config_prefix'));

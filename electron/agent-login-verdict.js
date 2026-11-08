@@ -9,6 +9,7 @@ exports.createVerifiedLoginMemo = createVerifiedLoginMemo;
 exports.settleLoginState = settleLoginState;
 exports.delayedLoginMessage = delayedLoginMessage;
 exports.credentialTextHasToken = credentialTextHasToken;
+exports.agentCredentialFileName = agentCredentialFileName;
 exports.requiresTokenEvidence = requiresTokenEvidence;
 exports.isolatedProfileHasRealLogin = isolatedProfileHasRealLogin;
 /**
@@ -123,6 +124,10 @@ const ISOLATED_CREDENTIAL_FILE = {
     claude: '.credentials.json',
     codex: 'auth.json',
 };
+/** The one file a CLI keeps its login in (null = unknown provider, so callers fall back to scanning). */
+function agentCredentialFileName(provider) {
+    return ISOLATED_CREDENTIAL_FILE[provider] ?? null;
+}
 /** Providers whose isolated folders are judged by token content (others keep the older file check). */
 function requiresTokenEvidence(provider) {
     return Object.prototype.hasOwnProperty.call(ISOLATED_CREDENTIAL_FILE, provider);

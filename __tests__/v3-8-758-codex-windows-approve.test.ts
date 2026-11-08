@@ -36,8 +36,12 @@ describe('v3.8.758 Codex 실행 권한', () => {
 
   test('main.ts: 실행 인자를 이 함수로 만들고, 지원 여부를 실제 실행 파일에 묻는다', () => {
     expect(mainTs).toContain('...codexSandboxArgs(process.platform, process.platform === \'win32\' && codexSupportsApproveForMe(codexCommand)),');
-    expect(mainTs).toContain("spawnSync(command, ['exec', '--help']");
-    expect(mainTs).toContain('codexApproveForMeCache.clear();');
+    // 2026-11-08: 도움말 확인은 메인 프로세스를 막지 않게 비동기로, 실행 파일(경로+수정시각+크기)마다 한 번만 한다.
+    //   옛 방식은 spawnSync 로 최대 20초 막고, 설치·로그인 클릭마다 답을 버려 다시 막았다.
+    expect(mainTs).toContain("execFile(command, ['exec', '--help']");
+    expect(mainTs).toContain('codexApproveCache.ensure(codexApproveKey(command)');
+    expect(mainTs).not.toContain('codexApproveForMeCache');
+    expect(mainTs).not.toMatch(/spawnSync\(/);
   });
 
   // 이 PC 에 npm Codex 가 있으면 실제 도움말로 판정이 맞는지 본다(없으면 건너뜀)

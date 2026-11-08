@@ -44,6 +44,7 @@ const agent_install_1 = require("./agent-install");
 const codex_portable_1 = require("./codex-portable");
 const gemini_portable_1 = require("./gemini-portable");
 const agent_profile_state_1 = require("./agent-profile-state");
+const agent_probe_cache_1 = require("./agent-probe-cache");
 const agent_login_verdict_1 = require("./agent-login-verdict");
 // Install before lazy browser imports capture child_process launch functions.
 (0, windows_browser_process_1.installWindowsBrowserProcessGuard)();
@@ -9389,10 +9390,30 @@ function decodeJwtPayloadEmail(token) {
         return null;
     }
 }
+/** Who is logged in, remembered per profile until the login file changes (the status query runs often). */
+const agentIdentityMemo = (0, agent_probe_cache_1.createStampedMemo)();
 function extractAgentLoginIdentity(profile) {
     const root = agentAuthDir(profile);
     if (!root || !fs.existsSync(root))
         return null;
+    const credentialName = (0, agent_login_verdict_1.agentCredentialFileName)(profile.provider);
+    if (credentialName) {
+        // Claude / Codex keep the login in ONE known file. Walking the folder instead read every session file
+        // of ~/.claude (hundreds) on every status query, on the main process.
+        const file = path.join(root, credentialName);
+        let stamp = '';
+        try {
+            const st = fs.statSync(file);
+            stamp = `${Math.round(st.mtimeMs)}:${st.size}`;
+        }
+        catch {
+            return null;
+        }
+        return agentIdentityMemo.read(profile.id, `${file}|${stamp}`, () => readAgentLoginIdentity([file]));
+    }
+    return agentIdentityMemo.read(profile.id, `scan|${Math.floor(Date.now() / 30000)}`, () => readAgentLoginIdentity(collectAgentIdentityCandidates(root)));
+}
+function collectAgentIdentityCandidates(root) {
     const candidates = [];
     const stack = [{ dir: root, depth: 0 }];
     const maxDepth = 5;
@@ -9420,6 +9441,9 @@ function extractAgentLoginIdentity(profile) {
             }
         }
     }
+    return candidates;
+}
+function readAgentLoginIdentity(candidates) {
     for (const file of candidates) {
         try {
             const raw = fs.readFileSync(file, 'utf-8');
@@ -9583,7 +9607,12 @@ function readAgentAuthStamp(profile) {
             add(file);
     }
     else {
-        walkAgentAuthFiles(profile.profileDir, (file) => { add(file); return false; });
+        const credentialName = (0, agent_login_verdict_1.agentCredentialFileName)(profile.provider);
+        // One stat instead of a depth-5 walk of the whole isolated folder (sessions, backups, projects ...)
+        if (credentialName)
+            add(path.join(profile.profileDir, credentialName));
+        else
+            walkAgentAuthFiles(profile.profileDir, (file) => { add(file); return false; });
     }
     return (0, agent_profile_state_1.authStampOf)(entries);
 }
@@ -10576,27 +10605,53 @@ function buildAgentRunEnv(profile) {
     }
     return env;
 }
-/** v3.8.758: 이 Codex 가 --approve-for-me 를 아는가(실행 파일마다 한 번만 `exec --help` 로 확인) */
-const codexApproveForMeCache = new Map();
+/**
+ * v3.8.758: does this Codex know --approve-for-me? Asked once per program BUILD (path + mtime + size) with
+ * `exec --help`, without blocking the main process (it used to block up to 20 s, and the answer was thrown
+ * away on every install / login click). A new build of the program gets a new key and is asked again.
+ */
+const codexApproveCache = (0, agent_probe_cache_1.createAsyncCache)();
+function codexApproveKey(command) {
+    return (0, agent_probe_cache_1.binaryFingerprint)(command, (target) => fs.statSync(target));
+}
+/** Answer from memory only: ensureCodexApproveSupport() has to run for this program first. */
 function codexSupportsApproveForMe(command) {
-    const cached = codexApproveForMeCache.get(command);
-    if (cached !== undefined)
-        return cached;
-    let supported = false;
+    return codexApproveCache.peek(codexApproveKey(command)) === true;
+}
+function runCodexExecHelp(command) {
+    return new Promise((resolve, reject) => {
+        try {
+            const { exec, execFile } = require('child_process');
+            const isScript = process.platform === 'win32' && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
+            const options = { encoding: 'utf8', windowsHide: true, timeout: 20000 };
+            const done = (error, stdout, stderr) => {
+                // No output at all = the probe itself failed (timeout, cannot start): not an answer, so it is not remembered.
+                if (error && !String(stdout || '').trim() && !String(stderr || '').trim())
+                    return reject(error);
+                return resolve((0, agent_install_1.helpMentionsApproveForMe)(`${stdout || ''}\n${stderr || ''}`));
+            };
+            if (isScript)
+                exec(buildShellCommandLine(command, ['exec', '--help']), options, done);
+            else
+                execFile(command, ['exec', '--help'], options, done);
+        }
+        catch (error) {
+            reject(error);
+        }
+    });
+}
+async function ensureCodexApproveSupport(command) {
     try {
-        const { spawnSync } = require('child_process');
-        const isScript = process.platform === 'win32' && (!path.extname(command) || /\.(cmd|bat)$/i.test(command));
-        const r = isScript
-            ? spawnSync(buildShellCommandLine(command, ['exec', '--help']), [], { shell: true, encoding: 'utf8', windowsHide: true, timeout: 20000 })
-            : spawnSync(command, ['exec', '--help'], { encoding: 'utf8', windowsHide: true, timeout: 20000 });
-        supported = (0, agent_install_1.helpMentionsApproveForMe)(`${r.stdout || ''}\n${r.stderr || ''}`);
+        return await codexApproveCache.ensure(codexApproveKey(command), async () => {
+            const supported = await runCodexExecHelp(command);
+            console.log(`[AGENT-MODE] Codex --approve-for-me 지원: ${supported ? '예' : '아니오(예전 방식 workspace-write)'}`);
+            return supported;
+        });
     }
-    catch {
-        supported = false;
+    catch (error) {
+        console.warn('[AGENT-MODE] Codex exec --help 확인 실패(이번 실행은 예전 방식, 다음 실행에서 다시 확인):', error instanceof Error ? error.message : error);
+        return false;
     }
-    codexApproveForMeCache.set(command, supported);
-    console.log(`[AGENT-MODE] Codex --approve-for-me 지원: ${supported ? '예' : '아니오(예전 방식 workspace-write)'}`);
-    return supported;
 }
 function buildAgentRunCommand(profile, jobDir, lastMessagePath, model = getCodexAgentModel()) {
     // v3.8.284: prompt 강화 — 사용자 진단 결과 Codex가 stdout만 출력하고 파일 안 만듬
@@ -10725,6 +10780,7 @@ async function ensureLatestCodexCliForCompatibility() {
     try {
         const install = await installAgentForThisPc('codex');
         invalidateAgentBinaryCache();
+        invalidateAgentProgramLookups();
         if ((install.exitCode ?? 1) === 0) {
             return { ok: true, output: install.output };
         }
@@ -10788,7 +10844,10 @@ function cancelActiveAgentProcesses() {
     return count;
 }
 async function runAgentProcess(profile, jobDir, lastMessagePath, chosenModel) {
-    const runOnce = (model) => {
+    const runOnce = async (model) => {
+        // Learn (without blocking) whether this Codex build knows --approve-for-me before the command is built.
+        if (profile.provider === 'codex' && process.platform === 'win32')
+            await ensureCodexApproveSupport(resolveAgentBinaryCommand('codex'));
         return new Promise((resolve) => {
             const { spawn } = require('child_process');
             const { command, args } = buildAgentRunCommand(profile, jobDir, lastMessagePath, model);
@@ -11805,7 +11864,12 @@ function pushUniquePath(target, value) {
         return;
     target.push(normalized);
 }
-function getCommandOutputSync(command, args, timeout = 3000) {
+/**
+ * Blocking runner - only the FALLBACK of the lookup cache below (the async runner is the normal path).
+ * It blocks the main process, so it must run at most once per command per session.
+ * null = the attempt itself failed (timeout, could not start); '' = a clean "nothing found".
+ */
+function runAgentCommandSync(command, args, timeout) {
     try {
         const { execFileSync } = require('child_process');
         if (process.platform === 'win32' && command.toLowerCase() === 'npm') {
@@ -11821,9 +11885,49 @@ function getCommandOutputSync(command, args, timeout = 3000) {
             encoding: 'utf8',
         }) || '').trim();
     }
-    catch {
-        return '';
+    catch (error) {
+        const failure = error;
+        return typeof failure?.status === 'number' && !failure.killed && !failure.signal ? '' : null;
     }
+}
+/** Non-blocking runner with the same contract as runAgentCommandSync. */
+function runAgentCommandAsync(command, args, timeout) {
+    return new Promise((resolve) => {
+        try {
+            const { execFile } = require('child_process');
+            const done = (error, stdout) => {
+                if (!error)
+                    return resolve(String(stdout || '').trim());
+                return resolve(typeof error.code === 'number' && !error.killed && !error.signal ? '' : null);
+            };
+            const options = { timeout, windowsHide: true, encoding: 'utf8' };
+            if (process.platform === 'win32' && command.toLowerCase() === 'npm') {
+                execFile(process.env.ComSpec || 'cmd.exe', ['/d', '/c', [command, ...args].join(' ')], options, done);
+            }
+            else {
+                execFile(command, args, options, done);
+            }
+        }
+        catch {
+            resolve(null);
+        }
+    });
+}
+/** `npm config get prefix` and `where.exe <name>` answers, kept for the session (cleared when a program is installed). */
+const agentCommandCache = (0, agent_probe_cache_1.createCommandOutputCache)({ runSync: runAgentCommandSync, runAsync: runAgentCommandAsync });
+const agentLocatorCommand = () => (process.platform === 'win32' ? 'where.exe' : 'which');
+/** Fills the lookup cache in the background so the first status query does not wait on npm / where.exe. */
+function warmAgentBinaryLookups() {
+    const names = Object.values(AGENT_PROVIDERS).map((provider) => provider.binary);
+    void Promise.all([
+        agentCommandCache.getAsync('npm', ['config', 'get', 'prefix']),
+        ...names.map((name) => agentCommandCache.getAsync(agentLocatorCommand(), [name])),
+    ]).catch(() => undefined);
+}
+/** A program was installed or replaced: forget where things were and look again (in the background). */
+function invalidateAgentProgramLookups() {
+    agentCommandCache.clear();
+    warmAgentBinaryLookups();
 }
 function getCodexNativeBinaryCandidate(prefix) {
     if (!prefix)
@@ -11877,7 +11981,7 @@ function getClaudeNativeInstallDirs() {
     }
     return dirs;
 }
-function getAgentBinaryCandidates(binaryName) {
+function assembleAgentBinaryCandidates(binaryName, npmPrefixOutput, located) {
     const candidates = [];
     const npmPrefixes = [];
     const home = electron_1.app.getPath('home');
@@ -11891,7 +11995,7 @@ function getAgentBinaryCandidates(binaryName) {
         pushUniquePath(npmPrefixes, process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : '');
         pushUniquePath(npmPrefixes, process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Roaming', 'npm') : '');
         pushUniquePath(npmPrefixes, home ? path.join(home, 'AppData', 'Roaming', 'npm') : '');
-        pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
+        pushUniquePath(npmPrefixes, npmPrefixOutput);
         for (const prefix of npmPrefixes) {
             if (binaryName === 'codex')
                 pushUniquePath(candidates, getCodexNativeBinaryCandidate(prefix));
@@ -11917,7 +12021,7 @@ function getAgentBinaryCandidates(binaryName) {
     }
     else {
         pushUniquePath(npmPrefixes, process.env.npm_config_prefix);
-        pushUniquePath(npmPrefixes, getCommandOutputSync('npm', ['config', 'get', 'prefix']));
+        pushUniquePath(npmPrefixes, npmPrefixOutput);
         for (const prefix of npmPrefixes) {
             if (binaryName === 'codex')
                 pushUniquePath(candidates, getCodexNativeBinaryCandidate(prefix));
@@ -11930,8 +12034,6 @@ function getAgentBinaryCandidates(binaryName) {
             }
         }
     }
-    const locator = process.platform === 'win32' ? 'where.exe' : 'which';
-    const located = getCommandOutputSync(locator, [binaryName]);
     for (const line of located.split(/\r?\n/)) {
         pushUniquePath(candidates, line);
     }
@@ -11943,6 +12045,18 @@ function getAgentBinaryCandidates(binaryName) {
             return false;
         }
     });
+}
+/** Blocking lookup for callers that cannot wait (spawn sites). The npm / where answers come from the session cache. */
+function getAgentBinaryCandidates(binaryName) {
+    return assembleAgentBinaryCandidates(binaryName, agentCommandCache.getSync('npm', ['config', 'get', 'prefix']), agentCommandCache.getSync(agentLocatorCommand(), [binaryName]));
+}
+/** Same result without blocking the main process - used by CLI detection (the status query). */
+async function getAgentBinaryCandidatesAsync(binaryName) {
+    const [npmPrefixOutput, located] = await Promise.all([
+        agentCommandCache.getAsync('npm', ['config', 'get', 'prefix']),
+        agentCommandCache.getAsync(agentLocatorCommand(), [binaryName]),
+    ]);
+    return assembleAgentBinaryCandidates(binaryName, npmPrefixOutput, located);
 }
 /** True when a program with this name already exists on this PC (file presence only, nothing is run). */
 function agentProgramExists(binaryName) {
@@ -11958,7 +12072,7 @@ function resolveAgentBinaryCommand(provider) {
  * 이 PC 의 Codex 로그인(~/.codex 또는 %CODEX_HOME%)을 그대로 쓴다 - 인증 파일을 앱 폴더로 복사하지 않고, 내용은 읽지 않는다(있는지만 본다).
  */
 async function collectCodexImageReadinessFacts() {
-    const tool = await detectAgentBinary(AGENT_PROVIDERS.codex.binary);
+    const tool = (await detectAgentBinariesCached(['codex']))['codex'] ?? { installed: false };
     const systemProfile = refreshAgentProfileStatuses().find((item) => item.provider === 'codex' && (0, agent_profile_state_1.usesSystemHome)(item));
     let loginFilePresent = false;
     try {
@@ -12331,7 +12445,7 @@ function testAgentBinary(binaryPath, binaryName) {
 }
 async function detectAgentBinary(binaryName) {
     try {
-        const foundPaths = getAgentBinaryCandidates(binaryName);
+        const foundPaths = await getAgentBinaryCandidatesAsync(binaryName);
         if (!foundPaths.length)
             return { installed: false };
         let firstFailure = null;
@@ -12492,7 +12606,6 @@ async function detectAgentBinariesCached(providerIds) {
 /** 설치·로그인처럼 상태가 실제로 바뀌는 일을 한 뒤에는 기억을 버린다 */
 function invalidateAgentBinaryCache() {
     agentBinaryCache = null;
-    codexApproveForMeCache.clear();
 }
 electron_1.ipcMain.handle('agent-mode:get-status', async () => {
     try {
@@ -12795,6 +12908,7 @@ electron_1.ipcMain.handle('agent-mode:install-tool', async (evt, args) => {
             catch { /* ignore */ }
         });
         invalidateAgentBinaryCache();
+        invalidateAgentProgramLookups();
         const tool = await detectAgentBinary(provider);
         const verified = tool.usable !== false && tool.installed;
         if ((install.exitCode !== 0 || install.timedOut) && !verified) {
@@ -14684,6 +14798,8 @@ async function forcedRemoteUpdateCheck() {
 }
 electron_1.app.whenReady().then(async () => {
     console.log('[APP] Electron 앱 준비 완료');
+    // Look up npm / where.exe answers in the background now, so the first status query never waits on them.
+    warmAgentBinaryLookups();
     console.log(`[VERSION] LEADERNAM Orbit v${electron_1.app.getVersion()}`);
     /**
      * ⚙️ v3.8.468 — 설정을 **앱 시작 때 한 번 process.env 로 올린다.**
