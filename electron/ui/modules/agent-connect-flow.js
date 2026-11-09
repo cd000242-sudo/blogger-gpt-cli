@@ -41,7 +41,7 @@ const stop = (step, reason, delayed = false) => ({ ok: false, step, reason, dela
  *   installTool()                    -> { ok, delayed, message }       (main refuses without the user's yes)
  *   startLogin(profileId)            -> { ok, message }
  *   verifyAnswer()                   -> { ok, delayed, authRequired, message }
- * confirmInstall()                   -> boolean, the plain "install it?" question
+ * confirmInstall()                   -> Promise<boolean> (or boolean), the plain "install it?" question asked in the app
  * report(line, tone)                 -> progress text for the screen ('info' | 'error' | 'success')
  */
 export async function runAgentConnect({
@@ -78,7 +78,8 @@ export async function runAgentConnect({
 
     if (kind === 'install') {
       currentStep = 2;
-      if (!confirmInstall()) return stop(2, `${label} 설치를 하지 않았습니다. 필요하면 [연결하기]를 다시 눌러 주세요.`);
+      // The question is asked inside the app and answered later (a Promise): wait for it, never treat it as truthy.
+      if (!(await confirmInstall())) return stop(2, `${label} 설치를 하지 않았습니다. 필요하면 [연결하기]를 다시 눌러 주세요.`);
       say(2, `${label} 공식 설치 파일을 받아 설치합니다…`);
       const installed = await api.installTool();
       if (installed?.delayed) return stop(2, delayedReason(label), true);

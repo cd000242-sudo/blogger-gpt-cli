@@ -4,6 +4,7 @@ import { createPreviewPayload, sameUserRequest } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
 import { agentStatusSignature, classifyAgentConnect, describeAgentConnect } from './agent-connect-state.js';
 import { runAgentConnect } from './agent-connect-flow.js';
+import { askAppConfirm } from './app-confirm-modal.js';
 
 const MODAL_ID = 'codexWorkshopModal';
 const INSTALL_MODAL_ID = 'agentInstallModal';
@@ -3910,10 +3911,20 @@ function startAgentLoginPolling(provider = state.activeAgentProvider, profileId 
   state.loginPollTimer = setInterval(tick, 8000);
 }
 
-/** Plain yes/no before anything is installed. The answer is also told to main, which refuses without it. */
-function confirmAgentInstall(label) {
+/**
+ * Plain yes/no before anything is installed, asked in an in-app modal (a native confirm() can open behind the
+ * window and look like a freeze). Resolves true only for an explicit yes. The answer is also told to main,
+ * which refuses without it.
+ */
+async function confirmAgentInstall(label) {
   try {
-    return window.confirm(`${label} 를 설치할까요?\n\n공식 설치 파일을 받아 이 PC 에 설치합니다. 이미 있는 프로그램은 바꾸지 않습니다.`) === true;
+    return await askAppConfirm({
+      title: `${label} 설치`,
+      message: `${label} 를 설치할까요?`,
+      detail: '공식 설치 파일을 받아 이 PC 에 설치합니다. 이미 있는 프로그램은 바꾸지 않습니다.',
+      confirmLabel: '설치',
+      cancelLabel: '취소',
+    }) === true;
   } catch {
     return false;
   }
@@ -3986,7 +3997,7 @@ async function installAgentTool(provider = state.activeAgentProvider, triggerBut
   const normalizedProvider = normalizeAgentProviderId(provider);
   const label = agentProviderLabel(normalizedProvider);
   const api = getBridgeApi();
-  if (options.confirmed !== true && !confirmAgentInstall(label)) {
+  if (options.confirmed !== true && !(await confirmAgentInstall(label))) {
     setSettingsStatus(`${label} 설치를 하지 않았습니다.`);
     return null;
   }
@@ -4130,7 +4141,7 @@ async function startAgentLogin(provider = state.activeAgentProvider, profileId =
   }
   // Nothing is installed without a yes. After the yes the flow goes on to the login window (once).
   if (!tool?.installed && !options.skipInstall) {
-    if (!confirmAgentInstall(label)) {
+    if (!(await confirmAgentInstall(label))) {
       setSettingsStatus(`${label} 설치를 하지 않았습니다. 필요하면 [연결하기]를 다시 눌러 주세요.`);
       return;
     }

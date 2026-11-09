@@ -171,10 +171,11 @@ describe('screen: no secret engine switch, no silent install, no auto-pinned acc
     expect(body).toContain('confirmed: true');
   });
 
-  test('the confirmation is a plain question with the program name', () => {
+  test('the confirmation is a plain question with the program name, asked in the app (not the native confirm that can hide behind the window)', () => {
     const fn = braceBlock(workshop, 'function confirmAgentInstall(');
     expect(fn).toContain('설치할까요?');
-    expect(fn).toContain('confirm(');
+    expect(fn).toContain('askAppConfirm(');
+    expect(fn).not.toMatch(/window\.confirm\(|[^A-Za-z.]confirm\(/);
   });
 
   test('rendering never saves the displayed (derived) account as the user\'s choice', () => {
