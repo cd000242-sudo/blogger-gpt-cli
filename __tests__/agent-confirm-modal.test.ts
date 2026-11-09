@@ -239,7 +239,7 @@ describe('wiring - the install question is the in-app modal, never the browser c
   });
 
   test('main still refuses an install that does not carry the confirmation', () => {
-    const handler = blockBetween(mainTs, "ipcMain.handle('agent-mode:install-tool'", "ipcMain.handle('agent-mode:verify-answer'");
+    const handler = blockBetween(mainTs, "ipcMain.handle('agent-mode:install-tool'", "ipcMain.handle('agent-mode:upgrade-tool'");
     expect(handler).toContain('args?.confirmed !== true');
     expect(handler).toContain('needsConfirm: true');
     expect(workshop).toContain('confirmed: true');

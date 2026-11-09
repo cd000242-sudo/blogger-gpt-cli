@@ -222,9 +222,10 @@ describe('v3.8.755 배선 — 원클릭', () => {
     expect(managed).toBeLessThan(body.indexOf('process.env.npm_config_prefix'));
   });
 
-  test('설치 버튼과 자동 업데이트가 같은 원클릭 설치를 쓴다', () => {
+  test('설치 버튼과 (확인을 받은) 업그레이드 버튼이 같은 원클릭 설치를 쓴다 - 업그레이드는 공식 받기만', () => {
     expect(untilNextTopLevel(main, "ipcMain.handle('agent-mode:install-tool'")).toContain('installAgentForThisPc(provider,');
-    expect(untilNextTopLevel(main, 'async function ensureLatestCodexCliForCompatibility(')).toContain("installAgentForThisPc('codex')");
+    expect(untilNextTopLevel(main, "ipcMain.handle('agent-mode:upgrade-tool'")).toContain("installAgentForThisPc('codex'");
+    expect(untilNextTopLevel(main, "ipcMain.handle('agent-mode:upgrade-tool'")).toContain('portableOnly: true');
     const installer = untilNextTopLevel(main, 'async function installAgentForThisPc(');
     expect(installer).toContain('installCodexPortable(');
     expect(installer).toContain('runInlineAgentInstall(provider)');

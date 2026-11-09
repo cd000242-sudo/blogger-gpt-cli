@@ -2,6 +2,7 @@
 // One-button connection of a subscription agent CLI (Claude Code / Codex):
 //   [1/4 준비 확인] -> [2/4 설치] -> [3/4 로그인] -> [4/4 실제 답 확인]
 // Steps that are already done are skipped. The first failing step stops the flow with its own reason.
+// A program that a run found too old ("upgrade") is upgraded in step 2 - but only after the user says yes in the app.
 // A check that is only SLOW ("delayed") stops the flow without installing or logging in: the program and
 // the login are still there. Nothing here switches to another engine - the caller keeps the user's choice.
 //
@@ -39,9 +40,11 @@ const stop = (step, reason, delayed = false) => ({ ok: false, step, reason, dela
  *   ensureProfile()                  -> creates this PC's login profile when there is none
  *   checkLogin(profileId)            -> { ready, delayed, authRequired, quotaExceeded, message }
  *   installTool()                    -> { ok, delayed, message }       (main refuses without the user's yes)
+ *   upgradeTool()                    -> { ok, delayed, message }       (official download only; main refuses without the user's yes)
  *   startLogin(profileId)            -> { ok, message }
  *   verifyAnswer()                   -> { ok, delayed, authRequired, message }
  * confirmInstall()                   -> Promise<boolean> (or boolean), the plain "install it?" question asked in the app
+ * confirmUpgrade()                   -> Promise<boolean> (or boolean), the "upgrade it?" question; missing means "no"
  * report(line, tone)                 -> progress text for the screen ('info' | 'error' | 'success')
  */
 export async function runAgentConnect({
@@ -49,6 +52,7 @@ export async function runAgentConnect({
   label,
   api,
   confirmInstall,
+  confirmUpgrade = () => false,
   report = () => {},
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -88,6 +92,22 @@ export async function runAgentConnect({
       profile = api.getProfile(status);
       kind = classifyAgentConnect({ tool: status?.tools?.[provider], profile });
       if (kind === 'install') return stop(2, '설치는 끝났지만 실행 파일을 찾지 못했습니다. 보안 프로그램과 폴더 권한을 확인해 주세요.');
+      if (kind === 'delayed') return stop(2, delayedReason(label), true);
+    }
+
+    if (kind === 'upgrade') {
+      currentStep = 2;
+      // Nothing is upgraded without a yes. A "no" (or no question at all) stops here and says why.
+      if (!(await confirmUpgrade())) return stop(2, `${label} 업그레이드를 하지 않았습니다. 새 버전이 없으면 이 엔진으로는 글을 쓸 수 없습니다. 필요하면 [업그레이드]를 다시 눌러 주세요.`);
+      say(2, `${label} 새 버전을 받아 업그레이드합니다…`);
+      const upgraded = await api.upgradeTool();
+      if (upgraded?.delayed) return stop(2, delayedReason(label), true);
+      // A failed download stops here. The chain never tries another way of installing behind the user's back.
+      if (!upgraded?.ok) return stop(2, upgraded?.message || '업그레이드에 실패했습니다.');
+      status = await api.loadStatus();
+      profile = api.getProfile(status);
+      kind = classifyAgentConnect({ tool: status?.tools?.[provider], profile });
+      if (kind === 'upgrade') return stop(2, '업그레이드는 끝났지만 새 버전을 확인하지 못했습니다. 잠시 뒤 [업그레이드]를 눌러 다시 확인해 주세요.');
       if (kind === 'delayed') return stop(2, delayedReason(label), true);
     }
 

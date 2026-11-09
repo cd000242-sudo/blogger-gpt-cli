@@ -1339,7 +1339,7 @@ function ensureAgentInstallModal() {
   return modal;
 }
 
-function updateAgentInstallModal({ label = 'Agent', status = '설치 준비 중입니다.', output = '', type = 'info' } = {}) {
+function updateAgentInstallModal({ label = 'Agent', status = '설치 준비 중입니다.', output = '', type = 'info', verb = '설치' } = {}) {
   ensureAgentInstallModal();
   const title = $('agentInstallTitle');
   const subtitle = $('agentInstallSubtitle');
@@ -1347,20 +1347,20 @@ function updateAgentInstallModal({ label = 'Agent', status = '설치 준비 중�
   const statusText = $('agentInstallStatusText');
   const outputEl = $('agentInstallOutput');
 
-  if (title) title.textContent = `${label} 설치`;
+  if (title) title.textContent = `${label} ${verb}`;
   if (subtitle) subtitle.textContent = type === 'success'
-    ? '설치가 끝났습니다. 상태를 다시 확인합니다.'
+    ? `${verb}가 끝났습니다. 상태를 다시 확인합니다.`
     : type === 'error'
-      ? '설치 중 문제가 발생했습니다.'
-      : '설치가 진행 중입니다. 창을 닫지 말고 기다려주세요.';
+      ? `${verb} 중 문제가 발생했습니다.`
+      : `${verb}가 진행 중입니다. 창을 닫지 말고 기다려주세요.`;
   if (statusBox) statusBox.className = `agent-install-status ${type === 'success' ? 'is-success' : type === 'error' ? 'is-error' : ''}`;
   if (statusText) statusText.textContent = status;
   if (outputEl) outputEl.textContent = output || '설치 로그를 기다리는 중입니다...';
 }
 
-function openAgentInstallModal(label) {
+function openAgentInstallModal(label, verb = '설치') {
   const modal = ensureAgentInstallModal();
-  updateAgentInstallModal({ label, status: `${label} 설치를 시작합니다.`, output: '설치 명령 준비 중...', type: 'info' });
+  updateAgentInstallModal({ label, verb, status: `${label} ${verb}를 시작합니다.`, output: `${verb} 명령 준비 중...`, type: 'info' });
   modal.classList.add('is-open');
 }
 
@@ -3930,6 +3930,24 @@ async function confirmAgentInstall(label) {
   }
 }
 
+/**
+ * Plain yes/no before Codex is upgraded (a run found it too old), asked in the same in-app modal.
+ * Resolves true only for an explicit yes; main refuses the upgrade without it.
+ */
+async function confirmAgentUpgrade(label) {
+  try {
+    return await askAppConfirm({
+      title: `${label} 업그레이드`,
+      message: `${label} 를 새 버전으로 업그레이드할까요?`,
+      detail: '지금 쓰는 모델은 더 새로운 버전이 있어야 합니다. 공식 설치 파일을 받아 바꾸며, 로그인은 그대로 유지됩니다.',
+      confirmLabel: '업그레이드',
+      cancelLabel: '취소',
+    }) === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Progress of the one-button connection, kept per engine so a redraw of the panel shows the same line. */
 function setAgentConnectProgress(provider, line, tone = 'info') {
   state.agentConnectProgress = { ...(state.agentConnectProgress || {}), [provider]: { line, tone } };
@@ -3937,6 +3955,79 @@ function setAgentConnectProgress(provider, line, tone = 'info') {
   if (el && normalizeAgentProviderId(state.activeAgentProvider) === provider) {
     el.textContent = line;
     el.className = `agent-connect-progress is-${tone}`;
+  }
+}
+
+/**
+ * Upgrade after the user's yes (confirmAgentUpgrade): the official download only - when it fails it says so and
+ * nothing else is installed. Progress goes to the same modal as the install. Never throws.
+ */
+async function upgradeAgentTool(provider = state.activeAgentProvider) {
+  const normalizedProvider = normalizeAgentProviderId(provider);
+  const label = agentProviderLabel(normalizedProvider);
+  const verb = '업그레이드';
+  const api = getBridgeApi();
+  const progressLines = [];
+  const stopProgress = typeof api?.onAgentInstallProgress === 'function'
+    ? api.onAgentInstallProgress((p) => {
+      if (normalizeAgentProviderId(p?.provider) !== normalizedProvider) return;
+      if (p.stage !== 'download') progressLines.push(`▶ ${p.message}`);
+      updateAgentInstallModal({
+        label,
+        verb,
+        status: typeof p.percent === 'number' ? `${p.message} (${p.percent}%)` : p.message,
+        output: progressLines.join('\n'),
+        type: 'info',
+      });
+    })
+    : null;
+  try {
+    state.installRunning = true;
+    openAgentInstallModal(label, verb);
+    updateAgentInstallModal({
+      label,
+      verb,
+      status: `${label} 새 버전을 받는 중입니다.`,
+      output: '공식 설치 파일을 내려받아 새 버전으로 바꿉니다(약 160MB · 인터넷 속도에 따라 1~5분).\n창을 닫지 말고 기다려주세요. 로그인은 그대로 유지됩니다.',
+      type: 'info',
+    });
+    const upgradeArgs = { provider: normalizedProvider, confirmed: true };
+    const result = typeof api?.upgradeAgentTool === 'function'
+      ? await api.upgradeAgentTool(upgradeArgs)
+      : await api?.invoke?.('agent-mode:upgrade-tool', upgradeArgs);
+    if (!result?.ok) {
+      const message = result?.error || `${label} 업그레이드에 실패했습니다.`;
+      updateAgentInstallModal({
+        label,
+        verb,
+        status: message,
+        output: [result?.command ? `명령: ${result.command}` : '', result?.output || ''].filter(Boolean).join('\n\n'),
+        type: 'error',
+      });
+      setSettingsStatus(message, 'error');
+      addLog(message, 'warning');
+      return { ok: false, error: message };
+    }
+    updateAgentInstallModal({
+      label,
+      verb,
+      status: `${label} 업그레이드가 완료되었습니다.`,
+      output: [result.command ? `명령: ${result.command}` : '', result.output || '', result.tool?.version ? `확인: ${result.tool.version}` : ''].filter(Boolean).join('\n\n'),
+      type: 'success',
+    });
+    setSettingsStatus(`${label} 업그레이드가 완료되었습니다.`, 'success');
+    addLog(`${label} 업그레이드가 완료되었습니다.`, 'success');
+    await loadAgentModeStatus(true);
+    return result;
+  } catch (error) {
+    const message = `${label} 업그레이드를 실행하지 못했습니다: ${error?.message || error}`;
+    console.error('[CODEX-WORKSHOP] upgrade agent tool failed:', error);
+    updateAgentInstallModal({ label, verb, status: message, output: error?.message || String(error || ''), type: 'error' });
+    setSettingsStatus(message, 'error');
+    return { ok: false, error: message };
+  } finally {
+    try { stopProgress?.(); } catch { /* ignore */ }
+    state.installRunning = false;
   }
 }
 
@@ -3969,6 +4060,10 @@ async function connectAgent(provider = state.activeAgentProvider, button = null)
       const installed = await installAgentTool(normalized, null, { thenLogin: false, confirmed: true });
       return installed?.ok ? { ok: true } : { ok: false, delayed: installed?.delayed === true, message: installed?.error };
     },
+    upgradeTool: async () => {
+      const upgraded = await upgradeAgentTool(normalized);
+      return upgraded?.ok ? { ok: true } : { ok: false, message: upgraded?.error };
+    },
     startLogin: async (profileId) => {
       const started = await call('startAgentLogin', 'agent-mode:start-login', { id: profileId, provider: normalized });
       return { ok: started?.ok === true, message: started?.error };
@@ -3981,6 +4076,7 @@ async function connectAgent(provider = state.activeAgentProvider, button = null)
       label,
       api: flowApi,
       confirmInstall: () => confirmAgentInstall(label),
+      confirmUpgrade: () => confirmAgentUpgrade(label),
       report: (line, tone) => {
         setAgentConnectProgress(normalized, line, tone);
         addLog(line, tone === 'error' ? 'warning' : tone === 'success' ? 'success' : 'info');
@@ -4352,6 +4448,11 @@ async function runAgentJob({ payload: inputPayload = null, button = null, source
     // v3.8.382: 인증 만료는 재시도해도 무조건 실패한다 — 연속발행이 남은 항목을 헛돌지 않도록 신호를 남긴다.
     if (result?.authRequired) {
       try { window.__agentAuthRevoked = true; } catch { /* noop */ }
+    }
+    // Stopped because Codex is too old: nothing was upgraded or switched. Refresh so the connection screen shows
+    // "업그레이드 필요" (its button asks before upgrading).
+    if (result?.upgradeRequired) {
+      loadAgentModeStatus(true).catch(() => { /* the status line catches up on the next refresh */ });
     }
     const detail = [result?.error, result?.stderr, result?.stdout].filter(Boolean).join('\n\n').trim();
     setAgentRunStatus(detail || 'Agent 생성에 실패했습니다.', 'error');

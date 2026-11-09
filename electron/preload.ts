@@ -114,6 +114,7 @@ export type BloggerApi = {
   createAgentProfile?(args: { provider: 'codex' | 'claude'; label?: string; authMode?: 'subscription' | 'api' }): Promise<any>;
   getAgentLoginCommand?(args: { id: string }): Promise<any>;
   installAgentTool?(args: { provider: 'codex' | 'claude' }): Promise<any>;
+  upgradeAgentTool?(args: { provider: string; confirmed: boolean }): Promise<any>;
   onAgentInstallProgress?(listener: (payload: { provider: string; stage: string; percent?: number; message: string }) => void): () => void;
   startAgentLogin?(args: { id?: string; provider?: 'codex' | 'claude' }): Promise<any>;
   checkAgentLogin?(args: { id?: string; provider?: 'codex' | 'claude' }): Promise<any>;
@@ -540,6 +541,7 @@ const api: BloggerApi = {
   createAgentProfile: (args) => ipcRenderer.invoke('agent-mode:create-profile', args),
   getAgentLoginCommand: (args) => ipcRenderer.invoke('agent-mode:get-login-command', args),
   installAgentTool: (args) => ipcRenderer.invoke('agent-mode:install-tool', args),
+  upgradeAgentTool: (args) => ipcRenderer.invoke('agent-mode:upgrade-tool', args),
   // v3.8.755: Codex 내려받기 진행률(설치 창에 % 표시)
   onAgentInstallProgress: ((listener: (payload: any) => void) => {
     const handler = (_e: unknown, payload: any) => { try { listener(payload); } catch {} };

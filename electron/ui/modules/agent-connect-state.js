@@ -16,6 +16,7 @@ export function agentStatusSignature(status) {
       tool.installed ? 1 : 0,
       tool.usable === true ? 'o' : tool.usable === false ? 'x' : '-',
       tool.delayed ? 'd' : '',
+      tool.upgradeRequired ? 'u' : '',
       tool.version || '',
     ].join(':');
   });
@@ -46,6 +47,7 @@ export function agentStatusSignature(status) {
 /**
  * Which of four states an engine is in, from what the screen already knows.
  *   install  - the program is not on this PC
+ *   upgrade  - the program is there but a run was stopped because it needs a newer version (asked before upgrading)
  *   delayed  - the program is there but its check did not finish (slow PC, busy): nothing is known to be wrong
  *   login    - installed, but no working login
  *   ready    - installed and logged in
@@ -55,6 +57,8 @@ export function agentStatusSignature(status) {
 export function classifyAgentConnect({ tool, profile, check } = {}) {
   if (!tool) return 'checking';
   if (!tool.installed) return 'install';
+  // A run was stopped because this program is too old: that is known, so it comes before "slow" and "ready".
+  if (tool.upgradeRequired) return 'upgrade';
   if (tool.usable === false || tool.delayed) return 'delayed';
   if (check && check.ready !== true) {
     if (check.delayed) return 'delayed';
@@ -69,6 +73,7 @@ const CONNECT_COPY = {
   delayed: { text: '확인 지연 — 로그인은 그대로 유지됩니다', tone: 'warn', button: '다시 확인' },
   login: { text: '로그인 필요', tone: 'bad', button: '연결하기' },
   install: { text: '설치 필요', tone: 'bad', button: '연결하기' },
+  upgrade: { text: '업그레이드 필요', tone: 'warn', button: '업그레이드' },
   checking: { text: '확인 중…', tone: 'muted', button: '연결하기' },
 };
 

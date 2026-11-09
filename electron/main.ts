@@ -50,6 +50,7 @@ import {
   type AgentLoginState,
   type VerifiedLoginMemo,
 } from './agent-login-verdict';
+import { codexUpgradeRequiredMessage, createAgentUpgradeMemo, judgeCodexUpgrade } from './agent-upgrade';
 // Install before lazy browser imports capture child_process launch functions.
 installWindowsBrowserProcessGuard();
 /**
@@ -1972,6 +1973,11 @@ URL: ${item.url}
                 const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
                 sendDiag(`🤖 ${profile.provider} Agent 실행 중... (최대 12분 대기)`);
                 const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+                if (run.upgradeRequired) {
+                  // Codex is too old: no Gemini API fallback and no template - the user is told and decides.
+                  sendDiag('⛔ Codex 업그레이드 필요 — 설치·업그레이드·다른 엔진 전환 없이 멈춥니다.');
+                  return { success: false, error: codexUpgradeRequiredMessage(), upgradeRequired: true };
+                }
                 const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
                 const agentContent = String(result.content || '').trim();
                 if (agentContent && agentContent.length >= 500) {
@@ -11318,26 +11324,12 @@ function parseAgentRunUsage(provider: AgentModeProvider, stdout: string): any {
   }
 }
 
-async function ensureLatestCodexCliForCompatibility(): Promise<{ ok: boolean; output?: string; error?: string }> {
-  try {
-    const install = await installAgentForThisPc('codex');
-    invalidateAgentBinaryCache();
-    invalidateAgentProgramLookups();
-    if ((install.exitCode ?? 1) === 0) {
-      return { ok: true, output: install.output };
-    }
-    return {
-      ok: false,
-      output: install.output,
-      error: `Codex 업그레이드가 실패했습니다. 설치 로그: ${install.output}`,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'Codex 업그레이드 실행 중 오류가 발생했습니다.',
-    };
-  }
-}
+/**
+ * Engines that a run found too old ("requires a newer version of Codex"). Nothing is upgraded because of it:
+ * the run is stopped, the connection screen shows "업그레이드 필요", and only the user's yes in the app
+ * (agent-mode:upgrade-tool) upgrades anything.
+ */
+const agentUpgradeMemo = createAgentUpgradeMemo();
 
 /**
  * v3.8.415 — Agent 모드(Codex/Claude CLI)로 도는 자식 프로세스를 추적하고, 중지 시 실제로 죽인다.
@@ -11383,7 +11375,7 @@ function cancelActiveAgentProcesses(): number {
   return count;
 }
 
-async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessagePath: string, chosenModel?: string): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean }> {
+async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessagePath: string, chosenModel?: string): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean; upgradeRequired?: boolean }> {
   const runOnce = async (model: string | null): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean }> => {
     // Learn (without blocking) whether this Codex build knows --approve-for-me before the command is built.
     if (profile.provider === 'codex' && process.platform === 'win32') await ensureCodexApproveSupport(resolveAgentBinaryCommand('codex'));
@@ -11493,7 +11485,6 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
   const attempts = picked
     ? [picked, ...getCodexModelAttemptOrder().filter((m) => m !== picked)]
     : getCodexModelAttemptOrder();
-  let upgraded = false;
   let lastRun: { exitCode: number | null; stdout: string; stderr: string; timedOut: boolean; canceled?: boolean } = {
     exitCode: null,
     stdout: '',
@@ -11513,24 +11504,23 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
 
     const combined = `${run.stderr || ''}\n${run.stdout || ''}`;
 
+    // Codex says it is too old for this model: stop here. No upgrade, no install, no other model and no other
+    // engine happen behind the user's back - the caller tells the user and the connection screen offers
+    // [업그레이드], which asks first.
+    if (run.exitCode !== 0 && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
+      agentUpgradeMemo.mark('codex', { version: agentBinaryCache?.tools?.codex?.version });
+      console.warn(`[AGENT-MODE] ${model || '(auto)'} 실행에 더 새로운 Codex 가 필요합니다. 설치·업그레이드·모델 전환 없이 멈춥니다(사용자 확인 필요).`);
+      return { ...run, upgradeRequired: true };
+    }
+
+    if (run.exitCode === 0 && !run.timedOut) agentUpgradeMemo.clear('codex');
+
     if (!isCodexModelRetryableError(model, run)) {
       return run;
     }
 
-    if (!upgraded && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
-      console.warn(`[AGENT-MODE] ${model || '(auto)'} 실행에서 Codex 업그레이드가 필요해 보입니다. 업그레이드 후 동일 모델로 재시도합니다.`);
-      const upgrade = await ensureLatestCodexCliForCompatibility();
-      upgraded = true;
-      if (upgrade.ok) {
-        console.info('[AGENT-MODE] Codex 업그레이드 실행 완료. 동일 모델로 재시도합니다.');
-        attemptIndex -= 1;
-        continue;
-      }
-      console.warn('[AGENT-MODE] Codex 업그레이드 실패:', upgrade.error || upgrade.output || 'unknown');
-    }
-
     if (attemptIndex < attempts.length - 1) {
-      console.warn(`[AGENT-MODE] 모델 ${model || '(auto)'} 실행 실패, 업그레이드 필요/호환성 이슈로 대체 모델로 재시도합니다.`);
+      console.warn(`[AGENT-MODE] 모델 ${model || '(auto)'} 실행 실패, 호환성 이슈로 대체 모델로 재시도합니다.`);
     }
   }
 
@@ -11915,7 +11905,7 @@ function buildAgentFailureMessage(profile: AgentProfile, run: { stdout: string; 
     return `Codex 모델이 ChatGPT 구독 계정에서 거절되었습니다. Orbit은 이제 Codex를 ${getCodexAgentModel()}로 실행하도록 수정되었습니다. 앱을 업데이트한 뒤 다시 시도해주세요.`;
   }
   if (profile.provider === 'codex' && CODEX_UPGRADE_REQUIRED_RE.test(combined)) {
-    return 'Codex 모델이 현재 앱/CLI 버전에서 지원되지 않습니다. Orbit에서 기본 모델로 재시도했지만 동일하게 실패했습니다. Codex를 최신 버전으로 업그레이드 후 다시 실행하세요.';
+    return codexUpgradeRequiredMessage();
   }
   // v3.8.84 / v3.8.85: Codex 사용량 한도 안내. 구독 모드에선 API 키 얘기 절대 X.
   //   "Your workspace is out of credits"는 ChatGPT 구독 Codex의 사용량 한도 메시지.
@@ -12345,8 +12335,21 @@ async function portableFetch(url: string, init?: Record<string, unknown>): Promi
 async function installAgentForThisPc(
   provider: AgentModeProvider,
   onProgress?: (progress: CodexInstallProgress) => void,
+  options: { portableOnly?: boolean } = {},
 ): Promise<{ exitCode: number | null; command: string; output: string; timedOut: boolean }> {
-  if (process.platform !== 'win32' || provider === 'claude') return runInlineAgentInstall(provider);
+  if (process.platform !== 'win32' || provider === 'claude') {
+    // An upgrade the user approved is the official download only. Where that is not available the app does not
+    // run npm for them: it says so and the user decides.
+    if (options.portableOnly) {
+      return {
+        exitCode: 1,
+        command: '',
+        output: '이 PC 에서는 앱이 직접 업그레이드할 수 없습니다. 공식 안내에 따라 직접 업그레이드해 주세요. 앱은 npm 으로 바꿔 설치하지 않았습니다.',
+        timedOut: false,
+      };
+    }
+    return runInlineAgentInstall(provider);
+  }
 
   // Gemini CLI 도 같은 방식 — 공식 번들 + 공식 node.exe (electron/gemini-portable.ts)
   const deps = createDefaultPortableDeps(portableFetch);
@@ -12358,6 +12361,16 @@ async function installAgentForThisPc(
       exitCode: 0,
       command: provider === 'gemini' ? GEMINI_PORTABLE_DISPLAY : CODEX_PORTABLE_DISPLAY,
       output: portable.log.join('\n'),
+      timedOut: false,
+    };
+  }
+
+  // Upgrade: stop at a failed download. No npm / winget retry that the user never agreed to.
+  if (options.portableOnly) {
+    return {
+      exitCode: 1,
+      command: provider === 'gemini' ? GEMINI_PORTABLE_DISPLAY : CODEX_PORTABLE_DISPLAY,
+      output: [...portable.log, '', '공식 설치 파일 받기가 끝나지 않았습니다. 다른 방법(npm/winget)으로는 바꿔 설치하지 않았습니다.'].join('\n').trim(),
       timedOut: false,
     };
   }
@@ -12440,6 +12453,8 @@ type AgentBinaryStatus = {
   usable?: boolean;
   /** The --version check did not finish cleanly: nothing is known yet, and nothing may be reinstalled over it. */
   delayed?: boolean;
+  /** A run was stopped because this program is too old (agentUpgradeMemo). Only the user's yes upgrades it. */
+  upgradeRequired?: boolean;
   path?: string;
   version?: string;
   error?: string;
@@ -13280,7 +13295,11 @@ ipcMain.handle('agent-mode:get-status', async () => {
      * (사장님: "제미나이 cli가 배찌에는 연동되고 추가한것같은데 환경설정에는왜없니")
      */
     const providerIds = Object.keys(AGENT_PROVIDERS) as AgentModeProvider[];
-    const tools = await detectAgentBinariesCached(providerIds);
+    const detected = await detectAgentBinariesCached(providerIds);
+    // Copies, so the cached detection is never changed: an engine that was told to upgrade is flagged for the screen.
+    const tools: Record<string, AgentBinaryStatus> = Object.fromEntries(
+      Object.entries(detected).map(([id, tool]) => [id, agentUpgradeMemo.needs(id, tool.version) ? { ...tool, upgradeRequired: true } : tool]),
+    );
 
     return {
       ok: true,
@@ -13609,6 +13628,78 @@ ipcMain.handle('agent-mode:install-tool', async (evt, args: { provider?: string;
   } catch (error) {
     console.error('[AGENT-MODE] 설치 실행 실패:', error);
     return { ok: false, error: error instanceof Error ? error.message : '설치 실행 실패' };
+  }
+});
+
+/**
+ * Upgrade of an engine that a run found too old. Nothing happens without the user's yes (the screen asks in the
+ * app and says so here), and the upgrade is the official download only: when it fails the answer says so and
+ * nothing else is installed (no npm / winget). Only Codex has such an upgrade.
+ */
+ipcMain.handle('agent-mode:upgrade-tool', async (evt, args: { provider?: string; confirmed?: boolean }) => {
+  invalidateAgentBinaryCache();
+  try {
+    const access = await getAgentModeAccessStatus();
+    if (!access.allowed) {
+      return {
+        ok: false,
+        error: access.message,
+        requiredTier: access.requiredTier,
+        requiredName: access.requiredName,
+        currentTier: access.currentTier,
+        currentName: access.currentName,
+      };
+    }
+
+    const provider = normalizeAgentProvider(args?.provider);
+    const label = agentProviderLabel(provider);
+    if (args?.confirmed !== true) {
+      return { ok: false, provider, needsConfirm: true, error: `${label} 업그레이드는 확인을 받은 뒤에만 진행합니다.` };
+    }
+    if (provider !== 'codex') {
+      return { ok: false, provider, error: `${label} 는 앱에서 업그레이드하지 않습니다. 공식 안내에 따라 직접 업그레이드해 주세요.` };
+    }
+
+    const before = await detectAgentBinary(AGENT_PROVIDERS.codex.binary);
+    const install = await installAgentForThisPc('codex', (progress) => {
+      try { if (!evt.sender.isDestroyed()) evt.sender.send('agent-install-progress', { provider, ...progress }); } catch { /* ignore */ }
+    }, { portableOnly: true });
+    invalidateAgentBinaryCache();
+    invalidateAgentProgramLookups();
+    const tool = await detectAgentBinary(AGENT_PROVIDERS.codex.binary);
+    const verdict = judgeCodexUpgrade({
+      exitCode: install.exitCode,
+      timedOut: install.timedOut,
+      versionBefore: before.version,
+      toolAfter: { installed: tool.installed, usable: tool.usable, version: tool.version },
+    });
+    if (!verdict.ok) {
+      return {
+        ok: false,
+        provider,
+        command: install.command,
+        output: install.output,
+        timedOut: install.timedOut,
+        exitCode: install.exitCode,
+        tool,
+        error: verdict.error,
+      };
+    }
+
+    agentUpgradeMemo.clear('codex');
+    return {
+      ok: true,
+      provider,
+      command: install.command,
+      output: install.output,
+      exitCode: install.exitCode,
+      tool,
+      verified: true,
+      message: `${label} 업그레이드가 완료되었습니다.`,
+    };
+  } catch (error) {
+    console.error('[AGENT-MODE] 업그레이드 실행 실패:', error);
+    return { ok: false, error: error instanceof Error ? error.message : '업그레이드 실행 실패' };
   }
 });
 
@@ -14126,6 +14217,8 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         exitCode: run.exitCode,
         timedOut: run.timedOut,
         authRequired,
+        // Stopped because Codex is too old: nothing was upgraded or switched; the screen shows "업그레이드 필요"
+        upgradeRequired: run.upgradeRequired === true,
         error: errorMessage,
         stdout: run.stdout.slice(-12000),
         stderr: run.stderr.slice(-12000),
@@ -17301,6 +17394,8 @@ async function runExternalTrafficAgent(opts: {
 
   // 에이전트 실행
   const run = await runAgentProcess(opts.profile, jobDir, lastMessagePath);
+  // Codex is too old: stop with the plain notice instead of reading an empty result and retrying three times.
+  if (run.upgradeRequired) throw new Error(codexUpgradeRequiredMessage());
 
   // v3.8.272: 출력 파일 우선순위 — output.json → output.txt → article.html → final-message
   let raw = '';
