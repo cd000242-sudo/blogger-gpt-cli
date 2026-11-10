@@ -44,7 +44,7 @@ describe('① 백그라운드 일시정지 — 로드되는 파일에 배선', (
 
 describe('② 장식 애니메이션 — 인사 후 휴식', () => {
   it('타이틀 골드쉬머는 4회만 돌고 쉰다 (상시 무한 금지)', () => {
-    expect(html).toContain('animation: goldShimmer 3s ease-in-out 4;');
+    expect(html).not.toContain('animation: goldShimmer'); // 2026-11-10: removed, its 12 seconds were the startup lag
     expect(html).not.toContain('goldShimmer 3s ease-in-out infinite');
   });
 
