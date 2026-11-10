@@ -10,6 +10,7 @@ import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { generateUltimateMaxModeArticleFinal } from './ultimate-final-functions';
 import { generateUltimateMaxModeArticlePuppeteer } from './ultimate-puppeteer-functions';
+import { tagTextsFromBucket } from './tag-hygiene';
 
 // ============================================
 // 📋 타입 정의
@@ -2226,7 +2227,8 @@ export async function publishGeneratedContent(
             ];
             for (const bucket of buckets) {
               if (!bucket) continue;
-              const arr = Array.isArray(bucket) ? bucket : String(bucket).split(/[,#\n]/g);
+              // v3.8.769: payload.keywords is [{ keyword, title }] - String(item) made the tag "[object Object]"
+              const arr = tagTextsFromBucket(bucket);
               for (const item of arr) {
                 const tag = String(item || '').replace(/^#/, '').trim();
                 if (tag && tag.length >= 2 && tag.length <= 20 && !collected.includes(tag)) collected.push(tag);

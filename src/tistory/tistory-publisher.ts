@@ -1,5 +1,6 @@
 import { loadEnvFromFile } from '../env';
 import { flattenDocumentForPost } from '../core/final/style-preservation';
+import { tagTextsFromBucket } from '../core/tag-hygiene';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -162,9 +163,8 @@ function extractTags(payload: Record<string, any>): string[] {
   const tags: string[] = [];
   for (const candidate of candidates) {
     if (!candidate) continue;
-    const values = Array.isArray(candidate)
-      ? candidate
-      : String(candidate).split(/[,#\n]/g);
+    // v3.8.769: payload.keywords is [{ keyword, title }] - String(value) made the tag "[object Object]"
+    const values = tagTextsFromBucket(candidate);
     for (const value of values) {
       const tag = String(value || '').replace(/^#/, '').trim();
       if (tag && !tags.includes(tag)) tags.push(tag);

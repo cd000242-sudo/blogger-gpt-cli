@@ -32,14 +32,49 @@ const REJECT_PATTERNS: Array<[string, RegExp]> = [
   ['기호만', /^[^\w가-힣]+$/],
   ['조각 접미', /^(최신|비법|방법|정리|총정리|가이드|안내|추천)$/],
   ['불용어', /^(그리고|하지만|이번|오늘|최근|관련|대한|대해|이런|저런|어떤|위한|통해|경우)$/],
+  // v3.8.769: an object that was turned into text upstream ("[object Object]" -> brackets stripped)
+  ['객체 문자열', /^object\s+object$/i],
 ];
+
+/** Name fields tried in order when a tag candidate arrives as an object, e.g. { keyword, title: null }. */
+const TAG_NAME_FIELDS = ['keyword', 'name', 'tag', 'label', 'text', 'title', 'value'] as const;
+
+/**
+ * Text of ONE tag candidate (v3.8.769). Strings and numbers pass through; an object gives its first
+ * non-empty name field; anything else gives ''. It never returns "[object Object]" - String(obj) did,
+ * and that became the tag "object Object" on a published post.
+ */
+export function tagTextOf(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (typeof item === 'number') return String(item);
+  if (item && typeof item === 'object' && !Array.isArray(item)) {
+    const record = item as Record<string, unknown>;
+    for (const field of TAG_NAME_FIELDS) {
+      const value = record[field];
+      if (typeof value === 'string' && value.trim()) return value;
+    }
+  }
+  return '';
+}
+
+/**
+ * Candidate texts from one payload "bucket" (tags / hashtags / keywords ...): an array, a single
+ * object, or a comma/#/newline separated string. Entries without usable text come back as ''.
+ */
+export function tagTextsFromBucket(bucket: unknown): string[] {
+  if (!bucket) return [];
+  const items: unknown[] = Array.isArray(bucket)
+    ? bucket
+    : typeof bucket === 'object' ? [bucket] : String(bucket).split(/[,#\n]/g);
+  return items.map(tagTextOf);
+}
 
 /**
  * 태그 이름 하나를 정규화한다. 태그로 쓸 수 없으면 null.
  * 따옴표·대시·괄호가 가장자리에 붙은 파싱 잔해를 걷어낸다.
  */
 export function normalizeTagName(raw: unknown): string | null {
-  let s = String(raw ?? '')
+  let s = tagTextOf(raw)
     .replace(/[​-‍﻿]/g, '')      // 제로폭 문자
     .replace(/[""''"'`]/g, '')                   // 따옴표 (— "CHATGPT 사고)
     .replace(/[[\]()<>{}]/g, ' ')                // 괄호
