@@ -4143,16 +4143,23 @@ electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
         }
         else {
             const images = regen.findPostImages(previousHtml);
-            send(`[PROGRESS] 5% - 🖼️ ${regen.describeRegenerationPlan('images', images)}`);
-            if (images.length === 0)
-                return { ok: false, error: '이 글에는 다시 만들 이미지가 없습니다.' };
+            /**
+             * v3.8.769 — 이미지가 0장인 글(첫 발행 때 이미지 엔진이 막혔던 글)도 다시 생성이 된다.
+             * 바꿀 <img> 가 없으니 "썸네일 1장 + 소제목마다 1장" 자리를 계획해 새로 끼워 넣는다 —
+             * 편집기의 [이미지 모두 생성]과 같은 범위다. 예전엔 여기서 "다시 만들 이미지가 없습니다"로 끝났다.
+             */
+            const slots = images.length === 0 ? regen.planMissingImageSlots(previousHtml) : [];
+            const targets = images.length > 0 ? images : slots;
+            send(`[PROGRESS] 5% - 🖼️ ${images.length > 0
+                ? regen.describeRegenerationPlan('images', images)
+                : `이 글에는 이미지가 없어 ${targets.length}장(썸네일 1장 + 소제목 ${targets.length - 1}장)을 새로 만들어 넣습니다 (본문 글자는 그대로)`}`);
             const { dispatchH2ImageGeneration } = require('../dist/core/imageDispatcher');
             const { uploadBase64ToImageHost } = require('../dist/core/final/image-helpers');
             const engine = String(args?.payload?.h2ImageSource || args?.payload?.imageSource || envData['IMAGE_SOURCE'] || 'imagefx');
             const replacements = new Map();
-            for (const image of images) {
+            for (const image of targets) {
                 const prompt = regen.buildImagePromptFor(title, image.sectionTitle);
-                send(`[PROGRESS] ${10 + Math.floor((image.index / images.length) * 80)}% - 🖼️ ${image.index + 1}/${images.length} "${prompt.slice(0, 40)}"`);
+                send(`[PROGRESS] ${10 + Math.floor((image.index / targets.length) * 80)}% - 🖼️ ${image.index + 1}/${targets.length} "${prompt.slice(0, 40)}"`);
                 try {
                     const made = await dispatchH2ImageGeneration(engine, prompt, title, send, undefined, { allowFreeTrialPublishing: true });
                     const raw = String(made?.dataUrl || made?.url || '');
@@ -4170,8 +4177,10 @@ electron_1.ipcMain.handle('regenerate-published-post', async (_evt, args) => {
             }
             if (replacements.size === 0)
                 return { ok: false, error: '이미지를 하나도 만들지 못했습니다. 이미지 엔진 로그인을 확인해주세요.' };
-            nextHtml = regen.replaceImageSrcs(previousHtml, replacements);
-            send(`[PROGRESS] 92% - 🖼️ ${replacements.size}/${images.length}장 교체`);
+            nextHtml = images.length > 0
+                ? regen.replaceImageSrcs(previousHtml, replacements)
+                : regen.insertMissingImages(previousHtml, replacements);
+            send(`[PROGRESS] 92% - 🖼️ ${replacements.size}/${targets.length}장 ${images.length > 0 ? '교체' : '새로 넣음'}`);
         }
         const verdict = regen.judgeRegenerated(nextHtml, previousHtml);
         if (!verdict.ok) {
@@ -5858,6 +5867,10 @@ electron_1.ipcMain.handle('save-env', async (_evt, envData) => {
                 }
             }
         });
+        // v3.8.769: 옛 버전이 남긴 소문자 platform 이 PLATFORM 과 어긋난 채 굳지 않게 맞춘다
+        //   (실측: platform=blogger 가 PLATFORM=wordpress 옆에 남아 재시작 때 발행 플랫폼을 되돌렸다)
+        if (envMap.has('platform') && envMap.has('PLATFORM'))
+            envMap.set('platform', envMap.get('PLATFORM'));
         // .env 파일로 저장
         const lines = Array.from(envMap.entries()).map(([key, value]) => `${key}=${value}`);
         fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');
