@@ -7578,6 +7578,8 @@ ipcMain.handle('prepare-publish-content', async (_evt, data) => {
  */
 function handleCancelTask(): { ok: boolean; accepted: boolean } {
   try {
+    // An agent job that has not started its CLI yet (grounding / Genspark wait) has nothing to kill; it asks this epoch instead.
+    try { require('../dist/core/agent-cancel-epoch').bumpAgentCancelEpoch(); } catch { /* the cancel below still runs */ }
     const { requestCancel } = require('../dist/core/cancel-token');
     const tokenAccepted = requestCancel();
     const killedAgents = cancelActiveAgentProcesses();
@@ -13699,6 +13701,15 @@ ipcMain.handle('agent-mode:start-login', async (_evt, args: { id?: string; provi
 });
 
 ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
+  // True once a stop arrived after this job began. Checked during the long pre-CLI steps and right before the CLI starts.
+  let agentCanceled: () => boolean = () => false;
+  try { agentCanceled = require('../dist/core/agent-cancel-epoch').snapshotAgentCancel(); } catch { /* best effort */ }
+  // The queue screen only listens to log-line, so tell it what the silent pre-CLI minutes are (it showed 0% for 10 minutes).
+  const tellRenderer = (line: string): void => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('log-line', line);
+    }
+  };
   try {
     const access = await getAgentModeAccessStatus();
     if (!access.allowed) {
@@ -13842,7 +13853,11 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
         if ((request?.payload as any)?.gensparkResearch === true) {
           try {
             const { collectGensparkEvidence, describeGensparkEvidence, renderGensparkEvidenceBlock } = require('../dist/core/genspark/genspark-research');
-            const gs = await collectGensparkEvidence(agentKeyword, { onLog: (m: string) => console.log(`[AGENT-GROUNDING] ${m}`) });
+            tellRenderer('[PROGRESS] 🔎 젠스파크 정밀 리서치 중 — 최대 10분까지 걸릴 수 있고, 끝나야 에이전트가 글을 쓰기 시작합니다. 중지하면 바로 멈춥니다.');
+            const gs = await collectGensparkEvidence(agentKeyword, {
+              onLog: (m: string) => { console.log(`[AGENT-GROUNDING] ${m}`); tellRenderer(`[PROGRESS] ${m}`); },
+              isCanceled: agentCanceled,
+            });
             const block = renderGensparkEvidenceBlock(gs.items, 9000);
             if (block) agentEvidence = [block, agentEvidence].filter(Boolean).join('\n\n');
             console.log(`[AGENT-GROUNDING] 🔎 ${describeGensparkEvidence(gs)}`);
@@ -13876,6 +13891,13 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
       }
     } catch (groundErr: any) {
       console.warn('[AGENT-GROUNDING] 준비 스킵:', String(groundErr?.message || groundErr).slice(0, 120));
+    }
+
+    // A stop that arrived during grounding / Genspark must stop here. Without this the CLI started anyway
+    // (2026-11-10: claude.exe launched 3 minutes after the queue said "중지됨") and its article was published.
+    if (agentCanceled()) {
+      console.log('[AGENT] 🛑 준비 단계에서 중지 요청을 받아 에이전트를 시작하지 않습니다.');
+      return { ok: false, canceled: true, jobId, jobDir, error: '작업을 중지했습니다.' };
     }
 
     writeAgentJobFiles(jobDir, request || {}, profile);

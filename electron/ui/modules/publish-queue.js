@@ -11,7 +11,9 @@
 //   - publishQueue 항목은 scheduledPosts와 같은 스키마로 변환
 
 // v3.8.549: 예약 시간 [📅 달력 열기] + 시/분 드롭다운 — 단일 발행과 같은 도구를 쓴다
-import { enhanceAllScheduleInputs } from './schedule-picker.js';
+// 2026-11-10: explicit final status + stop reason + wait for an earlier job (publish-queue-outcome.js).
+// Both imports stay on ONE line: several source-reading tests strip the first single-line import by regex.
+import { enhanceAllScheduleInputs } from './schedule-picker.js'; import { describeItemError, describeStopReason, queueStatusLabel, summarizeQueueOutcome, waitForPreviousRunToFinish } from './publish-queue-outcome.js';
 
 const STATE = {
   keywords: [],     // [{ id, keyword, mode, ctaMode, manualCta, thumb, enabled }]
@@ -78,12 +80,20 @@ function updateQueueStopUi(stopping = isQueueStopRequested()) {
 
 function resetQueueStopRequest() {
   setQueueStopRequested(false);
+  try { window.__publishQueueStopInfo = null; } catch {}
   updateQueueStopUi(false);
 }
 
-function requestQueueStop() {
+/** @param {string} [source] 'stop-button' | 'mini-bar-button' | 'api' — recorded so the summary can say who stopped it */
+function requestQueueStop(source) {
   const running = !!(window.__queueRunning || window.__queueProgressActive);
   if (!running) return false;
+  try {
+    // Keep the first request: a second click must not rewrite who stopped the queue.
+    if (!window.__publishQueueStopInfo) {
+      window.__publishQueueStopInfo = { source: typeof source === 'string' ? source : 'api', at: Date.now() };
+    }
+  } catch {}
   setQueueStopRequested(true);
   updateQueueStopUi(true);
   try { window.electronAPI?.cancelTask?.(); } catch {}
@@ -2633,7 +2643,7 @@ function ensureQueueMiniBar() {
   mini.addEventListener('mouseout', () => { mini.style.transform = 'translateY(0)'; });
   mini.querySelector('#pqMiniStopBtn')?.addEventListener('click', (event) => {
     event.stopPropagation();
-    requestQueueStop();
+    requestQueueStop('mini-bar-button');
   });
   mini.addEventListener('click', () => {
     const m = document.getElementById('pqRunModal');
@@ -2658,13 +2668,16 @@ function updateQueueMiniBar({ pct, label, detail, status }) {
   if (pctEl && typeof pct === 'number') pctEl.textContent = pct + '%';
   if (labelEl && label) labelEl.textContent = label;
   if (detailEl && detail !== undefined) detailEl.textContent = detail;
-  if (stopBtn) stopBtn.style.display = (status === 'success' || status === 'error') ? 'none' : 'inline-flex';
+  if (stopBtn) stopBtn.style.display = (status === 'success' || status === 'error' || status === 'stopped') ? 'none' : 'inline-flex';
   if (status === 'success') {
     mini.style.borderColor = 'rgba(34,197,94,0.6)';
     if (pctEl) pctEl.style.color = '#34d399';
   } else if (status === 'error') {
     mini.style.borderColor = 'rgba(239,68,68,0.6)';
     if (pctEl) pctEl.style.color = '#f87171';
+  } else if (status === 'stopped') {
+    mini.style.borderColor = 'rgba(148,163,184,0.6)';
+    if (pctEl) pctEl.style.color = '#cbd5e1';
   } else {
     mini.style.borderColor = 'rgba(99,102,241,0.55)';
     if (pctEl) pctEl.style.color = '#fbbf24';
@@ -2825,7 +2838,7 @@ function createQueueRunModal(items, intervalLabel) {
     // v3.8.140: 미니바도 같이 갱신 (모달이 숨겨져 있을 때만 의미 있음)
     updateQueueMiniBar({
       pct,
-      label: finished ? (lastStatus === 'error' ? '⚠️ 일부 실패' : '✅ 발행 완료') : '연속발행 진행 중…',
+      label: finished ? queueStatusLabel(lastStatus) : '연속발행 진행 중…',
       detail: displayLabel,
       status: lastStatus,
     });
@@ -2971,7 +2984,7 @@ function createQueueRunModal(items, intervalLabel) {
     if (e.target?.id === 'pqrImageLightbox') closeImageLightbox();
   });
   document.getElementById('pqrStopBtn')?.addEventListener('click', () => {
-    const accepted = requestQueueStop();
+    const accepted = requestQueueStop('stop-button');
     if (accepted) {
       log('\uc0ac\uc6a9\uc790\uac00 \uc5f0\uc18d\ubc1c\ud589 \uc911\uc9c0\ub97c \uc694\uccad\ud588\uc2b5\ub2c8\ub2e4.');
       updateOverall(0, '\uc911\uc9c0 \uc694\uccad\ub428 - \ud604\uc7ac \uc791\uc5c5 \uc815\ub9ac \uc911');
@@ -3069,20 +3082,29 @@ function createQueueRunModal(items, intervalLabel) {
       setItemStatus(index, 'stopped', message);
       updateOverall(0, '\uc911\uc9c0\ub428');
     },
-    finish(message) {
-      completed = items.length;
+    /**
+     * @param {string} message
+     * @param {'success'|'error'|'stopped'} [status] decided from the counts by the caller. Without it the old
+     *   word test is the fallback (preflight failure messages), but the queue loop always passes it: "실패 0개"
+     *   in a stopped summary used to turn the label into "일부 실패".
+     */
+    finish(message, status) {
+      const stoppedRun = status === 'stopped';
+      // A stopped run keeps its real progress (완료 0 · 남은 4 must not read 100%).
+      if (!stoppedRun) completed = items.length;
       finished = true;
-      // 실패가 메시지에 포함되면 error 상태로
-      lastStatus = /실패/.test(message || '') ? 'error' : 'success';
-      updateOverall(100, message || '전체 완료');
+      lastStatus = status || (/실패/.test(message || '') ? 'error' : 'success');
+      updateOverall(stoppedRun ? 0 : 100, message || '전체 완료');
       log(message || '전체 완료');
       // v3.8.140: 완료 후 미니바도 완료 상태로 표시 (사용자가 클릭해서 결과 확인 가능)
-      updateQueueMiniBar({
-        pct: 100,
-        label: lastStatus === 'error' ? '⚠️ 일부 실패' : '✅ 발행 완료',
-        detail: message || '전체 완료',
-        status: lastStatus,
-      });
+      if (!stoppedRun) {
+        updateQueueMiniBar({
+          pct: 100,
+          label: queueStatusLabel(lastStatus),
+          detail: message || '전체 완료',
+          status: lastStatus,
+        });
+      }
     },
     cleanup,
   };
@@ -3756,6 +3778,7 @@ function bindModalEvents() {
     // v3.8.382: 이전 실행에서 남은 인증 만료 플래그 초기화 (재로그인 후 재시작이 막히지 않도록)
     try { window.__agentAuthRevoked = false; } catch { /* noop */ }
     resetQueueStopRequest();
+    const queueStartedAt = Date.now();
     window.__queueRunning = true;
     window.__queueProgressActive = true;
     updateQueueStopUi(false);
@@ -3799,6 +3822,23 @@ function bindModalEvents() {
           break;
         }
         const it = enabled[i];
+        // An earlier job (e.g. one stopped a moment ago whose agent run is still winding down) holds the posting
+        // lock. Starting now would fail instantly with already_running and then wait a whole interval for nothing.
+        const earlier = await waitForPreviousRunToFinish({
+          isLocked: () => !!window.__runPostingInFlight,
+          isStopped: isQueueStopRequested,
+          now: Date.now,
+          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+          maxMs: 15 * 60 * 1000,
+          onWait: (ms) => runModal.log(`앞 작업이 아직 끝나지 않아 기다립니다 (${Math.round(ms / 1000)}초째) — 끝나면 ${i + 1}번을 시작합니다`),
+        });
+        if (earlier.state === 'stopped') {
+          runModal.log('중지 요청으로 앞 작업을 기다리다 멈춥니다.');
+          break;
+        }
+        if (earlier.state === 'timeout') {
+          runModal.log('앞 작업이 15분 안에 끝나지 않았습니다 — 그래도 시작해 보고, 막히면 사유를 적습니다.');
+        }
         // v3.8.546: 간격은 "끝난 뒤 더 기다리는 시간"이 아니라 "시작과 시작 사이의 최소 간격"이다.
         //   그래서 항목이 시작한 시각을 재둔다 (아래 대기 계산에서 쓴다).
         const itemStartedAt = Date.now();
@@ -3924,7 +3964,7 @@ function bindModalEvents() {
             failedIds.add(it.id);
             const errorText = result.error || result.result?.error || result.detail?.result?.error || 'publish_failed';
             runModal.markFailed(i, '실패');
-            runModal.log(`${i + 1}번 실패 (${elapsedSec}초): ${errorText}`);
+            runModal.log(`${i + 1}번 실패 (${elapsedSec}초): ${describeItemError(errorText)}`);
           } else {
             completedIds.add(it.id);
             // v3.8.378: 항목 단위 즉시 영속화 — 10개 중 8개 발행 후 크래시하면 완료된 8개가
@@ -4037,11 +4077,15 @@ function bindModalEvents() {
       const stopped = isQueueStopRequested();
       const successCount = completedIds.size;
       const remainingCount = Math.max(0, enabled.length - successCount - failedIds.size);
-      runModal.finish(stopped
-        ? `중지됨: 완료 ${successCount}개 · 실패 ${failedIds.size}개 · 남은 ${remainingCount}개`
-        : failedIds.size > 0
-        ? `처리 완료: 성공 ${successCount}개 · 실패 ${failedIds.size}개`
-        : `전체 ${enabled.length}개 순차발행 완료`);
+      const outcome = summarizeQueueOutcome({
+        stopped,
+        stopReason: stopped ? describeStopReason(window.__publishQueueStopInfo, queueStartedAt) : '',
+        successCount,
+        failedCount: failedIds.size,
+        remainingCount,
+        total: enabled.length,
+      });
+      runModal.finish(outcome.message, outcome.status);
     } finally {
       window.__queueRunning = false;
       window.__queueProgressActive = false;
