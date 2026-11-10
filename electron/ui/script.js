@@ -10556,6 +10556,25 @@ try {
   }, 500);
 } catch {}
 
+/**
+ * v3.8.769 - .env values are merged over the saved settings at startup (credentials follow the .env),
+ * but the PLATFORM is the exception: the user's saved choice wins.
+ *
+ * Why: the .env can hold a stale lowercase `platform=blogger` (written by an old version) next to the
+ * current `PLATFORM=wordpress`. Spreading the raw map replaced the saved "wordpress" with "blogger" and
+ * wrote it back to localStorage on every launch (field report 2026-11-10: 3 restarts, 3 reverts).
+ * Without a saved choice, the canonical PLATFORM key decides, then the legacy lowercase one.
+ */
+function mergeEnvOverSavedSettings(saved, env) {
+  const merged = { ...(saved || {}), ...(env || {}) };
+  const savedPlatform = saved && saved.platform;
+  const envPlatform = env && (env.PLATFORM || env.platform);
+  if (savedPlatform) merged.platform = savedPlatform;
+  else if (envPlatform) merged.platform = envPlatform;
+  else delete merged.platform;
+  return merged;
+}
+
 document.addEventListener('DOMContentLoaded', async function () {
   // 이벤트 매니저 초기화
   EventManager.init();
@@ -10731,7 +10750,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         console.log('[ENV] .env 파일에서 API 키 로드 성공');
         // localStorage 설정과 병합 (env가 우선) 🔥 async: await 필수
         const savedSettings = await loadSettings();
-        const mergedSettings = { ...savedSettings, ...envResult.data };
+        const mergedSettings = mergeEnvOverSavedSettings(savedSettings, envResult.data);
         localStorage.setItem('bloggerSettings', JSON.stringify(mergedSettings));
         console.log('[ENV] API 키가 자동으로 로드되었습니다');
       }

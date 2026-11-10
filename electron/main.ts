@@ -6223,6 +6223,10 @@ ipcMain.handle('save-env', async (_evt, envData: Record<string, string>) => {
       }
     });
 
+    // v3.8.769: 옛 버전이 남긴 소문자 platform 이 PLATFORM 과 어긋난 채 굳지 않게 맞춘다
+    //   (실측: platform=blogger 가 PLATFORM=wordpress 옆에 남아 재시작 때 발행 플랫폼을 되돌렸다)
+    if (envMap.has('platform') && envMap.has('PLATFORM')) envMap.set('platform', envMap.get('PLATFORM') as string);
+
     // .env 파일로 저장
     const lines = Array.from(envMap.entries()).map(([key, value]) => `${key}=${value}`);
     fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');

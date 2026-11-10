@@ -89,7 +89,8 @@ function resolvePlatformValue(saved = {}, env = {}, fallback = 'wordpress') {
   const savedRaw = pickSettingValue(saved, ['platform', 'PLATFORM', 'blogPlatform', 'BLOG_PLATFORM']);
   if (savedRaw) return normalizePlatformValue(savedRaw, fallback);
 
-  const envRaw = pickSettingValue(env, ['platform', 'PLATFORM', 'blogPlatform', 'BLOG_PLATFORM']);
+  // v3.8.769: .env keeps a stale lowercase `platform` from old versions - the canonical PLATFORM goes first
+  const envRaw = pickSettingValue(env, ['PLATFORM', 'platform', 'blogPlatform', 'BLOG_PLATFORM']);
   if (envRaw) return normalizePlatformValue(envRaw, fallback);
 
   if (hasBloggerSettings(saved) || hasBloggerSettings(env)) return 'blogger';
