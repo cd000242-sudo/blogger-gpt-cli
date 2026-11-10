@@ -128,7 +128,9 @@ describe('②③④ 이미지 다시 생성 · 이미지별 다시 생성 · 엔
     const regen = read('src/core/final/post-regenerate.ts');
     expect(regen).toContain('export function findPostImages');
     expect(main).toContain('const images = regen.findPostImages(previousHtml)');
-    expect(main).toContain('for (const image of images)');
+    // v3.8.769: 이미지가 0장인 글은 새로 넣을 자리(slots)를 돌고, 있으면 기존처럼 찾은 이미지 전부를 돈다
+    expect(main).toContain('images.length > 0 ? images : slots');
+    expect(main).toContain('for (const image of targets)');
     // 버튼 설명이 "모두" 라고 말해야 한다 — 한 장만 바뀌는 줄 알면 헷갈린다
     expect(editor).toContain('id="veGenerateAllImagesBtn"');
     expect(editor).toContain('id="veImageScope"');
