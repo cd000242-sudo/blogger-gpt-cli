@@ -103,6 +103,87 @@ export function replaceImageSrcs(html: string, replacements: Map<number, string>
   });
 }
 
+/** A place where a brand-new image goes into a post that has none (v3.8.769). */
+export interface MissingImageSlot {
+  /** 0 = thumbnail, 1.. = one per heading, in document order */
+  index: number;
+  kind: 'thumbnail' | 'section';
+  /** Heading text the image belongs to ('' for the thumbnail) */
+  sectionTitle: string;
+}
+
+const HEADING_H2 = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi;
+const HEADING_H3 = /<h3\b[^>]*>([\s\S]*?)<\/h3>/gi;
+
+interface HeadingMatch { end: number; title: string }
+
+/** Headings with real text. H2 first; H3 only when the post has no usable H2 (same rule as the editor plan). */
+function findHeadings(html: string): HeadingMatch[] {
+  const scan = (pattern: RegExp): HeadingMatch[] => {
+    const out: HeadingMatch[] = [];
+    pattern.lastIndex = 0;
+    for (let m = pattern.exec(html); m; m = pattern.exec(html)) {
+      const title = htmlToText(m[1] || '');
+      if (title) out.push({ end: m.index + m[0].length, title });
+    }
+    return out;
+  };
+  const h2 = scan(HEADING_H2);
+  return h2.length > 0 ? h2 : scan(HEADING_H3);
+}
+
+/**
+ * Slots for a post with zero images: one thumbnail plus one image per heading.
+ * Mirrors the editor's "generate all images" plan so both buttons agree on what "all" means.
+ */
+export function planMissingImageSlots(html: string): MissingImageSlot[] {
+  const slots: MissingImageSlot[] = [{ index: 0, kind: 'thumbnail', sectionTitle: '' }];
+  findHeadings(String(html || '')).forEach((heading, i) => {
+    slots.push({ index: i + 1, kind: 'section', sectionTitle: heading.title });
+  });
+  return slots;
+}
+
+const escapeAttr = (value: string): string => String(value || '')
+  .replace(/&/g, '&amp;')
+  .replace(/"/g, '&quot;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;');
+
+function imageBlock(url: string, role: 'thumbnail' | 'section', alt: string): string {
+  return `<div class="separator" style="clear:both;text-align:center;margin:18px 0;">`
+    + `<img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" data-orbit-image-role="${role}" `
+    + `style="max-width:100%;height:auto;border-radius:12px;"></div>`;
+}
+
+/** Where the thumbnail goes: right after the article/body opening tag, else the very start. */
+function thumbnailPosition(html: string): number {
+  const open = /<article\b[^>]*>/i.exec(html) || /<body\b[^>]*>/i.exec(html);
+  return open ? open.index + open[0].length : 0;
+}
+
+/**
+ * Put newly made images into a post that had none. Text is never touched - only blocks are added.
+ * A slot whose image failed (no entry in `urls`) is skipped, so a partial result still helps.
+ */
+export function insertMissingImages(html: string, urls: Map<number, string>): string {
+  const source = String(html || '');
+  const headings = findHeadings(source);
+  const inserts: Array<{ at: number; block: string }> = [];
+
+  const thumb = urls.get(0);
+  if (thumb) inserts.push({ at: thumbnailPosition(source), block: imageBlock(thumb, 'thumbnail', '대표 이미지') });
+  headings.forEach((heading, i) => {
+    const url = urls.get(i + 1);
+    if (url) inserts.push({ at: heading.end, block: imageBlock(url, 'section', heading.title) });
+  });
+
+  // Insert from the back so earlier offsets stay valid.
+  return inserts
+    .sort((a, b) => b.at - a.at)
+    .reduce((acc, item) => acc.slice(0, item.at) + item.block + acc.slice(item.at), source);
+}
+
 /**
  * 이 이미지가 무엇을 그려야 하는가.
  * 소제목이 있으면 그것이 가장 좋은 단서이고, 없으면 글 제목으로 돌아간다.
