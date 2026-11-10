@@ -3,6 +3,7 @@ import { getAppState, addLog, sanitizeHTML, getTextLength, getStorageManager, ge
 import { createPreviewPayload, sameUserRequest } from './posting.js';
 import { displayPreviewInModal } from './preview.js';
 import { agentStatusSignature, classifyAgentConnect, describeAgentConnect } from './agent-connect-state.js';
+import { agentSelectLabel, findProfileByIdOrAlias } from './agent-connect-state.js';
 import { runAgentConnect } from './agent-connect-flow.js';
 import { askAppConfirm } from './app-confirm-modal.js';
 
@@ -382,7 +383,8 @@ function getAgentProfilesByProvider(provider) {
 function getProfileById(provider, profileId) {
   const normalizedProvider = normalizeAgentProviderId(provider);
   if (!profileId) return null;
-  return getAgentProfilesByProvider(normalizedProvider).find((profile) => profile.id === profileId) || null;
+  // v3.8.768: an id main folded into another profile of the same account finds the listed one
+  return findProfileByIdOrAlias(getAgentProfilesByProvider(normalizedProvider), profileId);
 }
 
 function getActiveAgentProfile(provider) {
@@ -944,13 +946,10 @@ function getProviderLoginLabel(provider, profile = getProviderProfile(provider))
   return '로그인 필요';
 }
 
-// v3.8.274: select option용 간단 라벨 (이메일만 — 사용자 헷갈림 방지)
+// v3.8.768: dropdown entry text, named after the real account e-mail ("이 PC 로그인 · me@gmail.com").
+// Main builds the name; an older reply without it falls back to the e-mail, then to the stored label.
 function buildAgentSelectLabel(profile) {
-  if (!profile) return '';
-  const id = profile.loginIdentity;
-  if (id && id.email) return id.email;
-  // 이메일 없으면 fallback
-  return profile.label || profile.id || profile.provider || '';
+  return agentSelectLabel(profile);
 }
 
 function getLocalAgentHistory(provider) {

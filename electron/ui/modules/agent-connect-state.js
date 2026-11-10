@@ -29,6 +29,9 @@ export function agentStatusSignature(status) {
     profile.authRejected ? 1 : 0,
     profile.label || '',
     profile.loginIdentity && profile.loginIdentity.email ? profile.loginIdentity.email : '',
+    // v3.8.768: the account name main builds and the duplicates it folded away are both drawn by the dropdown
+    profile.displayLabel || '',
+    Array.isArray(profile.mergedProfileIds) ? profile.mergedProfileIds.join(',') : '',
   ].join(':'));
   return JSON.stringify([
     status.ok ? 1 : 0,
@@ -40,6 +43,32 @@ export function agentStatusSignature(status) {
     toolPart,
     profilePart,
   ]);
+}
+
+// ---- account dropdown (v3.8.768) -----------------------------------------------------------------------------
+
+/**
+ * Text of one dropdown entry. Main builds displayLabel from the real account e-mail ("이 PC 로그인 · me@gmail.com").
+ * Older payloads without it fall back to the e-mail, then to the stored label.
+ */
+export function agentSelectLabel(profile) {
+  if (!profile) return '';
+  if (profile.displayLabel) return profile.displayLabel;
+  const identity = profile.loginIdentity;
+  if (identity && identity.email) return identity.email;
+  return profile.label || profile.id || profile.provider || '';
+}
+
+/**
+ * Finds a listed profile by id. An id that main folded into another profile of the same account (mergedProfileIds)
+ * finds the profile that is still listed, so a remembered choice follows the account instead of vanishing.
+ * Only looks; it never stores a preference.
+ */
+export function findProfileByIdOrAlias(profiles, id) {
+  if (!id || !Array.isArray(profiles)) return null;
+  const direct = profiles.find((profile) => profile && profile.id === id);
+  if (direct) return direct;
+  return profiles.find((profile) => profile && Array.isArray(profile.mergedProfileIds) && profile.mergedProfileIds.includes(id)) || null;
 }
 
 // ---- one engine = one status line + one button -------------------------------------------------------------

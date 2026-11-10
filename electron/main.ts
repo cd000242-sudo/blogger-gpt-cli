@@ -52,6 +52,8 @@ import {
   type VerifiedLoginMemo,
 } from './agent-login-verdict';
 import { codexUpgradeRequiredMessage, createAgentUpgradeMemo, judgeCodexUpgrade } from './agent-upgrade';
+import { agentAccountEmailFiles, createAccountEmailReader } from './agent-account-identity';
+import { attachAgentAccounts } from './agent-account-list';
 // Install before lazy browser imports capture child_process launch functions.
 installWindowsBrowserProcessGuard();
 /**
@@ -9951,6 +9953,36 @@ function toAgentProfileView(profile: AgentProfile) {
   };
 }
 
+/** Which account sits behind each profile: read asynchronously, remembered until that login file changes. Only the e-mail is kept. */
+const agentAccountEmails = createAccountEmailReader();
+
+/**
+ * v3.8.768: the profile list the screen draws.
+ *
+ * The dropdown showed only "Claude Code 구독 계정" for every Claude profile, so nobody could tell the accounts apart.
+ * Every profile gets its real account e-mail (Claude: .claude.json oauthAccount, Codex: auth.json id_token),
+ * a displayLabel built from it, and profiles of the same account are folded into one entry
+ * (mergedProfileIds names the hidden ones). Nothing is deleted and the preferred account is only READ here.
+ */
+async function buildAgentProfileViews(profiles: AgentProfile[]) {
+  const env = {
+    homeDir: app.getPath('home'),
+    claudeConfigDir: process.env['CLAUDE_CONFIG_DIR'],
+    codexHome: process.env['CODEX_HOME'],
+  };
+  const views = profiles.map(toAgentProfileView);
+  const preferredIds = await readPreferredAgentProfileIdsAsync();
+  return attachAgentAccounts(views, {
+    readEmail: (view) => agentAccountEmails.read({
+      key: view.id,
+      provider: view.provider,
+      files: agentAccountEmailFiles(view, env),
+    }),
+    providerLabel: (provider) => agentProviderLabel(provider as AgentModeProvider),
+    preferredIds,
+  });
+}
+
 function isIgnoredAgentAuthPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/').toLowerCase();
   return normalized.includes('/playwright-login/')
@@ -10082,6 +10114,16 @@ function getPreferredAgentProfilePath(): string {
 function readPreferredAgentProfileIds(): Record<string, string> {
   try {
     const parsed = JSON.parse(fs.readFileSync(getPreferredAgentProfilePath(), 'utf-8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Same file as above, read without blocking (the profile list is built on every status query). */
+async function readPreferredAgentProfileIdsAsync(): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await fs.promises.readFile(getPreferredAgentProfilePath(), 'utf-8'));
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
@@ -13197,7 +13239,7 @@ ipcMain.handle('agent-mode:get-status', async () => {
       ok: true,
       ...access,
       tools,
-      profiles: refreshAgentProfileStatuses().map(toAgentProfileView),
+      profiles: await buildAgentProfileViews(refreshAgentProfileStatuses()),
     };
   } catch (error) {
     console.error('[AGENT-MODE] 상태 조회 실패:', error);
@@ -13222,7 +13264,7 @@ ipcMain.handle('agent-mode:select-profile', async (_evt, args: { id?: string; pr
 
 ipcMain.handle('agent-mode:list-profiles', async () => {
   try {
-    return { ok: true, profiles: refreshAgentProfileStatuses().map(toAgentProfileView) };
+    return { ok: true, profiles: await buildAgentProfileViews(refreshAgentProfileStatuses()) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Agent 계정 목록 조회 실패', profiles: [] };
   }
@@ -13253,7 +13295,7 @@ ipcMain.handle('agent-mode:create-profile', async (_evt, args: { provider?: stri
         return {
           ok: true,
           profile: toAgentProfileView(refreshedExisting.find((item) => item.id === existing.id) || existing),
-          profiles: refreshedExisting.map(toAgentProfileView),
+          profiles: await buildAgentProfileViews(refreshedExisting),
         };
       }
     }
@@ -13283,7 +13325,7 @@ ipcMain.handle('agent-mode:create-profile', async (_evt, args: { provider?: stri
     return {
       ok: true,
       profile: toAgentProfileView(refreshedProfiles.find((item) => item.id === profile.id) || profile),
-      profiles: refreshedProfiles.map(toAgentProfileView),
+      profiles: await buildAgentProfileViews(refreshedProfiles),
     };
   } catch (error) {
     console.error('[AGENT-MODE] 프로필 생성 실패:', error);
@@ -13367,7 +13409,7 @@ ipcMain.handle('agent-mode:import-system-login', async (_evt, args: { provider?:
         ? `이 PC 의 ${agentProviderLabel(provider)} 로그인을 그대로 쓰도록 연결했습니다. 바로 쓸 수 있습니다.`
         : `이 PC 로그인으로 연결했지만 확인에 실패했습니다 — ${verification.message}`,
       profile: toAgentProfileView(finalProfile),
-      profiles: refreshed.map(toAgentProfileView),
+      profiles: await buildAgentProfileViews(refreshed),
     };
   } catch (error) {
     console.error('[AGENT-MODE] 시스템 로그인 가져오기 실패:', error);
@@ -13416,7 +13458,7 @@ ipcMain.handle('agent-mode:check-login', async (_evt, args: { id?: string; provi
         error: verification.ready ? '' : verification.message,
         exitCode: verification.exitCode,
         profile: toAgentProfileView(refreshedProfile),
-        profiles: refreshedProfiles.map(toAgentProfileView),
+        profiles: await buildAgentProfileViews(refreshedProfiles),
         stdout: verification.stdout,
         stderr: verification.stderr,
       };
@@ -13430,7 +13472,7 @@ ipcMain.handle('agent-mode:check-login', async (_evt, args: { id?: string; provi
         ? '저장된 로그인 세션 파일이 감지되었습니다. 실제 실행 확인은 세션 확인 버튼으로 진행합니다.'
         : '로그인 세션 파일을 찾지 못했습니다.',
       profile: profile ? toAgentProfileView(profile) : null,
-      profiles: profiles.map(toAgentProfileView),
+      profiles: await buildAgentProfileViews(profiles),
     };
   } catch (error) {
     return {

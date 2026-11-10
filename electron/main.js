@@ -48,6 +48,8 @@ const agent_profile_state_1 = require("./agent-profile-state");
 const agent_probe_cache_1 = require("./agent-probe-cache");
 const agent_login_verdict_1 = require("./agent-login-verdict");
 const agent_upgrade_1 = require("./agent-upgrade");
+const agent_account_identity_1 = require("./agent-account-identity");
+const agent_account_list_1 = require("./agent-account-list");
 // Install before lazy browser imports capture child_process launch functions.
 (0, windows_browser_process_1.installWindowsBrowserProcessGuard)();
 let _puppeteer = null;
@@ -9415,6 +9417,34 @@ function toAgentProfileView(profile) {
         loginIdentity,
     };
 }
+/** Which account sits behind each profile: read asynchronously, remembered until that login file changes. Only the e-mail is kept. */
+const agentAccountEmails = (0, agent_account_identity_1.createAccountEmailReader)();
+/**
+ * v3.8.768: the profile list the screen draws.
+ *
+ * The dropdown showed only "Claude Code 구독 계정" for every Claude profile, so nobody could tell the accounts apart.
+ * Every profile gets its real account e-mail (Claude: .claude.json oauthAccount, Codex: auth.json id_token),
+ * a displayLabel built from it, and profiles of the same account are folded into one entry
+ * (mergedProfileIds names the hidden ones). Nothing is deleted and the preferred account is only READ here.
+ */
+async function buildAgentProfileViews(profiles) {
+    const env = {
+        homeDir: electron_1.app.getPath('home'),
+        claudeConfigDir: process.env['CLAUDE_CONFIG_DIR'],
+        codexHome: process.env['CODEX_HOME'],
+    };
+    const views = profiles.map(toAgentProfileView);
+    const preferredIds = await readPreferredAgentProfileIdsAsync();
+    return (0, agent_account_list_1.attachAgentAccounts)(views, {
+        readEmail: (view) => agentAccountEmails.read({
+            key: view.id,
+            provider: view.provider,
+            files: (0, agent_account_identity_1.agentAccountEmailFiles)(view, env),
+        }),
+        providerLabel: (provider) => agentProviderLabel(provider),
+        preferredIds,
+    });
+}
 function isIgnoredAgentAuthPath(filePath) {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase();
     return normalized.includes('/playwright-login/')
@@ -9556,6 +9586,16 @@ function getPreferredAgentProfilePath() {
 function readPreferredAgentProfileIds() {
     try {
         const parsed = JSON.parse(fs.readFileSync(getPreferredAgentProfilePath(), 'utf-8'));
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    }
+    catch {
+        return {};
+    }
+}
+/** Same file as above, read without blocking (the profile list is built on every status query). */
+async function readPreferredAgentProfileIdsAsync() {
+    try {
+        const parsed = JSON.parse(await fs.promises.readFile(getPreferredAgentProfilePath(), 'utf-8'));
         return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     }
     catch {
@@ -12541,7 +12581,7 @@ electron_1.ipcMain.handle('agent-mode:get-status', async () => {
             ok: true,
             ...access,
             tools,
-            profiles: refreshAgentProfileStatuses().map(toAgentProfileView),
+            profiles: await buildAgentProfileViews(refreshAgentProfileStatuses()),
         };
     }
     catch (error) {
@@ -12567,7 +12607,7 @@ electron_1.ipcMain.handle('agent-mode:select-profile', async (_evt, args) => {
 });
 electron_1.ipcMain.handle('agent-mode:list-profiles', async () => {
     try {
-        return { ok: true, profiles: refreshAgentProfileStatuses().map(toAgentProfileView) };
+        return { ok: true, profiles: await buildAgentProfileViews(refreshAgentProfileStatuses()) };
     }
     catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : 'Agent 계정 목록 조회 실패', profiles: [] };
@@ -12597,7 +12637,7 @@ electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
                 return {
                     ok: true,
                     profile: toAgentProfileView(refreshedExisting.find((item) => item.id === existing.id) || existing),
-                    profiles: refreshedExisting.map(toAgentProfileView),
+                    profiles: await buildAgentProfileViews(refreshedExisting),
                 };
             }
         }
@@ -12625,7 +12665,7 @@ electron_1.ipcMain.handle('agent-mode:create-profile', async (_evt, args) => {
         return {
             ok: true,
             profile: toAgentProfileView(refreshedProfiles.find((item) => item.id === profile.id) || profile),
-            profiles: refreshedProfiles.map(toAgentProfileView),
+            profiles: await buildAgentProfileViews(refreshedProfiles),
         };
     }
     catch (error) {
@@ -12705,7 +12745,7 @@ electron_1.ipcMain.handle('agent-mode:import-system-login', async (_evt, args) =
                 ? `이 PC 의 ${agentProviderLabel(provider)} 로그인을 그대로 쓰도록 연결했습니다. 바로 쓸 수 있습니다.`
                 : `이 PC 로그인으로 연결했지만 확인에 실패했습니다 — ${verification.message}`,
             profile: toAgentProfileView(finalProfile),
-            profiles: refreshed.map(toAgentProfileView),
+            profiles: await buildAgentProfileViews(refreshed),
         };
     }
     catch (error) {
@@ -12754,7 +12794,7 @@ electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
                 error: verification.ready ? '' : verification.message,
                 exitCode: verification.exitCode,
                 profile: toAgentProfileView(refreshedProfile),
-                profiles: refreshedProfiles.map(toAgentProfileView),
+                profiles: await buildAgentProfileViews(refreshedProfiles),
                 stdout: verification.stdout,
                 stderr: verification.stderr,
             };
@@ -12767,7 +12807,7 @@ electron_1.ipcMain.handle('agent-mode:check-login', async (_evt, args) => {
                 ? '저장된 로그인 세션 파일이 감지되었습니다. 실제 실행 확인은 세션 확인 버튼으로 진행합니다.'
                 : '로그인 세션 파일을 찾지 못했습니다.',
             profile: profile ? toAgentProfileView(profile) : null,
-            profiles: profiles.map(toAgentProfileView),
+            profiles: await buildAgentProfileViews(profiles),
         };
     }
     catch (error) {
