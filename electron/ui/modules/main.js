@@ -878,6 +878,12 @@ async function initializeApp() {
       debugLog('MAIN', '소제목 이미지 엔진 복원 완료');
     }
 
+    // 6-1-b. v3.8.769: 썸네일 엔진도 같은 방식으로 복원한다 (재시작하면 nanobanana2 로 돌아가던 문제)
+    if (typeof window.restoreThumbnailType === 'function') {
+      window.restoreThumbnailType();
+      debugLog('MAIN', '썸네일 이미지 엔진 복원 완료');
+    }
+
     /**
      * 6-2. v3.8.548 — 지난번에 고른 **발행 플랫폼**을 라디오에 복원한다.
      *

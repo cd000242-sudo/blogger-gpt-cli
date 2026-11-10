@@ -1506,8 +1506,41 @@ function handleH2ImageSourceChange() {
   });
 }
 
+/**
+ * v3.8.769 — 고른 썸네일 엔진을 기억한다 (소제목 엔진의 v3.8.411 과 같은 방식).
+ *
+ * 사장님 실측(2026-11-10): 재시작할 때마다 썸네일 엔진이 gptimage2 → nanobanana2 로 돌아갔다(3회).
+ * 소제목 엔진은 기억하는데 썸네일 엔진에는 저장이 아예 없었고, 시작할 때 "저장값이 없으면
+ * nanobanana2" 로 도장을 찍어 둔 것이 loadSettings() 를 통해 매번 select 에 다시 들어갔다.
+ */
+const THUMB_ENGINE_KEY = 'leadernamThumbnailType';
+
+function rememberThumbnailType(value) {
+  try {
+    if (value) localStorage.setItem(THUMB_ENGINE_KEY, String(value));
+  } catch { /* 저장 실패가 발행을 막지 않는다 */ }
+}
+
+/** 시작할 때 지난번 선택으로 되돌린다. 저장이 없거나 그 항목이 사라졌으면 HTML 기본값(Codex)을 둔다. */
+function restoreThumbnailType() {
+  try {
+    const saved = localStorage.getItem(THUMB_ENGINE_KEY);
+    if (!saved) return;
+    const sel = document.getElementById('thumbnailType');
+    if (!sel) return;
+    const opt = Array.from(sel.options).find((o) => o.value === saved);
+    if (!opt || opt.disabled) return;
+    sel.value = saved;
+    handleThumbnailTypeChange(saved);
+    console.log('📸 [THUMBNAIL] 지난 선택 복원:', saved);
+  } catch { /* 복원 실패해도 기본값으로 계속 쓸 수 있다 */ }
+}
+window.restoreThumbnailType = restoreThumbnailType;
+
 // v3.5.88 — thumbnailType select 변경 시 GPT 이미지 인증 안내 + quality 라디오 토글
 function handleThumbnailTypeChange(value) {
+  // 이미지 배치 동기화가 강제로 'none' 으로 바꾼 값은 사용자의 선택이 아니다
+  if (!window.__syncingImagePlacementMode) rememberThumbnailType(value);
   const notice = document.getElementById('thumbnailVerifyNotice');
   if (notice) {
     notice.style.display = /^gptimage/.test(value || '') ? 'block' : 'none';
@@ -6756,6 +6789,9 @@ async function loadSettings() {
     }
   });
 
+  // v3.8.769: 위 반복문이 저장된 폼 값을 되돌려 넣은 뒤, 사용자가 마지막에 고른 썸네일 엔진을 다시 적용한다
+  restoreThumbnailType();
+
   // v3.8.548: 여기도 같은 규칙 — Blogger 연동 값이 있으면 blogger, 없으면 wordpress
   if (!settings.platform) {
     const hasBloggerCreds = !!(settings.blogId || settings.bloggerId
@@ -10681,21 +10717,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   }
 
 
-  // 🔧 StorageManager 사용 (저장된 값이 없을 때만 기본값 나노바나나 2 설정)
-  try {
-    const storage = getStorageManager();
-    const settings = await storage.get('bloggerSettings', true) || {};
-
-    // 기본값 보장: 사용자가 이전에 저장한 값이 있으면 존중, 없으면 나노바나나 2
-    if (!settings.thumbnailType || settings.thumbnailType === 'text') {
-      settings.thumbnailType = 'nanobanana2';
-    }
-
-    await storage.set('bloggerSettings', settings, true);
-    console.log('[INIT] localStorage 썸네일 기본값 보장 완료:', settings.thumbnailType);
-  } catch (e) {
-    console.error('[INIT] localStorage 저장 실패:', e);
-  }
+  // v3.8.769: 여기서 "저장값이 없으면 nanobanana2" 를 bloggerSettings 에 도장으로 찍던 코드를 걷어냈다.
+  //   그 도장이 loadSettings() 를 통해 매 시작마다 썸네일 select 를 덮어 사용자가 고른 엔진과
+  //   새 설치 기본값(Codex 구독 이미지, v3.8.766)을 둘 다 지웠다. 저장은 rememberThumbnailType 이 한다.
 
 
   // 콘텐츠 모드 변경 시 소제목 개수 자동 설정
