@@ -2,6 +2,7 @@ import { ipcMain, app, globalShortcut, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { installWindowsBrowserProcessGuard } from './windows-browser-process';
+import { createBackupAsync } from './snapshot-service';
 import { installPuppeteerBrowserPath } from './browser-paths';
 // v3.8.756: 퍼피티어를 처음 불러오기 전에 PC 의 Chrome·Edge 경로를 정한다(전용 크롬은 고객 PC 에 없다)
 installPuppeteerBrowserPath();
@@ -9397,121 +9398,12 @@ ipcMain.handle('save-notification-settings', async (_evt, settings) => {
 // 백업/복원
 ipcMain.handle('create-backup', async () => {
   try {
-    const userDataPath = app.getPath('userData');
-    const backupDir = path.join(userDataPath, 'backups');
-
-    // 백업 디렉토리 생성
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
-
-    // 타임스탬프 생성 (YYYYMMDD_HHMMSS 형식)
-    const now = new Date();
-    const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-    const backupPath = path.join(backupDir, `backup_${timestamp}`);
-
-    // 백업 디렉토리 생성
-    fs.mkdirSync(backupPath, { recursive: true });
-
-    // 백업할 파일/디렉토리 목록
-    const backupItems: Array<{ source: string; target: string }> = [];
-
-    // 1. .env 파일
-    const envPath = path.join(userDataPath, '.env');
-    if (fs.existsSync(envPath)) {
-      backupItems.push({
-        source: envPath,
-        target: path.join(backupPath, '.env')
-      });
-    }
-
-    // 2. src/core 디렉토리 (핵심 로직)
-    const srcCorePath = path.join(process.cwd(), 'src', 'core');
-    if (fs.existsSync(srcCorePath)) {
-      backupItems.push({
-        source: srcCorePath,
-        target: path.join(backupPath, 'src_core')
-      });
-    }
-
-    // 3. electron/ui 디렉토리 (UI 파일)
-    const electronUiPath = path.join(process.cwd(), 'electron', 'ui');
-    if (fs.existsSync(electronUiPath)) {
-      backupItems.push({
-        source: electronUiPath,
-        target: path.join(backupPath, 'electron_ui')
-      });
-    }
-
-    // 4. localStorage 백업 (설정 파일)
-    const localStorageBackup = {
-      bloggerSettings: null as any,
-      timestamp: new Date().toISOString()
-    };
-
-    // 파일 복사 함수
-    const copyRecursive = (src: string, dest: string) => {
-      const stat = fs.statSync(src);
-      if (stat.isDirectory()) {
-        if (!fs.existsSync(dest)) {
-          fs.mkdirSync(dest, { recursive: true });
-        }
-        const files = fs.readdirSync(src);
-        files.forEach(file => {
-          copyRecursive(path.join(src, file), path.join(dest, file));
-        });
-      } else {
-        fs.copyFileSync(src, dest);
-      }
-    };
-
-    // 백업 실행
-    for (const item of backupItems) {
-      try {
-        if (fs.existsSync(item.source)) {
-          copyRecursive(item.source, item.target);
-          console.log(`[BACKUP] ✅ 백업 완료: ${item.source} -> ${item.target}`);
-        }
-      } catch (err) {
-        console.error(`[BACKUP] ⚠️ 백업 실패: ${item.source}`, err);
-      }
-    }
-
-    // localStorage 백업 정보 저장
-    const backupInfo = {
-      timestamp: new Date().toISOString(),
-      items: backupItems.map(item => ({ source: item.source, target: item.target })),
-      version: app.getVersion()
-    };
-    fs.writeFileSync(
-      path.join(backupPath, 'backup_info.json'),
-      JSON.stringify(backupInfo, null, 2),
-      'utf-8'
-    );
-
-    // 오래된 백업 정리 (30일 이상 된 백업 삭제)
-    try {
-      const files = fs.readdirSync(backupDir);
-      const nowTime = Date.now();
-      const maxAge = 30 * 24 * 60 * 60 * 1000; // 30일
-
-      for (const file of files) {
-        const filePath = path.join(backupDir, file);
-        const stat = fs.statSync(filePath);
-        if (stat.isDirectory() && file.startsWith('backup_')) {
-          const age = nowTime - stat.mtimeMs;
-          if (age > maxAge) {
-            fs.rmSync(filePath, { recursive: true, force: true });
-            console.log(`[BACKUP] 🗑️ 오래된 백업 삭제: ${file}`);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[BACKUP] 오래된 백업 정리 실패:', err);
-    }
-
-    console.log(`[BACKUP] ✅ 백업 생성 완료: ${backupPath}`);
-    return { ok: true, path: backupPath, success: true, backupPath };
+    // The copy runs on the async fs API (electron/snapshot-service.ts) so the main process keeps answering IPC.
+    return await createBackupAsync({
+      userDataPath: app.getPath('userData'),
+      sourceRoot: process.cwd(),
+      version: app.getVersion(),
+    });
   } catch (error) {
     console.error('[BACKUP] 백업 생성 실패:', error);
     return { ok: false, error: error instanceof Error ? error.message : '백업 실패' };
