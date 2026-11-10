@@ -3,8 +3,9 @@
  * 일반 경로(orchestration)와 에이전트 경로(main.ts)가 **이 함수 하나**를 쓴다.
  * 어떤 실패도 던지지 않는다 — 젠스파크가 안 되면 빈 근거로 돌아가고 발행은 기존 네이버 경로로 이어진다.
  */
-import { runGensparkDeepResearch, type GensparkRunResult } from './genspark-client';
+import { runGensparkDeepResearch, type GensparkRunResult, type GensparkTimings } from './genspark-client';
 import { gensparkDrafts } from './genspark-evidence';
+import { appendGensparkTimingLog } from './genspark-timing-log';
 import { judgeEvidence, type EvidenceItem, type RejectedEvidence } from '../final/evidence';
 
 export type GensparkEvidenceItem = Omit<EvidenceItem, 'id'>;
@@ -17,6 +18,7 @@ export interface GensparkEvidenceResult {
   items: GensparkEvidenceItem[];
   rejected: RejectedEvidence[];
   error?: string;
+  timings?: GensparkTimings;
 }
 
 export async function collectGensparkEvidence(
@@ -47,7 +49,7 @@ export async function collectGensparkEvidence(
     if (verdict.item) items.push({ ...verdict.item, mainKeyword: keyword });
     else if (verdict.rejected) rejected.push(verdict.rejected);
   }
-  return {
+  const evidence: GensparkEvidenceResult = {
     ok: result.ok,
     projectId: result.projectId || '',
     elapsedMs: result.elapsedMs,
@@ -55,7 +57,26 @@ export async function collectGensparkEvidence(
     items,
     rejected,
     ...(result.error ? { error: result.error } : {}),
+    ...(result.timings ? { timings: result.timings } : {}),
   };
+  if (result.timings) {
+    options.onLog?.(describeGensparkTimings(result.timings));
+    // Only real runs are recorded; a test double must not write into the user's folder.
+    if (!options.run) {
+      appendGensparkTimingLog({
+        ok: evidence.ok, pages: evidence.pages, items: items.length, rejected: rejected.length, elapsedMs: evidence.elapsedMs,
+        ...(result.error ? { error: String(result.error).split(':')[0]!.slice(0, 40) } : {}),
+        timings: result.timings,
+      });
+    }
+  }
+  return evidence;
+}
+
+/** 단계별 걸린 시간 한 줄 — 느릴 때 어디서 걸렸는지 보려는 용도 */
+export function describeGensparkTimings(t: GensparkTimings): string {
+  const s = (ms: number): string => `${(ms / 1000).toFixed(1)}초`;
+  return `⏱️ 젠스파크 단계별: 줄서기 ${s(t.queueMs)} · 브라우저 ${s(t.openMs)} · 화면·로그인 ${s(t.loadMs)} · 전송 ${s(t.sendMs)} · 조사 대기 ${s(t.waitMs)}(확인 ${t.polls}회) · 닫기 ${s(t.closeMs)}`;
 }
 
 /** 진행 화면에 띄울 한 줄 */

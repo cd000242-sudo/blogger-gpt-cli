@@ -1612,7 +1612,7 @@ export async function generateUltimateMaxModeArticleFinal(
       evidenceCandidates.push(...gs.items);
       evidenceRejected.push(...gs.rejected);
       onLog?.(`[PROGRESS] 22% - 🔎 ${describeGensparkEvidence(gs)}`);
-      trace.event('grounding.genspark', { ok: gs.ok, projectId: gs.projectId, elapsedMs: gs.elapsedMs, pages: gs.pages, passed: gs.items.length, rejected: gs.rejected.length, error: gs.error || null });
+      trace.event('grounding.genspark', { ok: gs.ok, projectId: gs.projectId, elapsedMs: gs.elapsedMs, pages: gs.pages, passed: gs.items.length, rejected: gs.rejected.length, error: gs.error || null, timings: gs.timings || null });
     }
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires

@@ -181,42 +181,87 @@ async function checkLoginOnce(onLog?: Log): Promise<{ loggedIn: boolean; email: 
   }
 }
 
+/** Where the wall-clock time of one run went (ms). Measured, not estimated. */
+export interface GensparkTimings {
+  /** waiting in the exclusive queue behind other Genspark work */
+  queueMs: number;
+  /** start of the run -> browser profile open */
+  openMs: number;
+  /** open page + login check */
+  loadMs: number;
+  /** type the prompt + send + wait for the job id */
+  sendMs: number;
+  /** job id -> research finished (Genspark server time + our polling) */
+  waitMs: number;
+  /** closing the browser */
+  closeMs: number;
+  /** number of /api/project polls */
+  polls: number;
+}
+
 export interface GensparkRunResult {
   ok: boolean;
   projectId?: string;
   research?: GensparkResearch;
   elapsedMs: number;
   error?: string;
+  timings?: GensparkTimings;
+}
+
+/** Local recorder for one run; turned into GensparkTimings once at the end. */
+interface PhaseMarks { start: number; opened?: number; loaded?: number; idReady?: number; closing?: number; polls: number }
+
+function phaseTimings(marks: PhaseMarks, queueMs: number, end: number): GensparkTimings {
+  const stop = marks.closing ?? end;
+  const span = (from: number | undefined, to: number | undefined): number => (from === undefined ? 0 : Math.max(0, (to ?? stop) - from));
+  return {
+    queueMs,
+    openMs: span(marks.start, marks.opened),
+    loadMs: span(marks.opened, marks.loaded),
+    sendMs: span(marks.loaded, marks.idReady),
+    waitMs: span(marks.idReady, undefined),
+    closeMs: Math.max(0, end - stop),
+    polls: marks.polls,
+  };
 }
 
 /** 딥 리서치 1회 — 한 번에 하나씩. 끝나지 않아도 그때까지 읽은 페이지는 돌려준다(finished=false) */
 export function runGensparkDeepResearch(keyword: string, options: { onLog?: Log; timeoutMs?: number; isCanceled?: () => boolean } = {}): Promise<GensparkRunResult> {
-  return runGensparkExclusive(() => runOnce(keyword, options));
+  const queuedAt = Date.now();
+  return runGensparkExclusive(async () => {
+    const marks: PhaseMarks = { start: Date.now(), polls: 0 };
+    const result = await runOnce(keyword, options, marks);
+    return { ...result, timings: phaseTimings(marks, marks.start - queuedAt, Date.now()) };
+  });
 }
 
-async function runOnce(keyword: string, options: { onLog?: Log; timeoutMs?: number; isCanceled?: () => boolean }): Promise<GensparkRunResult> {
-  const startedAt = Date.now();
+async function runOnce(keyword: string, options: { onLog?: Log; timeoutMs?: number; isCanceled?: () => boolean }, marks: PhaseMarks): Promise<GensparkRunResult> {
+  const startedAt = marks.start;
   const prompt = buildGensparkPrompt(keyword);
   if (!prompt) return { ok: false, elapsedMs: 0, error: '키워드가 비었습니다' };
   const log = options.onLog;
   let context: any = null;
   try {
     const opened = await openGensparkHeadless(log);
+    marks.opened = Date.now();
     context = opened.context;
     const page = opened.page;
     await page.goto(DEEP_RESEARCH_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
     const login = readLoginResponse((await fetchJsonInPage(page, '/api/is_login')).json);
+    marks.loaded = Date.now();
     if (!login.loggedIn) return { ok: false, elapsedMs: Date.now() - startedAt, error: 'GENSPARK_LOGIN_REQUIRED: 설정에서 젠스파크 로그인을 먼저 해 주세요.' };
     await page.locator(PROMPT_SELECTOR).first().fill(prompt, { timeout: 20_000 });
     await page.locator(SEND_SELECTOR).first().click({ timeout: 10_000 });
     log?.('🔎 젠스파크 딥 리서치 시작 — 보통 2~3분 걸립니다');
 
+    // Condition wait: the job id shows up in the URL a moment after the click, so look every 200 ms (was a fixed 1 s sleep).
     let projectId = '';
-    for (let i = 0; i < 60 && !projectId; i += 1) {
-      await page.waitForTimeout(1000);
+    for (let i = 0; i < 300 && !projectId; i += 1) {
+      await page.waitForTimeout(200);
       projectId = projectIdFromUrl(page.url());
     }
     if (!projectId) return { ok: false, elapsedMs: Date.now() - startedAt, error: '젠스파크가 작업 번호를 주지 않았습니다(전송 실패)' };
+    marks.idReady = Date.now();
 
     const deadline = startedAt + (options.timeoutMs ?? 8 * 60_000);
     let research: GensparkResearch | undefined;
@@ -224,7 +269,10 @@ async function runOnce(keyword: string, options: { onLog?: Log; timeoutMs?: numb
     while (Date.now() < deadline) {
       if (options.isCanceled?.()) return { ok: false, projectId, elapsedMs: Date.now() - startedAt, error: 'CANCELED_BY_USER', ...(research ? { research } : {}) };
       await page.waitForTimeout(5000);
+      marks.polls += 1;
       const { status, json } = await fetchJsonInPage(page, `/api/project?id=${projectId}`);
+      // A lost session never recovers by waiting: stop now and keep what was already read (the image path already does this).
+      if (status === 401 || status === 403) return { ok: false, projectId, elapsedMs: Date.now() - startedAt, error: 'GENSPARK_SESSION_EXPIRED: 젠스파크 로그인이 풀렸습니다. 설정에서 젠스파크 로그인을 다시 해 주세요.', ...(research ? { research } : {}) };
       if (status !== 200 || !json) continue;
       research = parseGensparkProject(json);
       if (research.pages.length !== lastPages) {
@@ -238,6 +286,7 @@ async function runOnce(keyword: string, options: { onLog?: Log; timeoutMs?: numb
   } catch (error: any) {
     return { ok: false, elapsedMs: Date.now() - startedAt, error: String(error?.message || error).slice(0, 200) };
   } finally {
+    marks.closing = Date.now();
     await context?.close().catch(() => {});
   }
 }
