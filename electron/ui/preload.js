@@ -123,6 +123,7 @@ const api = {
     createAgentProfile: (args) => electron_1.ipcRenderer.invoke('agent-mode:create-profile', args),
     getAgentLoginCommand: (args) => electron_1.ipcRenderer.invoke('agent-mode:get-login-command', args),
     installAgentTool: (args) => electron_1.ipcRenderer.invoke('agent-mode:install-tool', args),
+    upgradeAgentTool: (args) => electron_1.ipcRenderer.invoke('agent-mode:upgrade-tool', args),
     // v3.8.755: Codex 내려받기 진행률(설치 창에 % 표시)
     onAgentInstallProgress: ((listener) => {
         const handler = (_e, payload) => { try {
@@ -134,6 +135,8 @@ const api = {
     }),
     startAgentLogin: (args) => electron_1.ipcRenderer.invoke('agent-mode:start-login', args),
     checkAgentLogin: (args) => electron_1.ipcRenderer.invoke('agent-mode:check-login', args),
+    selectAgentProfile: (args) => electron_1.ipcRenderer.invoke('agent-mode:select-profile', args),
+    verifyAgentAnswer: (args) => electron_1.ipcRenderer.invoke('agent-mode:verify-answer', args),
     runAgentJob: (args) => electron_1.ipcRenderer.invoke('agent-mode:run-job', args),
     onLicenseUpdated: (listener) => {
         const handler = (_e, d) => { try {
