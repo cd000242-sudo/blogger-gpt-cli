@@ -133,21 +133,32 @@ export function visibleUserAgent(userAgent: string): string {
   return String(userAgent || '').replace(/HeadlessChrome\//g, 'Chrome/');
 }
 
-/** 화면 없이 젠스파크 로그인 폴더를 연다 — 반드시 runGensparkExclusive 안에서 부를 것 */
-export async function openGensparkHeadless(onLog?: Log): Promise<{ context: any; page: any }> {
+/**
+ * v3.8.771 — how the Genspark browser is started. Measured 2026-11-11: a headless browser (even with "Headless" taken out
+ * of its name) gets "서버가 과부하 상태입니다" for every image request, while the same login folder in an ordinary window
+ * gets its image in about 30 s. So image generation uses an ordinary window parked off-screen; the login check and the
+ * research keep the headless start that still works for them.
+ */
+export function gensparkLaunchOptions(exe: string, visibleOffscreen: boolean) {
+  const common = ['--no-first-run', '--disable-blink-features=AutomationControlled', '--lang=ko-KR,ko'];
+  return {
+    executablePath: exe,
+    headless: !visibleOffscreen,
+    args: visibleOffscreen ? [...common, '--window-position=-32000,-32000', '--window-size=1280,900'] : [...common, '--disable-gpu'],
+    ignoreDefaultArgs: ['--enable-automation'],
+    viewport: { width: 1280, height: 900 },
+    locale: 'ko-KR',
+  };
+}
+
+/** 젠스파크 로그인 폴더를 연다(기본은 화면 없이) — 반드시 runGensparkExclusive 안에서 부를 것 */
+export async function openGensparkHeadless(onLog?: Log, options: { visibleOffscreen?: boolean } = {}): Promise<{ context: any; page: any }> {
   const exe = gensparkBrowserPath();
   if (!exe) throw new Error('GENSPARK_NO_BROWSER: 크롬이나 엣지를 찾지 못했습니다.');
   const { chromium } = (await import('playwright')) as any;
   let context: any;
   try {
-    context = await chromium.launchPersistentContext(gensparkProfileDir(), {
-      executablePath: exe,
-      headless: true,
-      args: ['--no-first-run', '--disable-blink-features=AutomationControlled', '--lang=ko-KR,ko', '--disable-gpu'],
-      ignoreDefaultArgs: ['--enable-automation'],
-      viewport: { width: 1280, height: 900 },
-      locale: 'ko-KR',
-    });
+    context = await chromium.launchPersistentContext(gensparkProfileDir(), gensparkLaunchOptions(exe, options.visibleOffscreen === true));
   } catch (error: any) {
     onLog?.(`⚠️ 젠스파크 브라우저를 열지 못했습니다: ${String(error?.message || error).slice(0, 120)}`);
     throw new Error('GENSPARK_PROFILE_BUSY: 젠스파크 로그인 창이 열려 있으면 닫고 다시 시도해 주세요.');
