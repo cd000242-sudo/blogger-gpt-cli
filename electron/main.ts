@@ -423,7 +423,7 @@ function buildSpiderCtaButtonStyle(theme: SpiderEyeComfortPalette, large = false
     `background:linear-gradient(135deg,${theme.ctaButtonStart} 0%,${theme.ctaButtonEnd} 100%) !important`,
     'color:#ffffff !important',
     'text-decoration:none !important',
-    `font-size:${large ? '16px' : '15px'} !important`,
+    'font-size:17px !important',
     'font-weight:800 !important',
     `border-radius:${large ? '12px' : '10px'} !important`,
     `box-shadow:0 ${large ? '6px 16px' : '4px 14px'} ${theme.ctaShadow} !important`,
@@ -495,95 +495,57 @@ function applySpiderEyeComfortColors(html: string, theme: SpiderEyeComfortPalett
 }
 
 /**
- * v3.7.22: 거미줄 통합글 폴백 헬퍼 — LLM 실패 시에도 cornerstone 구조 유지.
- *   도입 카드 + 요약표 + 원본별 카드 + 강력한 CTA 박스 + 종합 거미줄 그리드를 생성한다.
+ * One Agent CLI run for the spider post (instructions.md -> result/article.html).
+ * The caller decides what a failure means. Nothing here hands the job to another engine or to a template.
+ * stage 'engine' = the Agent could not be started (no profile / no access / Codex too old),
+ * stage 'generate' = it ran but gave back no usable text.
  */
-function buildSpiderWebFallbackHtml(
-  title: string,
-  sortedContents: Array<{ url: string; title: string; content: string; order: number }>
-): string {
-  const escapeHtml = (s: string) =>
-    String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
-  const theme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
+type SpiderAgentJobResult =
+  | { ok: true; content: string; title: string }
+  | { ok: false; error: string; stage: 'engine' | 'generate'; upgradeRequired?: boolean };
 
-  const sectionsHtml = sortedContents.map((item, index) => {
-    const safeTitle = escapeHtml(item.title || '제목 없음');
-    const safeUrl = escapeHtml(item.url || '#');
-    const excerpt = escapeHtml((item.content || '').substring(0, 1200).trim()) + '…';
-    return `
-<h2 style="font-size:22px;font-weight:800;color:${theme.heading};margin:48px 0 18px;padding:14px 20px;background:${theme.primarySoft};border-left:5px solid ${theme.primary};border-radius:0 10px 10px 0;line-height:1.4;">
-  ${index + 1}. ${safeTitle}
-</h2>
-<p style="font-size:16px;line-height:1.85;color:${theme.text};margin:0 0 20px;">${excerpt}</p>
-<div class="cta-box" style="${buildSpiderCtaBoxStyle(theme)}">
-  <p style="margin:0 0 10px;font-size:16px;font-weight:700;color:${theme.heading};">💡 ${safeTitle}에 대한 디테일이 더 궁금하다면?</p>
-  <p style="margin:0 0 16px;font-size:14px;color:${theme.ctaNote};line-height:1.7;">원본 글에는 위 본문에 다 담지 못한 실전 사례·수치·체크리스트가 정리돼 있어요.</p>
-  <a href="${safeUrl}" target="_blank" rel="noopener" style="${buildSpiderCtaButtonStyle(theme)}">📖 ${safeTitle} 자세히 보기 →</a>
-</div>`;
-  }).join('\n');
-
-  const tableRowsHtml = sortedContents.map((item, idx) => `
-      <tr style="background:${idx % 2 === 0 ? theme.surface : theme.surfaceAlt};">
-        <td style="padding:14px 18px;border-bottom:1px solid ${theme.borderSoft};font-weight:700;color:${theme.heading};width:30%;">${idx + 1}. ${escapeHtml((item.title || '').substring(0, 30))}</td>
-        <td style="padding:14px 18px;border-bottom:1px solid ${theme.borderSoft};color:${theme.muted};line-height:1.6;">${escapeHtml((item.content || '').substring(0, 120))}…</td>
-      </tr>`).join('');
-
-  const gridHtml = sortedContents.map((item) => {
-    const safeTitle = escapeHtml(item.title || '제목 없음');
-    const safeUrl = escapeHtml(item.url || '#');
-    const short = escapeHtml((item.content || '').substring(0, 80)) + '…';
-    return `
-      <a href="${safeUrl}" target="_blank" rel="noopener" style="display:block;padding:18px 20px;background:${theme.surface};border-radius:12px;border:1px solid ${theme.borderSoft};text-decoration:none;color:${theme.text};box-shadow:0 2px 8px rgba(0,0,0,0.04);transition:all 0.2s ease;">
-        <div style="font-size:15px;font-weight:800;color:${theme.heading};margin-bottom:6px;line-height:1.4;">${safeTitle}</div>
-        <div style="font-size:12px;color:${theme.muted};line-height:1.5;">${short}</div>
-        <div style="font-size:12px;color:${theme.primary};font-weight:700;margin-top:10px;">자세히 보기 →</div>
-      </a>`;
-  }).join('');
-
-  return `
-<div class="sw-cornerstone" style="max-width:760px;margin:0 auto;padding:0 16px;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:${theme.text};line-height:1.8;">
-
-  <h1 style="font-size:30px;font-weight:900;color:${theme.heading};line-height:1.3;margin:24px 0 14px;letter-spacing:-0.02em;">
-    ${escapeHtml(title)}
-  </h1>
-
-  <div style="background:linear-gradient(135deg,${theme.gradientStart},${theme.gradientEnd});border-radius:14px;padding:24px 28px;margin:24px 0;border-left:5px solid ${theme.primary};">
-    <p style="margin:0 0 14px;font-size:16px;font-weight:700;color:${theme.heading};line-height:1.6;">📌 이 가이드는 ${currentYear}년 ${currentMonth}월 기준으로 ${sortedContents.length}개의 핵심 정보를 한 편으로 정리한 종합 가이드입니다.</p>
-    <ul style="margin:0;padding-left:22px;color:${theme.text};font-size:15px;line-height:1.8;">
-      ${sortedContents.map((s, i) => `<li><strong>${i + 1}.</strong> ${escapeHtml((s.title || '').substring(0, 50))}</li>`).join('')}
-    </ul>
-  </div>
-
-  <table style="width:100%;border-collapse:collapse;margin:32px 0;background:${theme.surface};box-shadow:0 4px 16px rgba(0,0,0,0.08);border-radius:12px;overflow:hidden;">
-    <thead>
-      <tr style="background:linear-gradient(135deg,${theme.primary},${theme.ctaButtonEnd});color:#fff;">
-        <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">항목</th>
-        <th style="padding:14px 18px;text-align:left;font-size:14px;font-weight:800;">핵심 요약</th>
-      </tr>
-    </thead>
-    <tbody>${tableRowsHtml}</tbody>
-  </table>
-
-  ${sectionsHtml}
-
-  <h2 style="font-size:22px;font-weight:800;color:${theme.heading};margin:48px 0 18px;padding:14px 20px;background:${theme.primarySoft};border-left:5px solid ${theme.primary};border-radius:0 10px 10px 0;">
-    🔗 한눈에 보는 거미줄 — 관련 글 모음
-  </h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin:24px 0;">
-    ${gridHtml}
-  </div>
-
-  <p style="font-size:16px;font-weight:700;color:${theme.text};margin:32px 0 24px;padding:20px 24px;background:${theme.primarySoft};border-left:4px solid ${theme.primary};border-radius:0 10px 10px 0;line-height:1.7;">
-    💡 위 ${sortedContents.length}편을 차례로 읽으면 ${escapeHtml(title.substring(0, 50))}에 대해 가장 빠르게 핵심을 잡을 수 있습니다.
-  </p>
-
-  <p style="font-size:12px;color:${theme.muted};line-height:1.6;margin-top:32px;padding-top:16px;border-top:1px solid ${theme.borderSoft};">
-    ※ 본 글은 정보 제공 목적으로 작성되었으며, 실제 적용 시 ${currentYear}년 ${currentMonth}월 기준 최신 정보를 공식 사이트에서 재확인하시기 바랍니다.
-  </p>
-
-</div>`;
+async function runSpiderAgentJob(opts: {
+  provider: AgentModeProvider;
+  instructions: string;
+  jobTitle: string;
+  summary: { title: string; urls: string[]; postsCount: number };
+  sendDiag: (message: string) => void;
+}): Promise<SpiderAgentJobResult> {
+  const spider = loadCoreModule('spider');
+  const label = agentProviderLabel(opts.provider);
+  const profile = findAgentProfile(undefined, opts.provider);
+  if (!profile) {
+    return { ok: false, stage: 'engine', error: `${label} 연결 정보를 찾지 못했습니다. 설정에서 ${label}를 먼저 연결해 주세요.` };
+  }
+  const access = await getAgentModeAccessStatus();
+  if (!access.allowed) {
+    return { ok: false, stage: 'engine', error: access.message || `${label} 에이전트 모드를 사용할 수 없는 상태입니다.` };
+  }
+  const jobId = createAgentJobId(profile.provider, opts.jobTitle);
+  const jobDir = path.join(ensureAgentJobsRoot(), jobId);
+  fs.mkdirSync(jobDir, { recursive: true });
+  fs.writeFileSync(path.join(jobDir, 'instructions.md'), opts.instructions, 'utf-8');
+  fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify(opts.summary, null, 2), 'utf-8');
+  fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
+  const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
+  opts.sendDiag(`🤖 ${profile.provider} Agent 실행 중... (최대 ${Math.round(AGENT_JOB_TIMEOUT_MS / 60000)}분 대기)`);
+  const run = await runAgentProcess(profile, jobDir, lastMessagePath);
+  if (run.upgradeRequired) {
+    opts.sendDiag('⛔ Codex 업그레이드 필요 — 설치·업그레이드·다른 엔진 전환 없이 멈춥니다.');
+    return { ok: false, stage: 'engine', error: codexUpgradeRequiredMessage(), upgradeRequired: true };
+  }
+  const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
+  // A stopped or timed-out run is a failure whatever article.html looks like (it may be half-written)
+  const verdict = spider.judgeSpiderAgentRun(
+    { canceled: !!run.canceled, timedOut: !!run.timedOut },
+    result.content,
+    { providerLabel: label, timeoutMinutes: Math.round(AGENT_JOB_TIMEOUT_MS / 60000) },
+  );
+  if (!verdict.ok) {
+    opts.sendDiag(`⚠️ Agent 결과를 쓰지 않습니다 (${verdict.reason}) — ${verdict.error}`);
+    return { ok: false, stage: 'generate', error: verdict.error };
+  }
+  return { ok: true, content: verdict.content, title: String(result.title || '').trim() };
 }
 
 // ============================================
@@ -734,6 +696,33 @@ async function selectGeminiModel(genAI: any): Promise<any> {
   // 모든 2.0 이상 모델 실패 시 에러 발생 (1.5 버전 절대 사용 안 함)
   console.error('[GEMINI-MODEL] ❌ 모든 2.0 이상 모델 실패 - 1.5 버전은 사용하지 않습니다');
   throw new Error('사용 가능한 Gemini 2.0 이상 모델이 없습니다. API 키와 할당량을 확인해주세요.');
+}
+
+/**
+ * Gemini model for the spider post. Called ONLY when Gemini is the selected engine (API mode):
+ * key re-check, client init, model probe. Throws a Korean message; the handler turns it into the failure response.
+ * Only the key length is logged, never a part of the key.
+ */
+async function prepareSpiderGeminiModel(geminiKey: string): Promise<any> {
+  const trimmedKey = String(geminiKey || '').trim();
+  if (!trimmedKey) throw new Error('Gemini API 키가 없습니다.');
+  if (trimmedKey.length < 20) throw new Error('Gemini API 키가 유효하지 않습니다.');
+  console.log('[INTERNAL-CONSISTENCY] Gemini API 초기화 중... (키 길이:', trimmedKey.length, ')');
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(trimmedKey);
+  console.log('[INTERNAL-CONSISTENCY] ✅ GoogleGenerativeAI 초기화 완료');
+  try {
+    console.log('[INTERNAL-CONSISTENCY] 모델 선택 시도 중...');
+    return await selectGeminiModel(genAI);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('[INTERNAL-CONSISTENCY] ❌ 모델 선택 실패:', errorMsg);
+    if (errorMsg.includes('403') || errorMsg.includes('API Key') || errorMsg.includes('unregistered callers')) {
+      throw new Error(`Gemini API 키 인증 실패: ${errorMsg}\n\nAPI 키를 확인하고 다시 시도해주세요.\n\n해결 방법:\n1. 앱의 "설정" 탭에서 Gemini API Key 확인\n2. API 키가 올바른지 확인 (https://aistudio.google.com/app/apikey)\n3. API 키 앞뒤 공백 제거\n4. 저장 후 앱 재시작`);
+    }
+    // 2.0+ models only (the 1.5 line is never used)
+    throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
+  }
 }
 
 // 공통 친절한 에러 메시지 매퍼
@@ -1429,6 +1418,10 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
   folderImageMissingPolicy?: string;
   platform?: string;               // v3.8.8: 'wordpress' | 'blogspot' (이미지 호스팅 분기)
 }) => {
+  // Where the run stopped / which engine was selected — every catch below reports them to the user
+  let spiderStage = 'prepare';
+  let spiderMode: 'agent' | 'api' = 'api';
+  let spiderProviderLabel = '';
   try {
     // v3.8.54: 단계별 IPC 진단 로그 — 사용자 콘솔에 실시간 진행 위치 표시
     const sendDiag = (msg: string) => {
@@ -1448,6 +1441,14 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       return gate.response;
     }
     sendDiag('✅ 라이선스 게이트 통과');
+
+    // Engine routing: the engine the user picked is the engine that runs (see src/core/spider/engine.ts)
+    const spider = loadCoreModule('spider');
+    const spiderEngine = spider.decideSpiderEngine(payload);
+    const agentProvider = normalizeAgentProvider((payload as any).agentProvider);
+    spiderMode = spiderEngine.mode;
+    spiderProviderLabel = spiderEngine.mode === 'agent' ? agentProviderLabel(agentProvider) : '';
+    sendDiag(spiderEngine.mode === 'agent' ? `🧭 엔진: 에이전트 (${spiderProviderLabel})` : '🧭 엔진: Gemini API');
 
     console.log('[INTERNAL-CONSISTENCY] 종합글 생성 요청:', payload);
     // v3.8.28/v3.8.30: WordPress wp-admin URL → 공개 글 URL 정규화 (백엔드 안전망)
@@ -1471,7 +1472,8 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
     sendDiag('🔗 URL 정규화 시작');
     const urls = await Promise.all((payload.urls || []).map(_normalizeWpUrl));
     sendDiag(`✅ URL 정규화 완료 — ${urls.length}개`);
-    let title = payload.title || '종합 가이드';
+    // The user's own title only. No generic default: if the user typed none, the AI's H1 decides later (or the run stops)
+    let title = String(payload.title ?? '').trim();
     const posts = await Promise.all((payload.posts || []).map(async (p) => ({ ...p, url: await _normalizeWpUrl(p.url) })));
     sendDiag(`✅ posts 정규화 완료 — ${posts.length}개`);
 
@@ -1480,11 +1482,11 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       return { success: false, error: `거미줄 통합글은 최소 2개 이상의 글이 필요합니다. 현재 ${urls.length}개.` };
     }
 
-    // 1단계: 환경변수에서 API 키 가져오기
+    // 1단계: 환경변수에서 API 키 가져오기 (Gemini 가 글을 쓰는 API 모드에서만 검사한다 — Agent 모드는 키를 보지 않는다)
     const envData = loadEnvFromFile() as EnvData;
     const geminiKey = envData.geminiKey || envData.GEMINI_API_KEY || process.env['GEMINI_API_KEY'] || '';
 
-    if (!geminiKey || geminiKey.trim() === '') {
+    if (spiderEngine.usesGemini && (!geminiKey || geminiKey.trim() === '')) {
       console.error('[INTERNAL-CONSISTENCY] ❌ Gemini API 키가 없습니다.');
       console.error('[INTERNAL-CONSISTENCY] envData:', {
         hasGeminiKey: !!envData.geminiKey,
@@ -1493,20 +1495,22 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       });
       return {
         success: false,
-        error: 'Gemini API 키가 필요합니다. 환경 설정에서 API 키를 입력해주세요.\n\n설정 방법:\n1. 앱의 "설정" 탭으로 이동\n2. "Gemini API Key" 필드에 API 키 입력\n3. 저장 후 다시 시도해주세요.'
+        error: 'Gemini API 키가 필요합니다. 환경 설정에서 API 키를 입력해주세요.\n\n설정 방법:\n1. 앱의 "설정" 탭으로 이동\n2. "Gemini API Key" 필드에 API 키 입력\n3. 저장 후 다시 시도해주세요.',
+        stage: 'engine'
       };
     }
 
     // API 키 유효성 검사 (최소 길이 체크)
-    if (geminiKey.length < 20) {
+    if (spiderEngine.usesGemini && geminiKey.length < 20) {
       console.error('[INTERNAL-CONSISTENCY] ❌ Gemini API 키가 너무 짧습니다:', geminiKey.length);
       return {
         success: false,
-        error: 'Gemini API 키가 유효하지 않습니다. 올바른 API 키를 입력해주세요.'
+        error: 'Gemini API 키가 유효하지 않습니다. 올바른 API 키를 입력해주세요.',
+        stage: 'engine'
       };
     }
 
-    console.log('[INTERNAL-CONSISTENCY] ✅ Gemini API 키 확인 완료 (길이:', geminiKey.length, ')');
+    if (spiderEngine.usesGemini) console.log('[INTERNAL-CONSISTENCY] ✅ Gemini API 키 확인 완료 (길이:', geminiKey.length, ')');
 
     // 2단계: 각 URL 크롤링하여 콘텐츠 추출
     console.log('[INTERNAL-CONSISTENCY] URL 크롤링 시작 (Puppeteer 모드)...');
@@ -1606,53 +1610,17 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
     // 3단계: AI로 종합글 생성 (거미줄 구조)
     console.log('[INTERNAL-CONSISTENCY] AI로 종합글 생성 중...');
 
-    // geminiKey는 이미 위에서 검증되었으므로 재확인 불필요
-    // 하지만 안전을 위해 한 번 더 확인
-    if (!geminiKey || geminiKey.trim() === '') {
-      console.error('[INTERNAL-CONSISTENCY] ❌ geminiKey 변수가 비어있습니다.');
-      return { success: false, error: 'Gemini API 키가 없습니다.' };
-    }
-
-    // API 키 앞뒤 공백 제거
-    const trimmedKey = geminiKey.trim();
-    if (trimmedKey.length < 20) {
-      console.error('[INTERNAL-CONSISTENCY] ❌ API 키가 너무 짧습니다:', trimmedKey.length);
-      return { success: false, error: 'Gemini API 키가 유효하지 않습니다.' };
-    }
-
-    console.log('[INTERNAL-CONSISTENCY] Gemini API 초기화 중...');
-    console.log('[INTERNAL-CONSISTENCY] API 키 정보: 길이=', trimmedKey.length, ', 시작=', trimmedKey.substring(0, 8), '...', ', 끝=', '...' + trimmedKey.substring(trimmedKey.length - 4));
-
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-
     try {
-      // API 키가 제대로 전달되는지 확인
-      if (!trimmedKey || trimmedKey === '') {
-        throw new Error('API 키가 비어있습니다.');
-      }
-
-      const genAI = new GoogleGenerativeAI(trimmedKey);
-      console.log('[INTERNAL-CONSISTENCY] ✅ GoogleGenerativeAI 초기화 완료');
-
-      // Gemini 모델 선택
-      let model: any;
-      try {
-        console.log('[INTERNAL-CONSISTENCY] 모델 선택 시도 중...');
-        model = await selectGeminiModel(genAI);
+      // Only the Gemini engine needs a Gemini model. Agent mode skips the key check and the model probe entirely.
+      let model: any = null;
+      if (spiderEngine.usesGemini) {
+        spiderStage = 'engine';
+        model = await prepareSpiderGeminiModel(geminiKey);
         console.log('[INTERNAL-CONSISTENCY] ✅ 모델 선택 완료');
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error('[INTERNAL-CONSISTENCY] ❌ 모델 선택 실패:', errorMsg);
-
-        // API 키 관련 에러인지 확인
-        if (errorMsg.includes('403') || errorMsg.includes('API Key') || errorMsg.includes('unregistered callers')) {
-          throw new Error(`Gemini API 키 인증 실패: ${errorMsg}\n\nAPI 키를 확인하고 다시 시도해주세요.\n\n해결 방법:\n1. 앱의 "설정" 탭에서 Gemini API Key 확인\n2. API 키가 올바른지 확인 (https://aistudio.google.com/app/apikey)\n3. API 키 앞뒤 공백 제거\n4. 저장 후 앱 재시작`);
-        }
-
-        // 2.0 이상 모델 실패 시 에러 발생 (1.5 버전 절대 사용 안 함)
-        console.error('[INTERNAL-CONSISTENCY] ❌ 2.0 이상 모델 선택 실패:', errorMsg);
-        throw new Error(`Gemini 2.0 이상 모델을 사용할 수 없습니다. ${errorMsg}`);
+      } else {
+        sendDiag(`🤖 에이전트 모드 (${spiderProviderLabel}) — Gemini 키 확인·모델 선택을 건너뜁니다`);
       }
+
 
       // 크롤링된 콘텐츠를 순서대로 정렬
       sendDiag(`✅ 크롤링 완료 — ${crawledContents.length}개 글, LLM 호출 준비`);
@@ -1661,7 +1629,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
       //   기존 프롬프트는 "5개 글 70% 요약 + CTA" 수준이라 사용자 의도(애드센스 + 외부유입 + 거미줄)가 반영 안 됨.
       //   → cornerstone 가이드 구조 + 광고 친화 H2 6~7개 + 거미줄 회유 CTA + FAQ + 표 강제.
       const currentYear = new Date().getFullYear();
-      const spiderTheme = pickSpiderEyeComfortPalette(`${title}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
+      const spiderTheme = pickSpiderEyeComfortPalette(`${title || spider.SPIDER_PALETTE_SEED_TITLE}|${sortedContents.map((item) => `${item.title}|${item.url}`).join('|')}`);
       const folderImageH2Titles = Array.isArray(payload.folderImageH2Titles)
         ? payload.folderImageH2Titles
           .map((value) => String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
@@ -1680,7 +1648,7 @@ ipcMain.handle('generate-internal-consistency', async (_evt, payload: {
 다음 ${sortedContents.length}개 본인 글을 통합해 **검색 의도 1편 완전 커버 + 애드센스 수익 최적화 + 거미줄 회유**가 동시에 작동하는 종합 가이드를 작성하세요.
 
 【통합글 제목】
-${title}
+${title || spider.SPIDER_PROMPT_TITLE_PLACEHOLDER}
 ${folderHeadingRequirement}
 
 【본인이 작성한 글 ${sortedContents.length}개 — 자료원】
@@ -1757,11 +1725,12 @@ URL: ${item.url}
 <div style="${buildSpiderCtaBoxStyle(spiderTheme)}">
   <p style="margin:0 0 14px !important;color:${spiderTheme.heading} !important;font-size:16px !important;font-weight:700 !important;line-height:1.5 !important;text-align:center !important;">[후킹 멘트 — 예: "더 자세한 ~을 알고 싶다면?"]</p>
   <p style="margin:0 !important;text-align:center !important;">
-    <a href="[원본URL]" style="${buildSpiderCtaButtonStyle(spiderTheme)}">[버튼 텍스트 — 예: "2026년 청년내일저축계좌 혜택 상세 보기 🔥"]</a>
+    <a href="[원본URL]" style="${buildSpiderCtaButtonStyle(spiderTheme)}">[버튼 텍스트 — 그 글의 주제 낱말 + 행동, 20자 안쪽. 예: "자격조건 자세히 보기 →", "신청방법 순서 보기 →"]</a>
   </p>
 </div>
 \`\`\`
 - 반드시 \`<button>\` 태그가 아닌 \`<a href>\` 사용 (Blogger sanitize 호환)
+- 버튼 문구는 글 제목 전체를 넣지 않는다. 이모지는 넣지 않거나 맨 앞 하나만. 글자 크기는 위 스타일의 17px 그대로.
 - 인라인 style만 사용 (class 사용 금지 — 블로그 RTE가 class 제거)
 - 모든 핵심 속성(background, color, padding, text-align, border-radius)에 \`!important\` 필수 (Blogger 테마 CSS 우회)
 - \`background:gradient\` 옆에 \`background-color:단색\` 폴백 함께 — 그라데이션 미지원 클라이언트 대비
@@ -1809,195 +1778,51 @@ URL: ${item.url}
 `;
 
       let generatedContent = '';
+      // Title the Agent wrote into metadata.json (used only when there is no user title and no H1)
+      let agentMetaTitle = '';
+      // Non-fatal notes (short body, ending that looked cut, failed retry) - returned so the screen shows them at the end
+      const spiderWarnings: string[] = [];
+      spiderStage = 'generate';
       try {
-        // v3.8.170: 거미줄도 에이전트 모드 지원 — payload.executionMode === 'agent'면 Agent CLI 사용
-        //   사용자 ChatGPT Plus / Claude Pro 구독 시 API 비용 0
-        //   이전: 무조건 Gemini API 호출 → 구독자도 API 비용 발생
-        //   해결: 거미줄 prompt를 agent instruction으로 전달 + article.html 결과를 generatedContent에 할당
-        const isSpiderAgentMode = (payload as any).executionMode === 'agent';
-        // v3.8.733: 제미나이를 코덱스로 접지 않는다 — 표(AGENT_PROVIDERS)가 정하는 값을 그대로 쓴다
-        const agentProvider = normalizeAgentProvider((payload as any).agentProvider);
+        // v3.8.170: the spider post supports Agent mode too (Claude Code / Codex subscription, no API cost).
+        // v3.8.733: the provider comes straight from the AGENT_PROVIDERS table; Gemini is never folded into Codex.
+        // The selected engine is the only engine: when the Agent fails the run stops (no Gemini, no template).
+        const isSpiderAgentMode = spiderEngine.mode === 'agent';
+        const agentInstructions = isSpiderAgentMode
+          ? spider.buildSpiderAgentInstructions({
+            prompt,
+            theme: spiderTheme,
+            sourceCount: sortedContents.length,
+            ctaBoxStyle: buildSpiderCtaBoxStyle(spiderTheme),
+            ctaButtonStyle: buildSpiderCtaButtonStyle(spiderTheme),
+            today: new Date().toISOString().slice(0, 10),
+          })
+          : '';
+        const runAgentGeneration = () => runSpiderAgentJob({
+          provider: agentProvider,
+          instructions: agentInstructions,
+          jobTitle: title || sortedContents[0]?.title || '',
+          summary: { title, urls, postsCount: posts.length },
+          sendDiag,
+        });
         if (isSpiderAgentMode) {
           sendDiag(`🤖 에이전트 모드 (${agentProvider}) — Agent CLI로 통합글 생성`);
-          try {
-            const profile = findAgentProfile(undefined, agentProvider);
-            if (!profile) {
-              sendDiag('⚠️ Agent 프로필 없음 — Gemini API로 폴백');
-            } else {
-              const access = await getAgentModeAccessStatus();
-              if (!access.allowed) {
-                sendDiag(`⚠️ ${access.message || 'Agent 모드 사용 권한 없음'} — Gemini API로 폴백`);
-              } else {
-                const jobId = createAgentJobId(profile.provider, title);
-                const jobDir = path.join(ensureAgentJobsRoot(), jobId);
-                fs.mkdirSync(jobDir, { recursive: true });
-                // v3.8.171: 끝판왕 스킨 + 인라인 스타일 명세 — Agent가 완성된 HTML로 출력
-                //   원본 거미줄 prompt + 디자인 시스템 + 컴포넌트별 inline style 코드 + 이미지 marker
-                const themeJson = JSON.stringify(spiderTheme, null, 2);
-                const ctaBoxStyle = buildSpiderCtaBoxStyle(spiderTheme);
-                const ctaBoxStyleLarge = buildSpiderCtaBoxStyle(spiderTheme, true);
-                const ctaButtonStyle = buildSpiderCtaButtonStyle(spiderTheme);
-                const ctaButtonStyleLarge = buildSpiderCtaButtonStyle(spiderTheme, true);
-                const spiderInstructions = [
-                  '# LEADERNAM Orbit Spider-Web Agent — 끝판왕 통합글',
-                  '',
-                  '## 역할',
-                  '당신은 한국 cornerstone 거미줄 통합글 제작 에이전트입니다.',
-                  `여러 글(${sortedContents.length}개)을 분석해 **인라인 스타일이 모두 박힌 완성형 HTML 1편**을 \`result/article.html\`에 저장합니다.`,
-                  'API 키 호출자가 만드는 것보다 훨씬 정교하고 풍부한 디자인·구조·문체를 직접 작성합니다.',
-                  '',
-                  '## 디자인 시스템 (반드시 그대로 사용)',
-                  '아래 spiderTheme 색상을 모든 컴포넌트에 적용합니다. 다른 색 임의 사용 금지.',
-                  '```json',
-                  themeJson,
-                  '```',
-                  '',
-                  '## 작업지시서 (원본 거미줄 프롬프트 — 구조·콘텐츠 요구사항)',
-                  prompt,
-                  '',
-                  '## 끝판왕 인라인 스킨 — 컴포넌트별 명세 (반드시 이대로 박아 출력)',
-                  '',
-                  '### 1) 최상단 TL;DR 답변 박스 (H1 직후)',
-                  '```html',
-                  `<div style="background:linear-gradient(135deg,${spiderTheme.gradientStart},${spiderTheme.gradientEnd});border-left:5px solid ${spiderTheme.primary};border-radius:12px;padding:20px 24px;margin:18px 0 28px;box-shadow:0 4px 14px ${spiderTheme.ctaShadow};">`,
-                  `  <div style="font-size:13px;font-weight:900;color:${spiderTheme.primary};letter-spacing:0.05em;margin-bottom:8px;">📌 핵심 요약 (TL;DR)</div>`,
-                  '  <div style="font-size:16px;line-height:1.75;color:#1f2937;font-weight:600;">3~5문장으로 글 전체 정답·결론 요약</div>',
-                  '</div>',
-                  '```',
-                  '',
-                  '### 2) Last updated 배지 (TL;DR 다음)',
-                  '```html',
-                  '<div style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:rgba(0,0,0,0.04);border-radius:999px;font-size:12px;color:#6b7280;font-weight:700;margin-bottom:20px;">',
-                  `  <span style="color:${spiderTheme.primary};">🕒</span> Last updated: ${new Date().toISOString().slice(0, 10)}`,
-                  '</div>',
-                  '',
-                  '### 3) H2 섹션 카드 (각 H2 시작)',
-                  '```html',
-                  `<h2 style="font-size:26px;font-weight:900;color:${spiderTheme.heading};margin:40px 0 16px;padding:14px 18px;background:linear-gradient(90deg,${spiderTheme.gradientStart} 0%,transparent 100%);border-left:6px solid ${spiderTheme.primary};border-radius:8px;line-height:1.4;">H2 제목</h2>`,
-                  '```',
-                  '',
-                  '### 4) H3 sub-section',
-                  '```html',
-                  `<h3 style="font-size:19px;font-weight:800;color:${spiderTheme.heading};margin:28px 0 10px;padding-left:14px;border-left:4px solid ${spiderTheme.primary};">H3 제목</h3>`,
-                  '```',
-                  '',
-                  '### 5) 본문 단락',
-                  '```html',
-                  `<p style="font-size:16px;line-height:1.85;color:#1f2937;margin:0 0 18px;">본문...</p>`,
-                  '```',
-                  '',
-                  '### 6) 강조 인용 박스 (필요할 때 사용)',
-                  '```html',
-                  `<blockquote style="margin:20px 0;padding:18px 22px;background:rgba(0,0,0,0.025);border-left:4px solid ${spiderTheme.primary};border-radius:8px;font-style:italic;color:${spiderTheme.heading};font-size:15px;line-height:1.7;">핵심 한 줄</blockquote>`,
-                  '```',
-                  '',
-                  '### 7) 체크리스트 박스',
-                  '```html',
-                  `<div style="background:${spiderTheme.surfaceAlt || '#f9fafb'};border:1px solid ${spiderTheme.borderSoft || '#e5e7eb'};border-radius:12px;padding:18px 22px;margin:20px 0;">`,
-                  `  <div style="font-weight:900;color:${spiderTheme.heading};margin-bottom:10px;font-size:15px;">✅ 체크포인트</div>`,
-                  '  <ul style="margin:0;padding-left:20px;color:#1f2937;line-height:1.8;font-size:15px;">',
-                  '    <li>항목 1</li><li>항목 2</li><li>항목 3</li>',
-                  '  </ul>',
-                  '</div>',
-                  '```',
-                  '',
-                  '### 8) 비교표 (Q&A·테이블)',
-                  '```html',
-                  `<table style="width:100%;border-collapse:collapse;margin:20px 0;background:#fff;border:1px solid ${spiderTheme.borderSoft || '#e5e7eb'};border-radius:8px;overflow:hidden;">`,
-                  `  <thead><tr style="background:${spiderTheme.gradientStart};"><th style="padding:12px 14px;text-align:left;font-weight:900;color:${spiderTheme.heading};font-size:14px;border-bottom:2px solid ${spiderTheme.primary};">항목</th><th style="...">값</th></tr></thead>`,
-                  '  <tbody><tr><td style="padding:10px 14px;border-bottom:1px solid #f3f4f6;font-size:14px;">A</td><td style="...">설명</td></tr></tbody>',
-                  '</table>',
-                  '```',
-                  '',
-                  '### 9) ⭐ 거미줄 회유 CTA 박스 (각 H2 끝에 정확히 1개)',
-                  '🚨 매우 중요 — 각 원본 글 ↔ H2 매칭으로 거미줄 회유. 작업지시서 명세 그대로 박기.',
-                  '```html',
-                  `<div style="${ctaBoxStyle}">`,
-                  `  <p style="margin:0 0 16px !important;color:${spiderTheme.heading} !important;font-size:17px !important;font-weight:800 !important;line-height:1.5 !important;text-align:center !important;">독자가 클릭하고 싶어지는 강한 한 줄 후킹 (예: "정확한 신청 조건이 따로 있어요. 확인해보세요!")</p>`,
-                  '  <p style="margin:0 !important;text-align:center !important;">',
-                  `    <a href="ORIGINAL_URL_여기에_그대로_쓰기" target="_blank" rel="noopener" style="${ctaButtonStyle}">📖 [원본 글 제목] 자세히 보기 →</a>`,
-                  '  </p>',
-                  '</div>',
-                  '```',
-                  '- ORIGINAL_URL은 작업지시서의 원본 글 URL을 그대로. 변형/단축 금지.',
-                  '- 각 H2가 어떤 원본 글에 대응하는지 명확히 (작업지시서 sortedContents 순서대로 매칭).',
-                  '',
-                  '### 10) FAQ 박스 (글 끝 FAQ 섹션)',
-                  '```html',
-                  `<div style="background:${spiderTheme.surfaceAlt || '#fff'};border:2px solid ${spiderTheme.borderSoft || '#e5e7eb'};border-radius:14px;padding:20px 24px;margin:24px 0;">`,
-                  `  <div style="font-weight:900;color:${spiderTheme.primary};margin-bottom:6px;font-size:15px;">❓ Q. 질문 텍스트</div>`,
-                  `  <div style="font-size:15px;line-height:1.8;color:#1f2937;">답변...</div>`,
-                  '</div>',
-                  '```',
-                  '',
-                  '### 11) 면책 박스 (글 마지막)',
-                  '```html',
-                  '<div style="margin:32px 0 0;padding:14px 18px;background:rgba(0,0,0,0.03);border-radius:8px;font-size:12px;color:#6b7280;line-height:1.7;">',
-                  '  ⚠️ 본 글은 정보 제공 목적이며 정확한 정책·금액·일정은 공식 사이트에서 확인하세요. 본 글의 정보로 인한 손해에 책임지지 않습니다.',
-                  '</div>',
-                  '```',
-                  '',
-                  '### 12) 이미지 자리 (Orbit 앱이 뒤에서 자동 삽입)',
-                  '- 본문 안에 `<img>`, `<figure>`, `<picture>`, base64 데이터 URL 절대 금지',
-                  '- 대신 metadata.json에 H2별 이미지 prompt 자세히 제공 → Orbit이 API 이미지 엔진으로 생성·삽입',
-                  '',
-                  '## 반드시 생성할 파일',
-                  '',
-                  '1. `result/article.html`',
-                  '   - 본문 평문 **8,000~12,000자** (5,000자 미만 절대 금지)',
-                  '   - H1 1개, H2 작업지시서 요구 수, H2당 H3 2~3개, FAQ + 결론·면책',
-                  '   - **모든 컴포넌트 위 9~11번 inline style 그대로 박기** (사용자 후처리에 의존 X)',
-                  '   - 잘림 절대 금지: `(이하 생략)`, `(계속)`, `...` X. 마지막 닫힘 태그로 한 호흡에 완성',
-                  '   - `**`, `## `, `### ` 같은 마크다운 절대 사용 X. 모든 강조는 `<strong>` 또는 inline style',
-                  '   - script, iframe, form, onclick, 추적 코드 금지',
-                  '',
-                  '2. `result/metadata.json`',
-                  '```json',
-                  '{',
-                  '  "title": "최종 H1 제목 (50~60자, 검색 친화, 숫자/연도 포함 권장)",',
-                  '  "summary": "글 자체 검수 요약 (300자)",',
-                  '  "imagePrompts": {',
-                  `    "thumbnail": "썸네일 이미지 prompt (테마 색상: ${spiderTheme.primary}, 한글 텍스트 없음, 자연 풍경/상징)",`,
-                  '    "h2_1": "H2 1번 섹션용 이미지 prompt (텍스트 없음)",',
-                  '    "h2_2": "H2 2번 섹션용 이미지 prompt (텍스트 없음)"',
-                  '  }',
-                  '}',
-                  '```',
-                  '',
-                  '## 출력 마감 절대 규칙',
-                  '- article.html 5,000자 이상 + 마지막은 명시적 닫힘 태그',
-                  '- 자체 검수: 잘림/짧음/마크다운/이미지 태그/placeholder 발견 시 한 번 더 작성',
-                  '- inline style 누락된 컴포넌트 있으면 다시 작성',
-                  '- 사용자가 "끝판왕"이라고 부를 만한 완성도 — Orbit 후처리가 거의 필요 없을 정도로 마감',
-                ].join('\n');
-                fs.writeFileSync(path.join(jobDir, 'instructions.md'), spiderInstructions, 'utf-8');
-                fs.writeFileSync(path.join(jobDir, 'payload.json'), JSON.stringify({ title, urls, postsCount: posts.length }, null, 2), 'utf-8');
-                fs.mkdirSync(path.join(jobDir, 'result'), { recursive: true });
-                const lastMessagePath = path.join(jobDir, 'result', 'final-message.md');
-                sendDiag(`🤖 ${profile.provider} Agent 실행 중... (최대 12분 대기)`);
-                const run = await runAgentProcess(profile, jobDir, lastMessagePath);
-                if (run.upgradeRequired) {
-                  // Codex is too old: no Gemini API fallback and no template - the user is told and decides.
-                  sendDiag('⛔ Codex 업그레이드 필요 — 설치·업그레이드·다른 엔진 전환 없이 멈춥니다.');
-                  return { success: false, error: codexUpgradeRequiredMessage(), upgradeRequired: true };
-                }
-                const result = readAgentJobResult(jobDir, run.stdout, lastMessagePath);
-                const agentContent = String(result.content || '').trim();
-                if (agentContent && agentContent.length >= 500) {
-                  generatedContent = agentContent;
-                  if (result.title && !payload.title) title = result.title;
-                  sendDiag(`✅ Agent 응답 수신 (${generatedContent.length}자) — Gemini API 호출 생략`);
-                } else {
-                  sendDiag(`⚠️ Agent 응답 비어있거나 너무 짧음 (${agentContent.length}자) — Gemini API로 폴백`);
-                }
-              }
+          const agentRun = await runAgentGeneration();
+          if (!agentRun.ok) {
+            sendDiag(`⛔ ${spiderProviderLabel} 실패 — Gemini·대체 틀로 넘어가지 않고 멈춥니다`);
+            if (agentRun.upgradeRequired) {
+              // Codex is too old: no Gemini API fallback and no template - the user is told and decides.
+              return { success: false, error: agentRun.error, upgradeRequired: true, stage: 'engine' };
             }
-          } catch (agentErr: any) {
-            sendDiag(`⚠️ Agent 실행 실패 → Gemini API로 폴백: ${agentErr?.message || agentErr}`);
+            return spider.buildSpiderFailure({ stage: agentRun.stage, cause: agentRun.error, mode: 'agent', providerLabel: spiderProviderLabel });
           }
+          generatedContent = agentRun.content;
+          agentMetaTitle = agentRun.title;
+          sendDiag(`✅ Agent 응답 수신 (${generatedContent.length}자) — Gemini API 호출 없음`);
         }
 
-        // v3.8.81: LLM 짧은 응답 자동 재시도 (사용자 보고: 1,118자만 응답)
+        // v3.8.81: automatic retry on a short answer (user report: only 1,118 chars) - API (Gemini) mode only.
+        // Agent mode never regenerates because of length: body length is not a criterion and a run can take 25 minutes.
         const callLLM = async (temp: number): Promise<string> => {
           const r = await model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -2007,26 +1832,28 @@ URL: ${item.url}
             .replace(/```html\n?/gi, '').replace(/```\n?/gi, '').trim();
         };
 
-        // Agent 결과가 없을 때만 Gemini API 호출
-        if (!generatedContent || generatedContent.length < 500) {
+        // The first draft comes from Gemini only in API mode; in Agent mode it already arrived above
+        if (!isSpiderAgentMode) {
           sendDiag('🤖 Gemini LLM 호출 시작 (본문 생성)');
           generatedContent = await callLLM(0.75);
         }
-        let plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
-        let h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
-        sendDiag(`📏 LLM 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
+        const firstDraft = spider.measureSpiderDraft(generatedContent);
+        sendDiag(`📏 LLM 응답: ${generatedContent.length}자 (평문 ${firstDraft.plainLen}자, H2 ${firstDraft.h2Count}개)`);
 
-        // 짧으면 재시도 (최대 2회)
-        for (let retry = 1; retry <= 2 && (plainLen < 3000 || h2Count < 3); retry++) {
-          sendDiag(`⚠️ 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — ${retry}/2 재시도`);
-          const newTemp = retry === 1 ? 0.85 : 0.65; // 다양화 → 안정화
-          generatedContent = await callLLM(newTemp);
-          plainLen = generatedContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length;
-          h2Count = (generatedContent.match(/<h2[^>]*>/gi) || []).length;
-          sendDiag(`📏 재시도 ${retry} 응답: ${generatedContent.length}자 (평문 ${plainLen}자, H2 ${h2Count}개)`);
-        }
-        if (plainLen < 3000 || h2Count < 3) {
-          sendDiag(`❌ 재시도 후에도 본문 너무 짧음 (평문 ${plainLen}자, H2 ${h2Count}개) — 폴백 사용`);
+        // Short draft: API mode retries up to 2 times (a failed retry keeps the previous draft); Agent mode only warns.
+        const draftLoop = await spider.runSpiderDraftLoop({
+          mode: spiderEngine.mode,
+          first: generatedContent,
+          regenerate: (attempt: number) => callLLM(attempt === 1 ? 0.85 : 0.65),
+          log: sendDiag,
+        });
+        generatedContent = draftLoop.draft;
+        let plainLen: number = draftLoop.plainLen;
+        spiderWarnings.push(...draftLoop.warnings);
+        // An empty body is a failure, never a success response
+        const bodyCheck = spider.checkSpiderBody(generatedContent);
+        if (!bodyCheck.ok) {
+          return spider.buildSpiderFailure({ stage: 'generate', cause: bodyCheck.reason, mode: spiderEngine.mode, providerLabel: spiderProviderLabel });
         }
 
         // v3.8.83: 잘림 자동 감지 + continuation 호출 (사용자 보고: 5-1 체크리스트 잘림)
@@ -2050,7 +1877,19 @@ URL: ${item.url}
           return false;
         };
 
-        if (looksTruncated(generatedContent) && plainLen >= 3000) {
+        if (isSpiderAgentMode) {
+          // Structural signs of a cut-off article fail the run; the false-positive-prone ones only warn (see completeness.ts)
+          const completeness = spider.judgeSpiderCompleteness(generatedContent);
+          if (completeness.hard.length > 0) {
+            sendDiag(`⛔ Agent 글이 끝까지 써지지 않음 — ${completeness.hard.join(' / ')}`);
+            return spider.buildSpiderFailure({ stage: 'generate', cause: `글이 끝까지 써지지 않았습니다 (${completeness.hard[0]})`, mode: 'agent', providerLabel: spiderProviderLabel });
+          }
+          if (completeness.soft.length > 0) {
+            sendDiag(`⚠️ Agent 글 끝 확인 필요 — ${completeness.soft.join(' / ')}`);
+            spiderWarnings.push(`글 끝이 완결돼 보이지 않습니다 (${completeness.soft.join(', ')}). 발행 전 끝부분을 확인해 주세요.`);
+          }
+        }
+        if (!isSpiderAgentMode && looksTruncated(generatedContent) && plainLen >= 3000) {
           sendDiag(`⚠️ HTML 잘림 감지 (총 ${generatedContent.length}자) — continuation 호출`);
           try {
             const tail = generatedContent.slice(-1200);
@@ -2259,7 +2098,7 @@ ${tail}
         generatedContent = applySpiderEyeComfortColors(generatedContent, spiderTheme);
 
         // v3.8.10: 본문 H1을 제목 필드로 추출 + 본문에서 제거 (글포스팅과 동일 정책)
-        //   LLM이 본문에 H1 출력 → 거기에 멋진 제목 들어가지만 발행 제목 필드에는 fallback '종합 가이드'만 들어가던 버그.
+        //   LLM이 본문에 H1 출력 → 거기에 멋진 제목이 들어가지만 발행 제목 필드에는 일반어 기본값만 들어가던 버그.
         //   → 사용자 입력 title이 비어있으면 H1 텍스트를 추출해 제목으로 사용.
         //   → H1 태그는 본문에서 제거 (블로그 플랫폼이 자동으로 제목을 H1로 렌더하므로 중복 방지).
         const h1Match = generatedContent.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
@@ -2280,28 +2119,25 @@ ${tail}
             .trim();
           console.log('[INTERNAL-CONSISTENCY] 본문 H1 추출:', extractedTitleFromH1.substring(0, 60));
         }
-        // title 우선순위: 사용자 명시 입력 > H1 추출 > 폴백
-        const userTitleTrimmed = (payload.title || '').trim();
-        if (!userTitleTrimmed && extractedTitleFromH1) {
-          title = extractedTitleFromH1;
-          console.log('[INTERNAL-CONSISTENCY] title 자동 설정 (H1 추출):', title);
+        // Title priority: the user's own title > the AI's H1 (or the Agent's metadata title) > stop.
+        // A generic placeholder never becomes the published title.
+        const titleDecision = spider.resolveSpiderTitle({ userTitle: payload.title, aiTitles: [extractedTitleFromH1, agentMetaTitle] });
+        if (!titleDecision.ok) {
+          sendDiag('⛔ 제목을 정하지 못해 멈춥니다 (사용자 제목·AI 제목 모두 없음)');
+          return { success: false, error: titleDecision.error, stage: 'title' };
         }
+        title = titleDecision.title;
+        console.log('[INTERNAL-CONSISTENCY] title 확정 (' + titleDecision.source + '):', title);
 
       } catch (error) {
         console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);
-
-        // API 키 관련 에러인지 확인
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('403') || errorMessage.includes('API Key') || errorMessage.includes('unregistered callers')) {
-          throw new Error(`Gemini API 키가 유효하지 않거나 권한이 없습니다.\n\n에러: ${errorMessage}\n\n해결 방법:\n1. 환경 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요 (https://aistudio.google.com/app/apikey)\n3. API 키에 필요한 권한이 있는지 확인하세요`);
-        }
-
-        // v3.7.22: 폴백 강화 — cornerstone 카드 구조 + 거미줄 CTA + 표 (단순 요약 반복 X)
-        generatedContent = buildSpiderWebFallbackHtml(title, sortedContents);
+        // The selected engine failed: say so and stop. No template, no other engine, nothing published.
+        return spider.buildSpiderFailure({ stage: spiderStage, cause: error, mode: spiderEngine.mode, providerLabel: spiderProviderLabel });
       }
 
       console.log('[INTERNAL-CONSISTENCY] ✅ 종합글 생성 완료, 콘텐츠 길이:', generatedContent.length);
 
+      spiderStage = 'image';
       // v3.8.6: 이미지 정책 적용 — 썸네일 + H2별 이미지 생성 + HTML 삽입
       const imagePolicy = (payload.imagePolicy || 'all').toLowerCase();
       const thumbEngine = (payload.imageThumbnailEngine || 'nanobanana2').toLowerCase();
@@ -2376,42 +2212,14 @@ ${tail}
 
         // 1) WP 자격증명 보유 시 wp-json/v2/media 업로드 (platform 무관 hotlink 허용)
         //    v3.8.14: timeout 60s + 1회 retry (네트워크 흔들림 대응)
+        //    업로드 본체는 편집기 '이미지 다시 생성' 과 공유하는 wp-media-host 모듈 (동작 그대로)
         const env = loadEnvFromFile() as any;
-        const wpUrl = (env.wordpressSiteUrl || env.WORDPRESS_SITE_URL || '').trim().replace(/\/+$/, '');
-        const wpUser = (env.wordpressUsername || env.WORDPRESS_USERNAME || '').trim();
-        const wpPass = (env.wordpressPassword || env.WORDPRESS_PASSWORD || '').trim();
-        if (wpUrl && wpUser && wpPass) {
-          const m = dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/);
-          if (m) {
-            const mime = m[1];
-            const ext = (mime.split('/')[1] || 'png').replace('+xml', '');
-            const buf = Buffer.from(m[2], 'base64');
-            const filename = `${label || 'image'}-${Date.now()}.${ext}`;
-            const auth = Buffer.from(`${wpUser}:${wpPass}`).toString('base64');
-            const axios = (await import('axios')).default;
-            for (let attempt = 1; attempt <= 2; attempt++) {
-              try {
-                const res = await axios.post(`${wpUrl}/wp-json/wp/v2/media`, buf, {
-                  headers: {
-                    Authorization: `Basic ${auth}`,
-                    'Content-Type': mime,
-                    'Content-Disposition': `attachment; filename="${filename}"`,
-                  },
-                  timeout: 60000,
-                  maxBodyLength: 50 * 1024 * 1024,
-                  maxContentLength: 50 * 1024 * 1024,
-                });
-                const src = res.data && (res.data.source_url || (res.data.guid && res.data.guid.rendered));
-                if (typeof src === 'string' && src) {
-                  console.log(`[IMG-HOST] ✅ WP 미디어 업로드 성공 (${label}, attempt=${attempt}, platform=${targetPlatform || 'unknown'}):`, src.substring(0, 80));
-                  return { url: src, provider: targetPlatform === 'wordpress' ? 'wp-media' : 'wp-media-hotlink', previewUrl: dataUrl, sourceWasExternal: normalized.sourceWasExternal };
-                }
-                console.warn(`[IMG-HOST] WP 응답에 source_url 없음 (${label}, attempt=${attempt})`);
-              } catch (e: any) {
-                console.warn(`[IMG-HOST] WP 업로드 실패 (${label}, attempt=${attempt}):`, e?.message?.substring(0, 200));
-                if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
-              }
-            }
+        const { pickWpMediaCreds, uploadDataUrlToWpMedia, wpMediaProvider } = require('../dist/core/final/wp-media-host');
+        const wpCreds = pickWpMediaCreds(env);
+        if (wpCreds) {
+          const wpHosted = await uploadDataUrlToWpMedia(dataUrl, wpCreds, { label, platform: targetPlatform });
+          if (wpHosted) {
+            return { url: wpHosted, provider: wpMediaProvider(targetPlatform), previewUrl: dataUrl, sourceWasExternal: normalized.sourceWasExternal };
           }
         }
 
@@ -2645,44 +2453,34 @@ ${tail}
       } else {
         console.log('[INTERNAL-CONSISTENCY] 이미지 정책 = none, 이미지 생성 스킵');
       }
+      // Asked for images but got none / only some: say so on the finished screen (a warning, never a failure).
+      // Error texts are masked first so no key or token reaches the screen log.
+      imageStats.errors = spider.sanitizeSpiderImageErrors(imageStats.errors);
+      const imageWarnings: string[] = spider.buildSpiderImageWarnings({
+        imagePolicy,
+        thumbEngine,
+        h2Engine,
+        hasFolderThumbnail: !!String(payload.preGeneratedThumbnail?.dataUrl || payload.preGeneratedThumbnail?.url || '').trim(),
+        stats: imageStats,
+      });
+      spiderWarnings.push(...imageWarnings);
 
       // v3.8.15/v3.8.19: 라벨(해시태그) 5개 자동 생성 — robust 폴백 추가
       //   1순위: LLM JSON 배열 (temperature 0.3)
       //   2순위: 원본 글 제목 + 통합 제목 키워드 명사 추출
       //   최후: 빈 배열 (발행은 정상 진행)
       let generatedLabels: string[] = [];
-      try {
-        const labelPrompt = `다음 한국어 블로그 글의 SEO 라벨(태그) 5개를 정확히 JSON 배열로만 출력하세요.
-- 각 라벨은 2~10자 한글/영문/숫자, 검색 가능한 명사·핵심어 위주
-- 띄어쓰기 포함 가능, 특수문자(#, ?, ! 등) 금지
-- 글의 주제와 직결되는 표현만
-- 중복 X, 너무 일반적인 단어("정보", "가이드" 단독) X
-
-제목: ${title}
-본문 일부 (앞 2000자):
-${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 2000)}
-
-출력 형식 — JSON 배열만 (다른 텍스트 X):
-["라벨1", "라벨2", "라벨3", "라벨4", "라벨5"]`;
-        const labelResult = await model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: labelPrompt }] }],
-          generationConfig: { maxOutputTokens: 300, temperature: 0.3 },
-        });
-        const labelText = ((await labelResult.response).text() || '').trim();
-        // ```json ... ``` 또는 [..] 둘 다 처리
-        const arrayMatch = labelText.match(/\[[\s\S]*?\]/);
-        if (arrayMatch) {
-          const parsed = JSON.parse(arrayMatch[0]);
-          if (Array.isArray(parsed)) {
-            generatedLabels = parsed
-              .map((s: any) => String(s || '').trim())
-              .filter((s) => s.length >= 2 && s.length <= 40)
-              .slice(0, 5);
-          }
+      spiderStage = 'meta';
+      if (spiderEngine.usesGemini) {
+        try {
+          generatedLabels = await spider.generateSpiderGeminiLabels(model, title, generatedContent);
+          console.log('[INTERNAL-CONSISTENCY] LLM 라벨', generatedLabels.length, '개:', generatedLabels.join(', '));
+        } catch (e: any) {
+          console.warn('[INTERNAL-CONSISTENCY] LLM 라벨 생성 실패:', spider.redactSecrets(String(e?.message || '').substring(0, 200)));
         }
-        console.log('[INTERNAL-CONSISTENCY] LLM 라벨', generatedLabels.length, '개:', generatedLabels.join(', '));
-      } catch (e: any) {
-        console.warn('[INTERNAL-CONSISTENCY] LLM 라벨 생성 실패:', e?.message?.substring(0, 200));
+      } else {
+        // Agent mode: no Gemini call. generatedLabels stays empty, so the title-noun extraction below builds the tags.
+        sendDiag('🏷️ Agent 모드 — 태그는 통합 제목·원본 제목에서 직접 추출합니다 (Gemini 호출 없음)');
       }
 
       // v3.8.19/v3.8.79: 라벨 폴백 + 한국어 NLP 정규화 통합 (사용자 보고 "엉뚱한 태그" fix)
@@ -2771,55 +2569,24 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
           .replace(/&amp;/g, '&')
           .replace(/\s+/g, ' ')
           .trim();
-        // excerpt: 첫 두 문장 (자연스러운 요약)
-        const sentences = plainText.split(/(?<=[.。!?])\s+/);
-        excerpt = sentences.slice(0, 2).join(' ').substring(0, 200).trim();
-        if (excerpt.length < 50 && plainText.length > 50) {
-          excerpt = plainText.substring(0, 200).trim();
-        }
+        // excerpt: 첫 두 문장 (자연스러운 요약) — 맨 앞 상자 제목·라벨("💡 한눈에 답변", "Last updated")은 건너뛴다
+        const summaryText = spider.spiderSummarySource(generatedContent) || plainText;
+        excerpt = spider.fallbackSpiderExcerpt(summaryText);
 
-        // v3.8.62: metaDescription — Gemini AI 별도 호출로 검색 최적화 패턴 생성
-        try {
-          const { GoogleGenerativeAI: GGA_META } = require('@google/generative-ai');
-          const metaGenAI = new GGA_META(geminiKey);
-          const metaModel = await selectGeminiModel(metaGenAI);
-          const metaPrompt = `다음 블로그 글의 메타 디스크립션을 정확히 1줄로 작성하세요.
-
-【글 제목】 ${title}
-【본문 첫 500자】 ${plainText.substring(0, 500)}
-【핵심 키워드】 ${(generatedLabels || []).slice(0, 5).join(', ') || '(없음)'}
-
-요구사항:
-- 정확히 140~160자 (한글 기준)
-- 핵심 검색 키워드 1~2개 자연스럽게 포함
-- 독자가 이 글을 클릭해서 얻을 수 있는 이익(혜택/방법/결과) 1줄 명시
-- 끝에 행동 유도(CTA) 짧게 ("자세히 보기", "지금 확인" 등)
-- 출력은 메타 디스크립션 텍스트 1줄만 (앞뒤 따옴표·마크다운 X)
-
-예시: "2026년 청년내일저축계좌 자격조건과 신청방법을 한눈에 정리. 월 10만원 적금으로 1,440만원 목돈을 만드는 모든 방법, 지금 확인하세요."`;
-          const metaResult = await metaModel.generateContent({
-            contents: [{ role: 'user', parts: [{ text: metaPrompt }] }],
-            generationConfig: { maxOutputTokens: 200, temperature: 0.4 },
-          });
-          let aiMeta = ((await metaResult.response).text() || '').trim();
-          // 따옴표·마크다운·앞뒤 공백 제거
-          aiMeta = aiMeta.replace(/^["'`「『]+|["'`」』]+$/g, '').replace(/^\*+|\*+$/g, '').trim();
-          // 첫 줄만 사용
-          aiMeta = aiMeta.split(/\n+/)[0]!.trim();
-          if (aiMeta.length >= 100 && aiMeta.length <= 200) {
-            metaDescription = aiMeta;
-            console.log(`[INTERNAL-CONSISTENCY] ✅ metaDescription Gemini AI 생성 (${aiMeta.length}자): ${aiMeta.substring(0, 60)}…`);
-          } else {
-            // AI 응답이 길이 미달 → 폴백
-            throw new Error(`AI meta 길이 부적절: ${aiMeta.length}자`);
+        // v3.8.62: metaDescription by Gemini only when Gemini is the selected engine.
+        // Agent mode (and any Gemini failure) cuts the description from the start of the body instead.
+        if (spiderEngine.usesGemini) {
+          try {
+            // The model was already selected above; selectGeminiModel would only hand back the same cached one.
+            metaDescription = await spider.generateSpiderGeminiMeta(async () => model, { title, plainText, labels: generatedLabels || [] });
+            console.log(`[INTERNAL-CONSISTENCY] ✅ metaDescription Gemini AI 생성 (${metaDescription.length}자): ${metaDescription.substring(0, 60)}…`);
+          } catch (aiErr: any) {
+            metaDescription = spider.fallbackSpiderMetaDescription(summaryText);
+            console.warn(`[INTERNAL-CONSISTENCY] metaDescription Gemini 실패 → 폴백 자름: ${spider.redactSecrets(aiErr?.message)}`);
           }
-        } catch (aiErr: any) {
-          // 폴백: 첫 155자 자름 (기존 방식)
-          metaDescription = plainText.substring(0, 155).trim();
-          if (metaDescription.length > 152) {
-            metaDescription = metaDescription.substring(0, 152) + '…';
-          }
-          console.warn(`[INTERNAL-CONSISTENCY] metaDescription Gemini 실패 → 폴백 자름: ${aiErr?.message}`);
+        } else {
+          metaDescription = spider.fallbackSpiderMetaDescription(summaryText);
+          console.log('[INTERNAL-CONSISTENCY] Agent 모드 — metaDescription 은 본문 앞부분에서 직접 만듭니다 (Gemini 호출 없음)');
         }
       } catch (e: any) {
         console.warn('[INTERNAL-CONSISTENCY] excerpt/metaDescription 생성 실패:', e?.message);
@@ -2838,6 +2605,7 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         console.log('[INTERNAL-CONSISTENCY] 본문 상단 schema.org description meta 삽입');
       }
 
+      spiderStage = 'finalize';
       // v3.8.31/v3.8.35: 거미줄 통합글 목차 — 모든 스타일 inline으로 직접 박음 (CSS 누락 시에도 정상).
       //   기존 generateTOCFinal은 .toc-grid/.toc-btn/.toc-number CSS 클래스 기반 → 거미줄엔
       //   CSS가 별도로 주입되지 않아 plain text로 보이던 문제 차단.
@@ -3272,6 +3040,7 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
 .max-mode-article blockquote{margin:24px 0 !important;padding:18px 22px !important;background:${spiderTheme.primarySoft} !important;border-left:4px solid ${spiderTheme.primary} !important;border-radius:0 12px 12px 0 !important;color:${spiderTheme.primaryDark} !important;font-style:italic !important;}
 .max-mode-article a{color:${spiderTheme.primary} !important;text-decoration:underline !important;}
 .max-mode-article img{max-width:100% !important;height:auto !important;border-radius:12px !important;margin:18px auto !important;display:block !important;}
+.max-mode-article img.emoji,.max-mode-article img.wp-smiley{display:inline !important;width:1em !important;height:1em !important;max-width:none !important;margin:0 .07em !important;vertical-align:-0.1em !important;border-radius:0 !important;box-shadow:none !important;}
 @media (max-width:768px){
   .max-mode-article{width:calc(100vw - 8px) !important;max-width:calc(100vw - 8px) !important;margin-left:calc(50% - 50vw + 4px) !important;margin-right:calc(50% - 50vw + 4px) !important;padding:12px 4px 52px !important;box-sizing:border-box !important;background:#ffffff !important;overflow:visible !important;border:0 !important;box-shadow:none !important;}
   .max-mode-article h1{font-size:26px !important;margin:0 0 24px !important;line-height:1.35 !important;}
@@ -3343,6 +3112,12 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
       } catch (skinErr: any) {
         console.warn('[INTERNAL-CONSISTENCY] ⚠️ inline style 보강 실패:', skinErr?.message);
       }
+
+      // Same frame as an ordinary post (app skin marker, no spider-only width lock, no body H1) so the publishers
+      // pass it through instead of taking their legacy restyling path. Failure here stops the run (stage: finalize).
+      const spiderFinish = spider.finishSpiderHtml(generatedContent, { platform: targetPlatform });
+      generatedContent = spiderFinish.html;
+      sendDiag(`🧩 종합글 틀 마무리 (${spiderFinish.platform}): ${spiderFinish.changes.join(', ') || '변경 없음'}`);
 
       // v3.8.73 (Phase 3 작업 12): GEO/AEO 적용 진단 요약 — 발행 직전 적용 상태 한눈에 확인
       try {
@@ -3422,39 +3197,23 @@ ${(generatedContent || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().
         labels: generatedLabels,
         excerpt,
         metaDescription,
+        warnings: spiderWarnings,
       };
 
     } catch (error) {
       console.error('[INTERNAL-CONSISTENCY] AI 종합글 생성 실패:', error);
-
-      // API 키 관련 에러인지 확인
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('403') || errorMessage.includes('API Key') || errorMessage.includes('unregistered callers')) {
-        throw new Error(`Gemini API 키가 유효하지 않거나 권한이 없습니다.\n\n에러: ${errorMessage}\n\n해결 방법:\n1. 환경 설정에서 Gemini API 키를 확인하세요\n2. API 키가 올바른지 확인하세요 (https://aistudio.google.com/app/apikey)\n3. API 키에 필요한 권한이 있는지 확인하세요`);
-      }
-
-      // v3.7.22: 폴백 강화 — cornerstone 카드 구조 + 거미줄 CTA + 표
-      const sortedContents = crawledContents.sort((a, b) => a.order - b.order);
-      const generatedContent = buildSpiderWebFallbackHtml(title, sortedContents);
-      console.log('[INTERNAL-CONSISTENCY] ✅ 폴백 종합글 생성 완료 (강화)');
-      return { success: true, html: generatedContent, title };
+      // Everything outside the generation step ends here with a visible reason.
+      // There is no template and no other engine: nothing gets published after a failure.
+      return spider.buildSpiderFailure({ stage: spiderStage, cause: error, mode: spiderEngine.mode, providerLabel: spiderProviderLabel });
     }
   } catch (error) {
     console.error('[INTERNAL-CONSISTENCY] 종합글 생성 실패:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    // API 키 관련 에러인 경우 더 명확한 메시지 제공
-    if (errorMessage.includes('403') || errorMessage.includes('API Key') || errorMessage.includes('unregistered callers')) {
-      return {
-        success: false,
-        error: `Gemini API 키 오류가 발생했습니다.\n\n에러: ${errorMessage}\n\n해결 방법:\n1. 앱의 "설정" 탭으로 이동\n2. "Gemini API Key" 필드에 유효한 API 키 입력\n3. API 키는 https://aistudio.google.com/app/apikey 에서 발급받을 수 있습니다\n4. 저장 후 다시 시도해주세요`
-      };
+    // Same failure shape as the inner catches: Korean text + failed stage, key/token values masked
+    try {
+      return loadCoreModule('spider').buildSpiderFailure({ stage: spiderStage, cause: error, mode: spiderMode, providerLabel: spiderProviderLabel });
+    } catch {
+      return { success: false, error: '통합글 만들기가 멈췄습니다. 글은 발행하지 않았습니다. 다시 시도해 주세요.', stage: spiderStage };
     }
-
-    return {
-      success: false,
-      error: errorMessage || '알 수 없는 오류가 발생했습니다.'
-    };
   }
 });
 
@@ -5531,7 +5290,11 @@ ipcMain.handle('wordpress-list-posts', async (_evt, args?: { maxResults?: number
   }
 });
 
-ipcMain.handle('wordpress-update-post', async (_evt, args: { postId?: string; title?: string; content?: string; thumbnailUrl?: string }) => {
+ipcMain.handle('wordpress-update-post', async (_evt, args: {
+  postId?: string; title?: string; content?: string; thumbnailUrl?: string;
+  // Optional extras: only what is passed is changed (see src/wordpress/wordpress-update-extras.ts)
+  excerpt?: string; tags?: string[]; seoTitle?: string; metaDescription?: string;
+}) => {
   try {
     const wordpressPosts = require('../dist/wordpress/wordpress-posts');
     if (typeof wordpressPosts.updateWordPressPost !== 'function') {
@@ -11393,7 +11156,7 @@ async function runAgentProcess(profile: AgentProfile, jobDir: string, lastMessag
       // v3.8.304: 12분 → 25분 재조정 (사용자 보고: 외부유입글 일부 timeout 실패)
       // v3.8.292 이후 심층 리서치(5-7 sub-angle 병렬 + 2단 + 비주류 자료 fetch) 추가로 실제 14-20분 소요.
       // 12분은 상한이지 목표가 아님 — 목표는 여전히 8-10분, 상한만 안전 마진 확보.
-      const TIMEOUT_MS = 25 * 60 * 1000;
+      const TIMEOUT_MS = AGENT_JOB_TIMEOUT_MS;
       const timeout = setTimeout(() => {
         timedOut = true;
         killAgentChildTree(child);   // v3.8.415: 트리 전체 종료

@@ -10,6 +10,11 @@ function carriesOrbitSkin(html) {
   return require('./final/skin-marker').carriesOrbitSkin(html);
 }
 
+/** Spider (cornerstone) post framed by finishSpiderHtml for Blogger — keeps its own design, never repainted. */
+function carriesSpiderFrame(html) {
+  return require('./spider/finish').carriesSpiderFrame(html);
+}
+
 // Blogger 에러 타입 정의
 const BLOGGER_ERROR_TYPES = {
   TOKEN_EXPIRED: 'token_expired',
@@ -670,7 +675,8 @@ function preCleanupBloggerBody(html) {
     return text
       .replace(/(?<![\d,.])(\d{1,3}(?:,\d{3})*\s*(?:만원|원|억|달러|USD))(?![^<]*>)/g, '<strong>$1</strong>')
       .replace(/(?<![\d,.])(\d{1,3}(?:\.\d+)?\s*%)(?![^<]*>)/g, '<strong>$1</strong>')
-      .replace(/(?<![\d,.])((?:최대\s*|약\s*)?\d{1,4}\s*(?:년|개월|일|시간|분))(?![^<]*>)/g, '<strong>$1</strong>')
+      // "약"/"최대" count as a prefix only when no Hangul/Latin letter is glued in front ("요약 2026년" -> bold "2026년" only)
+      .replace(/(?<![\d,.])((?:(?<![가-힣A-Za-z])(?:최대\s*|약\s*))?\d{1,4}\s*(?:년|개월|일|시간|분))(?![^<]*>)/g, '<strong>$1</strong>')
       .replace(/(20\d{2}년\s*\d{1,2}월\s*\d{1,2}일)(?![^<]*>)/g, '<strong>$1</strong>');
   };
   cleaned = cleaned.replace(/<(p|li)([^>]*)>([\s\S]*?)<\/\1>/gi, (match, tag, attrs, inner) => {
@@ -4687,7 +4693,8 @@ html body .content-inner {
     // ⚠️ responsiveLayoutCSS 제거됨 — Blogger가 <div> 내부의 <style> 태그를 strip하여
     //    CSS 텍스트가 본문에 노출되는 버그 수정 (applyInlineStyles()의 CSS가 이미 충분)
     // v3.8.749: 앱 스킨을 실은 글은 건너뛴다 — 인라인 !important 는 스킨보다 강해 「먹과 놋쇠」를 덮는다
-    if (!preserveOriginalStyles && !carriesOrbitSkin(finalHtmlContent)) {
+    // 종합글(거미줄) 통과 표식 글도 건너뛴다 — 자기 <style>·인라인 디자인을 이미 갖고 있어 덧칠하면 부딪힌다
+    if (!preserveOriginalStyles && !carriesOrbitSkin(finalHtmlContent) && !carriesSpiderFrame(finalHtmlContent)) {
     console.log('[PUBLISH] 🔥 인라인 스타일 강제 주입 시작...');
 
     // v3.8.24: 이미 inline style을 가진 요소는 LLM/저자 의도 보존 — publisher가 덮어쓰지 않음.

@@ -242,4 +242,8 @@ export interface PublishedPostUpdateResult {
   updated?: string;
   error?: string;
   needsAuth?: boolean;
+  /** Extras that were actually saved on an edit-publish (excerpt / tags / seoTitle / metaDescription). */
+  applied?: string[];
+  /** Parts of an edit-publish that did not go through; the post itself was updated. */
+  warnings?: string[];
 }

@@ -279,10 +279,19 @@ describe('main - nothing is installed or upgraded without the user', () => {
     expect(failure).toContain('codexUpgradeRequiredMessage()');
     const runJob = blockBetween(mainTs, "ipcMain.handle('agent-mode:run-job'", "ipcMain.handle('transform-content'");
     expect(runJob).toContain('upgradeRequired: run.upgradeRequired === true');
-    // 거미줄 (internal consistency): returns before the Gemini API fallback
-    const spider = blockBetween(mainTs, 'Agent CLI로 통합글 생성', 'const agentContent = String(result.content');
-    expect(spider).toContain('run.upgradeRequired');
-    expect(spider).toContain('return { success: false');
+    // 거미줄 (internal consistency): the Agent run moved into runSpiderAgentJob; it reports the upgrade need and the
+    // handler returns before any Gemini or template path (there is none left)
+    const spiderRun = blockBetween(mainTs, 'async function runSpiderAgentJob', '통합 모듈 경로 해석기');
+    // the same branch that sees run.upgradeRequired is the one that hands back ok:false + upgradeRequired:true
+    const runBranch = blockBetween(spiderRun, 'if (run.upgradeRequired) {', 'const result = readAgentJobResult');
+    expect(runBranch).toContain('ok: false');
+    expect(runBranch).toContain('upgradeRequired: true');
+    expect(runBranch).toContain('codexUpgradeRequiredMessage()');
+    const spiderHandler = blockBetween(mainTs, "ipcMain.handle('generate-internal-consistency'", "ipcMain.handle('save-image-as-png'");
+    // ...and the handler's agentRun.upgradeRequired branch returns success:false carrying the flag (no fallback in between)
+    const handlerBranch = blockBetween(spiderHandler, 'if (agentRun.upgradeRequired) {', 'return spider.buildSpiderFailure');
+    expect(handlerBranch).toMatch(/return \{ success: false, error: agentRun\.error, upgradeRequired: true/);
+    expect(handlerBranch).not.toMatch(/Gemini API로|generateContent|callLLM/);
     // external traffic: the agent path has no API fallback; it must not retry three times on an upgrade error
     const traffic = blockBetween(mainTs, 'async function runExternalTrafficAgent(', 'async function callLLMWithPreference(');
     expect(traffic).toContain('run.upgradeRequired');

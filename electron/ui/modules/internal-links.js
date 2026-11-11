@@ -5,6 +5,67 @@ let selectedPosts = [];
 let generatedContent = null;
 let urlInputCount = 0;
 
+// ── Spider response guard (mirror of src/core/spider/title.ts; tests load these functions from this file) ──
+const SW_TITLE_MISSING_MESSAGE = '제목을 만들지 못했습니다. 통합글 제목 칸에 직접 입력해 주세요.';
+const SW_GENERIC_TITLES = ['종합가이드', '거미줄치기통합글', '통합글', '종합글', '제목없음', 'untitled'];
+
+function _swIsGenericTitle(value) {
+  const key = String(value || '').normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+  if (!key) return false;
+  return key.startsWith('(미정') || SW_GENERIC_TITLES.includes(key);
+}
+
+function _swPlainTextLength(html) {
+  return String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim().length;
+}
+
+// Success response check: body, title and image info must all be there, otherwise stop instead of publishing
+function _swValidateGenResult(genResult, userTitle) {
+  const html = genResult && typeof genResult.html === 'string' ? genResult.html : '';
+  if (_swPlainTextLength(html) < 100) {
+    return { ok: false, message: '생성된 글 본문이 비어 있습니다. 글은 발행하지 않았습니다. 다시 시도해 주세요. 반복되면 설정에서 선택한 엔진을 확인해 주세요.' };
+  }
+  const typed = String(userTitle || '').trim();
+  const fromBackend = String((genResult && genResult.title) || '').trim();
+  const title = typed || (fromBackend && !_swIsGenericTitle(fromBackend) ? fromBackend : '');
+  if (!title) return { ok: false, message: SW_TITLE_MISSING_MESSAGE };
+  if (!genResult.imageStats || typeof genResult.imageStats !== 'object') {
+    return { ok: false, message: '생성 응답이 완전하지 않습니다 (이미지 정보 누락). 글은 발행하지 않았습니다. 앱을 다시 시작한 뒤 다시 시도해 주세요.' };
+  }
+  return { ok: true, title };
+}
+
+// Warnings of the last generation, shown in the completion text
+let _swPendingWarnings = [];
+
+function _swCompletionDetail(base, warnings) {
+  const list = Array.isArray(warnings) ? warnings.filter(Boolean) : [];
+  return list.length ? base + '\n' + list.map((w) => '⚠️ ' + w).join('\n') : base;
+}
+
+// A stored setting is JSON ("agent") or a bare string (agent). Reading the storage itself may throw: the caller stops.
+function _swReadStoredSetting(key, fallback) {
+  const raw = localStorage.getItem(key);
+  if (raw === null || raw === '') return fallback;
+  try { return JSON.parse(raw); } catch { return raw; }
+}
+
+function _swReadEngineSettings() {
+  const mode = String(_swReadStoredSetting('leadernamExecutionMode', 'api')).toLowerCase() === 'agent' ? 'agent' : 'api';
+  const agentProvider = _swReadStoredSetting('leadernamActiveAgentProvider', 'codex');
+  // v3.8.733: gemini stays a real provider (never folded into codex) - the table decides
+  const provider = ['codex', 'claude', 'gemini'].includes(String(agentProvider || '').toLowerCase())
+    ? String(agentProvider).toLowerCase()
+    : 'codex';
+  return { executionMode: mode, agentProvider: provider };
+}
+
 function _firstNonEmpty(...values) {
   for (const value of values) {
     const text = value === undefined || value === null ? '' : String(value).trim();
@@ -214,10 +275,48 @@ async function publishSpiderContent(payload, title, html, thumbnailUrl = '') {
   throw new Error('발행 API를 사용할 수 없습니다.');
 }
 
+// Spider tab image engines are remembered like the posting tab's (leadernamThumbnailType / leadernamH2ImageSource):
+// the value is stored as-is, and restored only when that option still exists. Without this the select went back to
+// the HTML default (nanobanana2) on every restart. Own keys: the two tabs offer different option lists.
+const SW_THUMB_ENGINE_KEY = 'leadernamSpiderThumbnailEngine';
+const SW_H2_ENGINE_KEY = 'leadernamSpiderH2ImageEngine';
+
+function _swRememberImageEngine(key, value) {
+  try {
+    if (value) localStorage.setItem(key, String(value));
+  } catch { /* a failed save never blocks publishing */ }
+}
+
+/** Puts the saved choice back. Returns true when the select was changed. */
+function _swRestoreImageEngine(selectId, key) {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return false;
+    const sel = document.getElementById(selectId);
+    if (!sel) return false;
+    const opt = Array.from(sel.options).find((o) => o.value === saved);
+    if (!opt || opt.disabled) return false; // gone or locked: respect the HTML default
+    sel.value = saved;
+    return true;
+  } catch { return false; }
+}
+
+function _swInitImageEngineMemory() {
+  const pairs = [['swThumbnailEngine', SW_THUMB_ENGINE_KEY], ['swH2ImageEngine', SW_H2_ENGINE_KEY]];
+  let restored = false;
+  pairs.forEach(([selectId, key]) => {
+    if (_swRestoreImageEngine(selectId, key)) restored = true;
+    const sel = document.getElementById(selectId);
+    if (sel) sel.addEventListener('change', (e) => _swRememberImageEngine(key, e && e.target && e.target.value));
+  });
+  if (restored && typeof window._spiderWebUpdateEngineCards === 'function') window._spiderWebUpdateEngineCards();
+}
+
 // 페이지 로드 시 초기화 (모듈 import 시점에 따라 다르게 처리)
 function initModule() {
   console.log('[SPIDER-WEB] 모듈 초기화 시작');
   initializeUrlInputs();
+  _swInitImageEngineMemory();
 }
 
 // DOMContentLoaded가 이미 발생했는지 확인
@@ -1441,14 +1540,15 @@ async function generateSpiderWebContent() {
       throw new Error(result?.error || '글 생성에 실패했습니다.');
     }
     
-    if (!result.html) {
-      throw new Error('생성된 HTML이 없습니다.');
+    const resultCheck = _swValidateGenResult(result, title);
+    if (!resultCheck.ok) {
+      throw new Error(resultCheck.message);
     }
     
     // 생성된 콘텐츠 저장
     generatedContent = {
       html: result.html,
-      title: result.title || title || '거미줄치기 통합글',
+      title: resultCheck.title,
       urls: urls
     };
     
@@ -1893,7 +1993,10 @@ function _swSetCurrent({ label, detail, icon }) {
   const det = document.getElementById('swpmCurrentDetail');
   const ic = document.getElementById('swpmCurrentIcon');
   if (lab) lab.textContent = label;
-  if (det) det.textContent = detail;
+  if (det) {
+    det.textContent = detail;
+    det.style.whiteSpace = 'pre-line'; // failure texts and warnings are multi-line
+  }
   if (ic) ic.textContent = icon;
   // v3.8.3: 상태 저장 + 로그 + mini 동기화
   _swProgressState.lastLabel = label || '';
@@ -2003,7 +2106,7 @@ function _swFinishSuccess(publishedUrl) {
   setTimeout(() => {
     _swAdvanceStep(6, 'done');
     _swUpdateProgress(100);
-    _swSetCurrent({ label: '완료', detail: '모든 작업이 끝났습니다 ✨', icon: '✅' });
+    _swSetCurrent({ label: '완료', detail: _swCompletionDetail('모든 작업이 끝났습니다 ✨', _swPendingWarnings), icon: '✅' });
 
     const result = document.getElementById('swpmResult');
     const link = document.getElementById('swpmResultLink');
@@ -2364,18 +2467,23 @@ async function generateAndPublishSpiderWeb() {
         platform: platformEarly,
       };
       // v3.8.170: 거미줄도 에이전트 모드 지원 — UI에서 executionMode + provider 전달
+      // v3.8.170: the spider post supports Agent mode too - the screen sends executionMode + provider.
+      // The stored value may be JSON ("agent") or a bare string (agent). An unreadable setting must NOT silently become API:
+      // stop and tell the user instead.
+      let engineSettings;
       try {
-        const executionMode = JSON.parse(localStorage.getItem('leadernamExecutionMode') || '"api"');
-        const agentProvider = JSON.parse(localStorage.getItem('leadernamActiveAgentProvider') || '"codex"');
-        payload.executionMode = executionMode;
-        // v3.8.733: 제미나이를 코덱스로 접으면 **실제로 코덱스가 돈다** (표시용이 아니라 payload 값이다)
-        payload.agentProvider = ['codex', 'claude', 'gemini'].includes(String(agentProvider || '').toLowerCase())
-          ? String(agentProvider).toLowerCase()
-          : 'codex';
-        if (executionMode === 'agent') {
-          _swPushLog(`🤖 에이전트 모드 (${payload.agentProvider}) — API 비용 없이 생성`, 'info');
-        }
-      } catch {}
+        engineSettings = _swReadEngineSettings();
+      } catch (settingsError) {
+        _swPushLog('실행 방식 설정 읽기 실패: ' + (settingsError?.message || settingsError), 'error');
+        _swFinishError('실행 방식(API/에이전트) 설정을 읽지 못했습니다. 글은 발행하지 않았습니다. 설정 탭에서 실행 방식을 다시 선택한 뒤 시도해 주세요.');
+        return;
+      }
+      payload.executionMode = engineSettings.executionMode;
+      // v3.8.733: folding Gemini into Codex is gone - the value is the real provider that runs
+      payload.agentProvider = engineSettings.agentProvider;
+      if (engineSettings.executionMode === 'agent') {
+        _swPushLog(`🤖 에이전트 모드 (${payload.agentProvider}) — API 비용 없이 생성`, 'info');
+      }
       _swPushLog('IPC generate-internal-consistency 호출…', 'info');
       if (window.electronAPI && window.electronAPI.invoke) {
         genResult = await window.electronAPI.invoke('generate-internal-consistency', payload);
@@ -2393,14 +2501,20 @@ async function generateAndPublishSpiderWeb() {
 
     if (!genResult || !genResult.success) {
       _swPushLog('백엔드 실패 사유: ' + (genResult?.error || '응답 없음'), 'error');
+      if (genResult && genResult.stage) _swPushLog('실패 단계: ' + genResult.stage, 'error');
       _swFinishError(genResult?.error || '통합글 생성에 실패했습니다.');
       return;
     }
-    if (!genResult.html) {
-      _swPushLog('백엔드가 HTML을 반환하지 않음', 'error');
-      _swFinishError('생성된 HTML이 없습니다.');
+    // A success response is not enough: an empty body, no usable title, or no image info means stop (nothing is published)
+    const genCheck = _swValidateGenResult(genResult, title);
+    if (!genCheck.ok) {
+      _swPushLog('생성 응답 검증 실패: ' + genCheck.message, 'error');
+      _swFinishError(genCheck.message);
       return;
     }
+    // Warnings from the backend (short body, ending that looked cut, retry that failed) stay visible on the finished screen
+    _swPendingWarnings = Array.isArray(genResult.warnings) ? genResult.warnings.filter(Boolean).map(String) : [];
+    _swPendingWarnings.forEach((warning) => _swPushLog('⚠️ ' + warning, 'warn'));
     _swPushLog('생성된 HTML 길이: ' + genResult.html.length + '자', 'info');
     // v3.8.9: 이미지 생성 결과 로그 — 모든 errors 표시 (사용자 진단 도움)
     if (genResult.imageStats) {
@@ -2414,8 +2528,6 @@ async function generateAndPublishSpiderWeb() {
       if (!s.thumbnail && (!s.h2Generated || s.h2Generated === 0)) {
         _swPushLog('⚠️ 이미지가 모두 생성 실패 — API 키·엔진 로그인 상태 확인 필요', 'error');
       }
-    } else {
-      _swPushLog('⚠️ 백엔드가 imageStats를 반환하지 않음 — 이미지 생성 코드 미통합?', 'warn');
     }
 
     let publishHtml = genResult.html;
@@ -2439,7 +2551,7 @@ async function generateAndPublishSpiderWeb() {
 
     generatedContent = {
       html: publishHtml,
-      title: genResult.title || title || '거미줄치기 통합글',
+      title: genCheck.title,
       urls,
       // v3.8.15: 썸네일 + 라벨(해시태그) 보존 → publish-content에 전달
       thumbnailUrl: genResult.thumbnailUrl || '',
@@ -2469,7 +2581,9 @@ async function generateAndPublishSpiderWeb() {
       // v3.8.4: window.blogger.publishContent는 4-인자 시그니처 (payload, title, content, thumbnailUrl).
       //   이전엔 단일 객체로 호출해서 title=undefined → 백엔드 validateTitle 거부 → "제목이 비었습니다" 에러.
       //   → invoke 직접 호출로 통일 (페이로드 객체 형식 일관 + 4-인자 함정 회피).
-      const safeTitle = (generatedContent.title && String(generatedContent.title).trim()) || '거미줄치기 통합글';
+      // Never publish under a generic placeholder: no title means stop (the response check above already guarantees one)
+      const safeTitle = String(generatedContent.title || '').trim();
+      if (!safeTitle) throw new Error(SW_TITLE_MISSING_MESSAGE);
       const safeHtml = generatedContent.html || '';
       // v3.8.15: 썸네일 + 라벨(해시태그) payload 보존 — 일반 글포스팅과 동일하게 Blogger에 정확 등록
       const safeThumbnail = generatedContent.thumbnailUrl || '';

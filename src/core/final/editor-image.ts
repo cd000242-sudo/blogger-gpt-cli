@@ -1,5 +1,6 @@
 import { buildDraftImagePrompt, imageBlockHtml } from './editor-draft';
 import { randomUUID } from 'node:crypto';
+import { pickWpMediaCreds, uploadDataUrlToWpMedia, wpMediaProvider, type WpMediaCreds, type WpMediaUploadOptions } from './wp-media-host';
 import {
   dispatchH2ImageGeneration, dispatchThumbnailGeneration, normalizeImageEngine,
   engineAllowsImageText, type DispatchExtraOptions,
@@ -20,6 +21,8 @@ interface EditorImageDependencies {
   thumbnail: typeof dispatchThumbnailGeneration;
   section: typeof dispatchH2ImageGeneration;
   upload: (data: string, prefix: string) => Promise<string>;
+  /** WordPress media library upload; resolves null when it fails (the external host is used then). */
+  wpUpload: (data: string, creds: WpMediaCreds, options: WpMediaUploadOptions) => Promise<string | null>;
   overlay: (data: string, title: string, width: number, height: number) => Promise<string>;
 }
 
@@ -102,11 +105,35 @@ export async function generateEditorImage(
       pending.overlayDone = true;
     }
     const upload = overrides.upload || require('./image-helpers').uploadBase64ToImageHost;
-    const hosted = pending.raw.startsWith('data:') ? await upload(pending.raw, 'editor') : pending.raw;
+    // A WordPress post keeps its pictures in its own media library; every other target is hosted as before.
+    const targetPlatform = String(payload['platform'] || payload['targetPlatform'] || payload['blogPlatform'] || '').toLowerCase();
+    const wpCreds = targetPlatform === 'wordpress' ? pickWpMediaCreds(payload as Record<string, any>) : null;
+    let hosted: string | null = null;
+    let provider = 'passthrough';
+    let warning = '';
+    if (pending.raw.startsWith('data:')) {
+      if (wpCreds) {
+        hosted = await (overrides.wpUpload || uploadDataUrlToWpMedia)(pending.raw, wpCreds, { label: 'editor', platform: targetPlatform });
+        if (hosted) provider = wpMediaProvider(targetPlatform);
+        else {
+          warning = '워드프레스 미디어에 올리지 못해 외부 이미지 저장소에 올렸습니다. 글을 저장해도 사진은 정상으로 보이지만 워드프레스 안에는 없습니다.';
+          log(`   ⚠️ ${warning}`);
+        }
+      }
+      if (!hosted) {
+        hosted = await upload(pending.raw, 'editor');
+        provider = 'external';
+      }
+    } else {
+      hosted = pending.raw;
+    }
     if (!hosted || !/^https?:\/\//i.test(hosted)) throw new Error('이미지 업로드에 실패했습니다.');
     pendingImages.delete(token!);
     log('[PROGRESS] 100% - ✅ 이미지 준비 완료');
-    return { ok: true, url: hosted, html: imageBlockHtml(hosted, sectionTitle || title), prompt, source: pending.source, thumbnailText };
+    return {
+      ok: true, url: hosted, html: imageBlockHtml(hosted, sectionTitle || title), prompt, source: pending.source, thumbnailText,
+      provider, ...(warning ? { warning } : {}),
+    };
   } catch (error: any) {
     return { ok: false, error: `${error?.message || String(error)} 생성한 이미지는 최대 1시간 보관됩니다. 이어서 생성하면 후처리만 다시 시도합니다.`, retryToken: token };
   } finally {

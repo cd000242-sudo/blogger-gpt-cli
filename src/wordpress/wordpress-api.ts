@@ -86,7 +86,40 @@ export function detectSeoPluginsFromNamespaces(namespaces: unknown): SeoPluginId
   return Array.from(found);
 }
 
-const WP_API_BROKEN_TEXT_PATTERN = /\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
+/**
+ * The post `meta` body that carries SEO title / description / focus keyword for the installed plugin(s).
+ * Shared by the publisher (WordPressAPI.updateSeoMeta) and the edit-publish path so both write the same keys.
+ * An empty plugin list means detection failed: every plugin's keys are sent (the publisher's safe fallback).
+ * `onlyProvided` drops empty values so an edit never blanks a field the caller did not pass.
+ */
+export function buildSeoMetaPayload(
+  plugins: SeoPluginId[],
+  seoData: { title?: string; description?: string; focusKeyword?: string },
+  options: { onlyProvided?: boolean } = {},
+): Record<string, string> {
+  const unknown = plugins.length === 0;
+  const meta: Record<string, string> = {
+    ...(unknown || plugins.includes('yoast') ? {
+      '_yoast_wpseo_title': seoData.title || '',
+      '_yoast_wpseo_metadesc': seoData.description || '',
+      '_yoast_wpseo_focuskw': seoData.focusKeyword || '',
+    } : {}),
+    ...(unknown || plugins.includes('rankmath') ? {
+      'rank_math_title': seoData.title || '',
+      'rank_math_description': seoData.description || '',
+      'rank_math_focus_keyword': seoData.focusKeyword || '',
+    } : {}),
+    ...(unknown || plugins.includes('aioseo') ? {
+      '_aioseop_title': seoData.title || '',
+      '_aioseop_description': seoData.description || '',
+      '_aioseop_keywords': seoData.focusKeyword || '',
+    } : {}),
+  };
+  if (!options.onlyProvided) return meta;
+  return Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== ''));
+}
+
+const WP_API_BROKEN_TEXT_PATTERN =/\uFFFD|&#(?:65533|xfffd);|%EF%BF%BD/gi;
 
 function repairBrokenTextValue(label: string, value: string): string {
   const matches = value.match(WP_API_BROKEN_TEXT_PATTERN);
@@ -307,27 +340,9 @@ export class WordPressAPI {
       const plugins = await this.detectSeoPlugins();
       // 감지 실패 시에는 예전처럼 전부 전송 (안전 폴백)
       const unknown = plugins.length === 0;
-      const useYoast = unknown || plugins.includes('yoast');
       const useRankMath = unknown || plugins.includes('rankmath');
-      const useAioseo = unknown || plugins.includes('aioseo');
 
-      const meta: Record<string, string> = {
-        ...(useYoast ? {
-          '_yoast_wpseo_title': seoData.title || '',
-          '_yoast_wpseo_metadesc': seoData.description || '',
-          '_yoast_wpseo_focuskw': seoData.focusKeyword || '',
-        } : {}),
-        ...(useRankMath ? {
-          'rank_math_title': seoData.title || '',
-          'rank_math_description': seoData.description || '',
-          'rank_math_focus_keyword': seoData.focusKeyword || '',
-        } : {}),
-        ...(useAioseo ? {
-          '_aioseop_title': seoData.title || '',
-          '_aioseop_description': seoData.description || '',
-          '_aioseop_keywords': seoData.focusKeyword || '',
-        } : {}),
-      };
+      const meta = buildSeoMetaPayload(plugins, seoData);
 
       // v3.8.328: 응답 검증으로 실제 저장 여부 확인
       const updateResp: any = await this.request<WordPressPost>(`/posts/${postId}`, 'PUT', { meta });

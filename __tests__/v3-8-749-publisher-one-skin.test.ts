@@ -106,7 +106,8 @@ describe('블로거 — 스킨 글은 지우지도 다시 칠하지도 않는다
   it('발행 흐름의 "인라인 스타일 강제 주입" 도 스킨 글은 건너뛴다', () => {
     const src = read('src/core/blogger-publisher.js');
     const guard = blockBetween(src, '🔥 인라인 스타일 강제 주입 - Blogger 템플릿 CSS 무시', "console.log('[PUBLISH] 🔥 인라인 스타일 강제 주입 시작...')");
-    expect(guard).toMatch(/if \(!preserveOriginalStyles && !carriesOrbitSkin\(finalHtmlContent\)\)/);
+    // A spider (cornerstone) post framed for Blogger is skipped too (carriesSpiderFrame); the skin condition itself is unchanged
+    expect(guard).toMatch(/if \(!preserveOriginalStyles && !carriesOrbitSkin\(finalHtmlContent\)(?: && !carriesSpiderFrame\(finalHtmlContent\))?\)/);
   });
 });
 

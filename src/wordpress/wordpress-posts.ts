@@ -4,6 +4,9 @@
 import { loadEnvFromFile } from '../env';
 import { wrapAsHtmlBlock, unwrapHtmlBlock } from './wp-html-block';
 import { flattenDocumentForPost } from '../core/final/style-preservation';
+import {
+  normalizeUpdateExtras, planSeoFields, resolveTagIds, saveSeoFields, type WpRequest,
+} from './wordpress-update-extras';
 import type {
   PublishedPostItem,
   PublishedPostListResult,
@@ -286,6 +289,12 @@ export async function updateWordPressPost(options: {
   content?: string;
   /** v3.8.724: 편집기가 넘기는 썸네일 — 있으면 대표 이미지로 올린다 */
   thumbnailUrl?: string;
+  /** 아래 네 가지는 넘긴 것만 바꾼다. 하나도 안 넘기면 예전 동작과 같다 (wordpress-update-extras.ts) */
+  excerpt?: string;
+  /** 태그 이름 배열 — 발행기와 같은 방식으로 기존 태그를 찾거나 만들어 id 로 바꾼다 */
+  tags?: string[];
+  seoTitle?: string;
+  metaDescription?: string;
   payload?: Record<string, any>;
 } = {}): Promise<PublishedPostUpdateResult> {
   const postId = String(options.postId ?? '').trim();
@@ -337,6 +346,24 @@ export async function updateWordPressPost(options: {
     if (title) body['title'] = title;
     if (mediaId) body['featured_media'] = mediaId;
 
+    // 요약·태그·SEO — 넘어온 것만. 실패는 글 갱신을 막지 않고 warnings 로 돌려준다.
+    const request: WpRequest = (endpoint, init) => wpFetch(auth, endpoint, init);
+    const extras = normalizeUpdateExtras(options);
+    const applied: string[] = [];
+    const warnings: string[] = [];
+    if (extras.excerpt) {
+      body['excerpt'] = extras.excerpt;
+      applied.push('excerpt');
+    }
+    if (extras.tags.length) {
+      const resolved = await resolveTagIds(request, extras.tags);
+      warnings.push(...resolved.warnings);
+      if (resolved.ids.length) {
+        body['tags'] = resolved.ids;
+        applied.push('tags');
+      }
+    }
+
     const response = await wpFetch(auth, `/posts/${encodeURIComponent(postId)}?context=edit`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -345,11 +372,22 @@ export async function updateWordPressPost(options: {
 
     const data = await response.json();
     console.log(`[WP-POSTS] ✅ 수정발행 완료: ${data?.link || postId}`);
+
+    const seo = planSeoFields(title, extras);
+    if (seo.seoTitle || seo.metaDescription) {
+      const savedSeo = await saveSeoFields(request, auth.siteUrl, String(data?.id ?? postId), seo);
+      applied.push(...savedSeo.saved);
+      warnings.push(...savedSeo.warnings);
+    }
+    if (warnings.length) console.warn(`[WP-POSTS] ⚠️ 수정발행 일부 미적용: ${warnings.join(' / ')}`);
+
     return {
       ok: true,
       postId: String(data?.id ?? postId),
       url: String(data?.link || ''),
       updated: String(data?.modified_gmt ? `${data.modified_gmt}Z` : (data?.modified || '')),
+      ...(applied.length ? { applied } : {}),
+      ...(warnings.length ? { warnings } : {}),
     };
   } catch (error) {
     console.error('[WP-POSTS] ❌ 수정발행 실패:', (error as Error)?.message || error);
