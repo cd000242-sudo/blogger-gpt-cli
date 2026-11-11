@@ -649,6 +649,7 @@ function getAgentImageEnginesForReadiness(options = {}) {
 function getAgentImageEngineMeta(engine = '') {
   const normalized = normalizeAgentImageEngine(engine);
   if (/^dropshot/.test(normalized)) return { kind: 'dropshot', label: 'Dropshot 이미지', action: 'dropshot-login' };
+  if (normalized === 'genspark-image') return { kind: 'genspark', label: '젠스파크 이미지', action: 'genspark-login' };
   if (normalized === 'codex-image') return { kind: 'codex-image', label: 'Codex 구독 이미지', action: 'agent-login' };
   if (normalized === 'flow' || normalized === 'imagefx') return { kind: 'flow', label: 'Flow 이미지', action: 'flow-login' };
   if (/^gptimage|^dall[\-e]/.test(normalized)) return { kind: 'api', label: 'OpenAI 이미지 API', keyId: 'openaiKey', action: 'image-api' };
@@ -700,6 +701,24 @@ async function verifyAgentImageIntegration(engine) {
           ? (result?.message || '로그인과 실제 이미지 생성 버튼을 확인했습니다.')
           : (result?.message || 'Dropshot 로그인 또는 생성 연동이 필요합니다.'),
         result?.ready ? '' : meta.action,
+      );
+    } catch (error) {
+      return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, `확인 실패: ${error?.message || error}`, meta.action);
+    }
+  }
+  if (meta.kind === 'genspark') {
+    // Genspark has no API key: the gate checks the saved browser session (same check as the settings [상태 확인] button).
+    try {
+      const result = await bridge?.invoke?.('genspark:check-login');
+      const ready = result?.loggedIn === true;
+      return createAgentReadinessCheck(
+        `image:${normalized}`,
+        meta.label,
+        ready,
+        ready
+          ? `젠스파크 로그인 세션을 확인했습니다.${result?.email ? ` (${result.email})` : ''}`
+          : (result?.error || '젠스파크 로그인이 필요합니다. 이미지 엔진 옆 [젠스파크 로그인]을 눌러 주세요.'),
+        ready ? '' : meta.action,
       );
     } catch (error) {
       return createAgentReadinessCheck(`image:${normalized}`, meta.label, false, `확인 실패: ${error?.message || error}`, meta.action);
@@ -1853,6 +1872,7 @@ function getAgentReadinessActionLabel(check = {}) {
   if (action === 'agent-login') return 'Agent 로그인하기';
   if (action === 'agent-recheck') return '다시 확인';
   if (action === 'dropshot-login') return 'Dropshot 로그인/연동';
+  if (action === 'genspark-login') return '젠스파크 로그인하기';
   if (action === 'flow-login') return 'Flow 로그인하기';
   if (action === 'blogger-auth') return 'Blogger OAuth 인증';
   if (action === 'tistory-login') return 'Tistory 로그인하기';
@@ -1887,6 +1907,14 @@ async function openAgentIntegrationFix(check = {}) {
       await window.runDropshotLogin();
     } else {
       setSettingsStatus('Dropshot 로그인 도구를 불러오지 못했습니다. 앱을 다시 실행해주세요.', 'error');
+    }
+    return;
+  }
+  if (action === 'genspark-login') {
+    if (typeof window.handleGensparkLogin === 'function') {
+      await window.handleGensparkLogin();
+    } else {
+      setSettingsStatus('젠스파크 로그인 도구를 불러오지 못했습니다. 앱을 다시 실행해주세요.', 'error');
     }
     return;
   }

@@ -616,21 +616,36 @@ const DROPSHOT_AUTH_REDIRECT_WAIT_MS = 20_000;
 //   유일하게 동작하는 인증 신호는 /api/auth/session 이며, 세션 쿠키는 ds.session-token.* 이다.
 const DROPSHOT_SESSION_API = 'https://aistudio.dropshot.io/api/auth/session';
 
-async function probeDropshotAuthApi(page: any): Promise<{ ok: boolean; status?: number; name?: string }> {
+type DropshotSessionProbe = { ok: boolean; status?: number; name?: string; signedOut?: boolean };
+
+/**
+ * Reads one /api/auth/session reply. `signedOut` is true only for "the site answered 200 with valid JSON and nobody is in it"
+ * (measured 2026-11-10: a logged-out profile stays on the board and gets 200 + `null`). Errors, 401/403, 5xx and non-JSON
+ * (e.g. a challenge page) stay "unknown" - they must not be reported as an expired login.
+ */
+export function classifyDropshotSessionResponse(status: number, bodyText: string): DropshotSessionProbe {
+  if (!(status >= 200 && status < 300)) return { ok: false, status };
+  let body: any;
+  try { body = JSON.parse(String(bodyText ?? '')); } catch { return { ok: false, status }; }
+  const user = body && typeof body === 'object' ? body.user : null;
+  const name = user ? String(user.name || user.email || '') : '';
+  // user.id 또는 email이 있어야 실제 로그인 세션 (로그아웃 시엔 null/빈 객체/401)
+  if (user && (user.id || user.email)) return { ok: true, status, name };
+  return { ok: false, status, signedOut: true };
+}
+
+async function probeDropshotAuthApi(page: any): Promise<DropshotSessionProbe> {
   try {
-    return await page.evaluate(async (sessionUrl: string) => {
+    const raw: any = await page.evaluate(async (sessionUrl: string) => {
       try {
         const res = await fetch(sessionUrl, { credentials: 'include' });
-        if (!res.ok) return { ok: false, status: res.status };
-        const body: any = await res.json().catch(() => null);
-        const user = body && body.user;
-        const name = user ? String(user.name || user.email || '') : '';
-        // user.id 또는 email이 있어야 실제 로그인 세션 (로그아웃 시엔 빈 객체/401)
-        return { ok: !!(user && (user.id || user.email)), status: res.status, name };
+        return { status: res.status, text: await res.text().catch(() => '') };
       } catch {
-        return { ok: false };
+        return null;
       }
     }, DROPSHOT_SESSION_API);
+    if (!raw || typeof raw.status !== 'number') return { ok: false };
+    return classifyDropshotSessionResponse(raw.status, raw.text);
   } catch {
     return { ok: false };
   }
@@ -653,7 +668,7 @@ async function hasDropshotSessionCookie(page: any): Promise<boolean> {
   }
 }
 
-async function verifyDropshotGenerationSession(page: any): Promise<DropshotGenerationSession> {
+export async function verifyDropshotGenerationSession(page: any): Promise<DropshotGenerationSession> {
   try {
     // v3.8.370 실측: 로그인 URL(stock.dropshot.io/ko/logIn?redirectTo=board)은
     //   로그인이 완료된 상태에서도 board로 자동 리다이렉트하지 않는다(16초 관찰 결과 그대로 머무름).
@@ -664,7 +679,11 @@ async function verifyDropshotGenerationSession(page: any): Promise<DropshotGener
     }
 
     const deadline = Date.now() + DROPSHOT_AUTH_REDIRECT_WAIT_MS;
+    // True only when the latest check in the window was "site answered 200 and nobody is signed in".
+    // The 20 s polling stays: right after a login the session can be briefly empty (v3.8.369).
+    let lastAnswerWasSignedOut = false;
     while (Date.now() < deadline) {
+      lastAnswerWasSignedOut = false;
       const url = String(page.url?.() || '');
       if (isDropshotLoginUrl(url)) {
         return { authenticated: false, message: 'Dropshot 생성 권한 인증이 필요합니다. Google 또는 Kakao 로그인을 완료해주세요.' };
@@ -684,12 +703,17 @@ async function verifyDropshotGenerationSession(page: any): Promise<DropshotGener
         if (await hasDropshotSessionCookie(page)) {
           return { authenticated: true, message: 'Dropshot 생성 권한 세션 확인 (세션 쿠키)' };
         }
+        lastAnswerWasSignedOut = probe.signedOut === true;
       }
       await wait(500);
     }
     const finalUrl = String(page.url?.() || '');
     if (isDropshotLoginUrl(finalUrl)) {
       return { authenticated: false, message: 'Dropshot 생성 권한 인증이 필요합니다. Google 또는 Kakao 로그인을 완료해주세요.' };
+    }
+    // The site stays on the board when logged out (200 + no user): tell the user to log in again instead of "could not verify".
+    if (lastAnswerWasSignedOut) {
+      return { authenticated: false, message: 'Dropshot 로그인이 만료되었습니다. [리더스 나노바나나 로그인]으로 다시 로그인해주세요.' };
     }
     return { authenticated: false, message: `Dropshot 생성 권한을 확인하지 못했습니다 (${finalUrl || 'unknown URL'})` };
   } catch (error: any) {
