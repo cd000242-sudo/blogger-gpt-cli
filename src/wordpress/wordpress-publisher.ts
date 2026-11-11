@@ -11,6 +11,7 @@ import { sanitizeTagNames, matchExistingTag } from '../core/tag-hygiene';
 import { Provider } from '../core/index';
 import { callGeminiWithRetry } from '../core/final/gemini-engine';
 import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
+import { stripLeadingImageMatching } from './leading-thumbnail';
 // wp-agent-pipeline는 더 이상 사용하지 않음 (unused import 제거)
 
 // 🃏 소제목별 카드 래핑 함수
@@ -29,31 +30,9 @@ import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
  * 주소를 맞춰 보는 것이 핵심이다. 맨 앞 그림이라고 무조건 지우면 소제목 이미지가 사라질 수 있다.
  * 워드프레스 이미지 CDN(i0.wp.com)을 거치면 주소가 감싸지므로, 파일 이름으로 견준다.
  */
-export function stripLeadingImageMatching(html: string, featuredUrl: string): string {
-  const source = String(html || '');
-  const target = String(featuredUrl || '');
-  if (!source || !target) return source;
-
-  const fileOf = (url: string): string => {
-    const clean = url.replace(/[?#].*$/, '').replace(/^https?:\/\/i0\.wp\.com\//i, 'https://');
-    const last = clean.split('/').filter(Boolean).pop() || '';
-    return last.toLowerCase();
-  };
-  const wanted = fileOf(target);
-  if (!wanted) return source;
-
-  const lead = source.match(
-    /^\s*(?:<div[^>]*class=["'][^"']*separator[^"']*["'][^>]*>\s*<img[\s\S]*?<\/div>|<figure[^>]*>\s*<img[\s\S]*?<\/figure>)/i,
-  );
-  if (!lead) return source;
-
-  const src = lead[0].match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
-  const dataSrc = lead[0].match(/data-(?:breeze|src|lazy-src)=["']([^"']+)["']/i)?.[1] || '';
-  const found = [src, dataSrc].map(fileOf).filter(Boolean);
-  if (!found.includes(wanted)) return source;   // 다른 그림이면 두 장이 아니다 — 건드리지 않는다
-
-  return source.replace(lead[0], '').trimStart();
-}
+// The body of this function moved to ./leading-thumbnail: the old `^\s*` anchor missed posts wrapped in
+// `<article class="bgpt-wp-ready ...">` / a leading `<style>` or JSON-LD `<script>` (post 6657). Re-exported so callers stay.
+export { stripLeadingImageMatching } from './leading-thumbnail';
 
 export function stripBodyThumbnailBox(html: string): string {
   if (!html) return html;

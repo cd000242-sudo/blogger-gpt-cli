@@ -4,6 +4,7 @@
 import { loadEnvFromFile } from '../env';
 import { wrapAsHtmlBlock, unwrapHtmlBlock } from './wp-html-block';
 import { flattenDocumentForPost } from '../core/final/style-preservation';
+import { stripLeadingBlock, stripLeadingImageMatching } from './leading-thumbnail';
 import {
   normalizeUpdateExtras, planSeoFields, resolveTagIds, saveSeoFields, type WpRequest,
 } from './wordpress-update-extras';
@@ -277,10 +278,12 @@ async function uploadFeaturedMedia(
  * 발행기가 썸네일로 집는 모양은 `div.separator > img` 이고, 에이전트 글은 `<figure>` 로도 넣는다.
  * 맨 앞의 한 개만 본다 — 본문 중간의 소제목 그림까지 지우면 글이 헐거워진다.
  */
-export function stripLeadingThumbnail(html: string): string {
-  const source = String(html || '');
-  const lead = /^\s*(?:<div[^>]*class=["'][^"']*separator[^"']*["'][^>]*>\s*<img[\s\S]*?<\/div>|<figure[^>]*>\s*<img[\s\S]*?<\/figure>)/i;
-  return lead.test(source) ? source.replace(lead, '').trimStart() : source;
+export function stripLeadingThumbnail(html: string, featuredUrl?: string): string {
+  // Not anchored to the very start: an `<article class="bgpt-wp-ready ...">` / `<style>` / JSON-LD in front is skipped
+  // (post 6657 kept its thumbnail at the top because of that). With the featured address, only that picture is removed.
+  return String(featuredUrl || '').trim()
+    ? stripLeadingImageMatching(html, String(featuredUrl))
+    : stripLeadingBlock(html);
 }
 
 export async function updateWordPressPost(options: {
@@ -331,7 +334,7 @@ export async function updateWordPressPost(options: {
      */
     let finalContent = importedContent;
     if (mediaId) {
-      const withoutLead = stripLeadingThumbnail(finalContent);
+      const withoutLead = stripLeadingThumbnail(finalContent, options.thumbnailUrl);
       if (withoutLead !== finalContent) {
         finalContent = withoutLead;
         console.log('[WP-POSTS] 🖼️ 대표 이미지와 겹치는 본문 맨 위 그림을 뺐습니다 (두 장으로 보이던 문제)');

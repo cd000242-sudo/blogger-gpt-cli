@@ -51,7 +51,7 @@ describe('② 대표 이미지가 생길 때만 지운다', () => {
 
   it('⭐⭐ mediaId 가 있을 때만 본문에서 뗀다 (대표가 없으면 본문 것이 유일한 그림이다)', () => {
     const fn = posts.slice(posts.indexOf('export async function updateWordPressPost'), posts.indexOf('const body: Record<string, any>'));
-    expect(fn).toMatch(/if \(mediaId\) \{\s*\n\s*const withoutLead = stripLeadingThumbnail\(finalContent\)/);
+    expect(fn).toMatch(/if \(mediaId\) \{\s*\n\s*const withoutLead = stripLeadingThumbnail\(finalContent(?:, options\.thumbnailUrl)?\)/);
   });
 
   it('⭐⭐ 뗀 본문이 실제로 저장된다 (계산만 하고 안 쓰면 아무 일도 안 일어난다)', () => {

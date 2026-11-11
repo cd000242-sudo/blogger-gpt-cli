@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.WordPressPublisher = void 0;
-exports.stripLeadingImageMatching = stripLeadingImageMatching;
+exports.WordPressPublisher = exports.stripLeadingImageMatching = void 0;
 exports.stripBodyThumbnailBox = stripBodyThumbnailBox;
 exports.wrapSectionsInCards = wrapSectionsInCards;
 exports.foldRepeatedInlineStyles = foldRepeatedInlineStyles;
@@ -15,29 +14,9 @@ const skin_marker_1 = require("../core/final/skin-marker");
 const tag_hygiene_1 = require("../core/tag-hygiene");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
-function stripLeadingImageMatching(html, featuredUrl) {
-    const source = String(html || '');
-    const target = String(featuredUrl || '');
-    if (!source || !target)
-        return source;
-    const fileOf = (url) => {
-        const clean = url.replace(/[?#].*$/, '').replace(/^https?:\/\/i0\.wp\.com\//i, 'https://');
-        const last = clean.split('/').filter(Boolean).pop() || '';
-        return last.toLowerCase();
-    };
-    const wanted = fileOf(target);
-    if (!wanted)
-        return source;
-    const lead = source.match(/^\s*(?:<div[^>]*class=["'][^"']*separator[^"']*["'][^>]*>\s*<img[\s\S]*?<\/div>|<figure[^>]*>\s*<img[\s\S]*?<\/figure>)/i);
-    if (!lead)
-        return source;
-    const src = lead[0].match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
-    const dataSrc = lead[0].match(/data-(?:breeze|src|lazy-src)=["']([^"']+)["']/i)?.[1] || '';
-    const found = [src, dataSrc].map(fileOf).filter(Boolean);
-    if (!found.includes(wanted))
-        return source;
-    return source.replace(lead[0], '').trimStart();
-}
+const leading_thumbnail_1 = require("./leading-thumbnail");
+var leading_thumbnail_2 = require("./leading-thumbnail");
+Object.defineProperty(exports, "stripLeadingImageMatching", { enumerable: true, get: function () { return leading_thumbnail_2.stripLeadingImageMatching; } });
 function stripBodyThumbnailBox(html) {
     if (!html)
         return html;
@@ -1685,7 +1664,7 @@ class WordPressPublisher {
                 }
                 if (featuredSourceUrl) {
                     const before = optimizedContent;
-                    optimizedContent = stripLeadingImageMatching(optimizedContent, featuredSourceUrl);
+                    optimizedContent = (0, leading_thumbnail_1.stripLeadingImageMatching)(optimizedContent, featuredSourceUrl);
                     if (optimizedContent !== before) {
                         console.log('[WP-PUBLISH] 🖼️ 대표 이미지로 쓴 본문 첫 그림을 뺐습니다 (두 장으로 보이던 문제)');
                     }
