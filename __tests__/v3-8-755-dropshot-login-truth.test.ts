@@ -11,11 +11,13 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { braceBlock } from './helpers/source-block';
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'dropshotGenerator.ts'), 'utf8');
 
 function loginBody(): string {
-  const start = src.indexOf('export async function loginDropshot(');
+  // v3.8.773: loginDropshot() became a one-run-at-a-time wrapper; the body moved to _loginDropshotInternal().
+  const start = src.indexOf('async function _loginDropshotInternal(');
   expect(start).toBeGreaterThan(-1);
   const end = src.indexOf('\nasync function downloadAsFileBuffer(', start);
   expect(end).toBeGreaterThan(start);
@@ -26,13 +28,20 @@ describe('v3.8.755 Dropshot 로그인 판정', () => {
   test('보드 주소만으로는 로그인이 아니다 — 세션 API 가 사용자를 확인해야 한다', () => {
     const body = loginBody();
     const loop = body.slice(body.indexOf('for (let i = 0; i < 300; i++)'), body.indexOf('if (loggedIn) {'));
-    const probeAt = loop.indexOf('await probeDropshotAuthApi(p)');
-    const guardAt = loop.indexOf('if (!probe.ok) continue;');
+    // v3.8.773: the loop asks the login watcher; the watcher's board check is still the session API (probeDropshotAuthApi).
+    const tickAt = loop.indexOf('await watcher.tick()');
+    const guardAt = loop.indexOf('if (!tick.done) continue;');
     const setAt = loop.indexOf('loggedIn = true;');
-    expect(probeAt).toBeGreaterThan(-1);
-    expect(guardAt).toBeGreaterThan(probeAt);
+    expect(tickAt).toBeGreaterThan(-1);
+    expect(guardAt).toBeGreaterThan(tickAt);
     expect(setAt).toBeGreaterThan(guardAt);
     expect(loop).not.toMatch(/const ok = isDropshotBoardUrl[\s\S]*if \(ok\) \{\s*loggedIn = true/);
+    expect(body).toContain('probeBoardPage: probeDropshotAuthApi');
+    const watchSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'dropshotLoginWatch.ts'), 'utf8');
+    const confirm = braceBlock(watchSrc, 'const confirmBoard');
+    expect(confirm.indexOf('deps.probeBoardPage(page)')).toBeGreaterThan(-1);
+    expect(confirm.indexOf('if (inPage.ok)')).toBeGreaterThan(confirm.indexOf('deps.probeBoardPage(page)'));
+    expect(confirm.indexOf('done: true')).toBeGreaterThan(confirm.indexOf('if (inPage.ok)'));
   });
 
   test('로그인 창이 열린 채로 배경 확인을 부르지 않는다(프로필 잠금) — 창을 닫은 뒤 확인한다', () => {

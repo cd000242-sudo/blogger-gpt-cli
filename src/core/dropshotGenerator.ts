@@ -17,6 +17,20 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { launchPersistentContextWithAutoInstall } from '../utils/playwright-browser-installer';
+import { isDropshotJobResultAddress } from './dropshotResultAddress';
+import { createDropshotLoginWatcher, probeDropshotContextSession } from './dropshotLoginWatch';
+import {
+  DROPSHOT_LOGIN_BUSY_MESSAGE,
+  DROPSHOT_LOGIN_CLOSED_MESSAGE,
+  DROPSHOT_PROFILE_IN_USE_MESSAGE,
+  DropshotProfileInUseError,
+  createSingleFlight,
+  dropshotFailureMessage,
+  isDropshotProfileInUseError,
+  isDropshotProfileLockHeld,
+  isDropshotProfileOwnedByRunningBrowser,
+  summarizeDropshotLaunchError,
+} from './dropshotProfileLock';
 
 const BOARD_URL = 'https://aistudio.dropshot.io/ko/workspace/board?panel=image&imageModelName=google/nano-banana-pro';
 const DROPSHOT_AUTH_URL = `https://stock.dropshot.io/ko/logIn?redirectTo=${encodeURIComponent(BOARD_URL)}`;
@@ -105,15 +119,15 @@ export function isOwnDropshotResultCandidate(c: DropshotRawImageCandidate): bool
   if ((c.renderedWidth || 0) < 200 || (c.renderedHeight || 0) < 120) return false;
   if (src.startsWith('data:image/')) return src.length > 20_000;
   if (src.startsWith('blob:')) return true;
-  let url: URL;
-  try { url = new URL(src); } catch { return false; }
-  return /(^|\.)dropshot\.io$/i.test(url.hostname) && /\/jobs\//.test(url.pathname);
+  // v3.8.773: the board now serves results through /api/media/image?src=<cdn address> - look at the embedded address too.
+  return isDropshotJobResultAddress(src);
 }
 
 let _loginCheckCache: { ts: number; result: DropshotLoginStatus } | null = null;
 const LOGIN_CHECK_OK_TTL_MS = 10 * 60 * 1000;
 const LOGIN_CHECK_FAIL_TTL_MS = 30 * 1000;
-const DROPSHOT_RESULT_WAIT_MS = 210_000;
+// v3.8.773: measured 36 s / 162 s / 179 s for the same request on 2026-11-12 - 210 s left almost no margin.
+const DROPSHOT_RESULT_WAIT_MS = 360_000;
 const DROPSHOT_RESULT_POLL_MS = 2_500;
 const DROPSHOT_GENERATION_START_WAIT_MS = 12_000;
 const DROPSHOT_LOGIN_SURFACE_WAIT_MS = 12_000;
@@ -176,7 +190,22 @@ function getProfileDir(): string {
   return dir;
 }
 
+// v3.8.773: the login window owns the profile while it is open - nothing else may launch a browser on it
+//   (a second Chrome only hands a blank tab to that window), and a second [login] press must not start another run.
+let loginWindowContext: any = null;
+const loginFlight = createSingleFlight<DropshotLoginResult>();
+
+async function focusDropshotLoginWindow(): Promise<void> {
+  try {
+    const pages = loginWindowContext?.pages?.() || [];
+    await pages[0]?.bringToFront?.();
+  } catch { /* best effort */ }
+}
+
 async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg: string) => void): Promise<any> {
+  if (loginWindowContext) throw new DropshotProfileInUseError(DROPSHOT_LOGIN_BUSY_MESSAGE);
+  // A running browser owns the profile (lock read from disk): launching another one only hands it a blank tab.
+  if (await isDropshotProfileOwnedByRunningBrowser(profileDir)) throw new DropshotProfileInUseError(DROPSHOT_PROFILE_IN_USE_MESSAGE);
   const effectiveHeadless = headless !== false;
   const engines: Array<{ label: string; chromium: any }> = [];
   try {
@@ -240,6 +269,7 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
     : [undefined, 'msedge', 'chrome'];
 
   let lastError: any = null;
+  engineLoop:
   for (const engine of engines) {
     for (const channel of channels) {
       try {
@@ -253,11 +283,16 @@ async function launchBrowser(profileDir: string, headless: boolean, onLog?: (msg
         return ctx;
       } catch (error: any) {
         lastError = error;
-        onLog?.(`[Dropshot] ${engine.label}${channel ? `/${channel}` : ''} launch failed: ${String(error?.message || error).slice(0, 120)}`);
+        onLog?.(`[Dropshot] ${engine.label}${channel ? `/${channel}` : ''} launch failed: ${summarizeDropshotLaunchError(error)}`);
+        // v3.8.773: an owned profile cannot be opened by another engine/channel either - every retry only adds a blank tab.
+        if (isDropshotProfileInUseError(error) || isDropshotProfileLockHeld(profileDir)) break engineLoop;
       }
     }
   }
-  throw new Error(`Chrome/Edge/Chromium 실행 실패: ${lastError?.message || 'usable browser not found'}`);
+  // The raw launch log (pid, argument list) stays in the console; the screen gets one short line.
+  console.warn('[Dropshot] browser launch failed:', String(lastError?.message || lastError || 'usable browser not found').slice(0, 2000));
+  if (isDropshotProfileInUseError(lastError) || isDropshotProfileLockHeld(profileDir)) throw new DropshotProfileInUseError(DROPSHOT_PROFILE_IN_USE_MESSAGE);
+  throw new Error(`드롭샷용 브라우저(Chrome/Edge)를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요. (${summarizeDropshotLaunchError(lastError)})`);
 }
 
 /** 사이트가 로그인 상태인지 — board 페이지 로드 후 "플랜 업그레이드" 또는 "이미지 생성" 메뉴 보이면 OK */
@@ -1422,7 +1457,7 @@ export async function checkDropshotLogin(options: { force?: boolean } = {}): Pro
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   } catch (e: any) {
-    const result = { loggedIn: false, message: `예외: ${e.message || e}` };
+    const result = { loggedIn: false, message: dropshotFailureMessage(e) };
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   }
@@ -1503,14 +1538,24 @@ export async function verifyDropshotGenerationReady(
  *   - 환경설정의 "Dropshot 로그인" 버튼에서 호출
  *   - visible 브라우저 열고 5분 대기 → 사용자 로그인 완료 시 자동 close
  */
-export async function loginDropshot(): Promise<{
+export type DropshotLoginResult = {
   loggedIn: boolean;
   userName?: string;
   subscription?: 'pro' | 'free' | 'unknown';
   subscriptionKnown?: boolean;
   subscriptionLabel?: string;
   message?: string;
-}> {
+};
+
+/** v3.8.773: one login run at a time - a second press only brings the open login window forward and answers at once. */
+export function loginDropshot(): Promise<DropshotLoginResult> {
+  return loginFlight.run(_loginDropshotInternal, () => {
+    void focusDropshotLoginWindow();
+    return { loggedIn: false, message: DROPSHOT_LOGIN_BUSY_MESSAGE };
+  });
+}
+
+async function _loginDropshotInternal(): Promise<DropshotLoginResult> {
   let context: any = null;
   try {
     const profileDir = getProfileDir();
@@ -1528,11 +1573,18 @@ export async function loginDropshot(): Promise<{
       _loginCheckCache = { ts: Date.now(), result };
       return result;
     }
+    // v3.8.773: the profile is owned by another browser - a visible launch would only add blank tabs to it.
+    if (preCheck.message === DROPSHOT_PROFILE_IN_USE_MESSAGE || preCheck.message === DROPSHOT_LOGIN_BUSY_MESSAGE) {
+      return { loggedIn: false, message: preCheck.message };
+    }
 
     // 기존 cached 닫기 (visible 새로 띄움)
     if (cachedContext) { await closeDropshotContext(cachedContext); cachedContext = null; cachedPage = null; }
 
     context = await launchBrowser(profileDir, false);
+    loginWindowContext = context;
+    let windowClosed = false;
+    try { context.on?.('close', () => { windowClosed = true; }); } catch { /* best effort */ }
     const page = context.pages()[0] || await context.newPage();
     await openDropshotLoginSurface(page);
 
@@ -1542,20 +1594,27 @@ export async function loginDropshot(): Promise<{
     let loggedIn = false;
     let userName: string | undefined;
     let boardPage: any = null;
+    // v3.8.773: the site does not leave the login address by itself after a sign-in (measured 2026-11-12), so the wait loop
+    //   judges from the session (cookie / session API through the context) and opens the board on its own. See dropshotLoginWatch.ts.
+    //   v3.8.755 still holds inside the watcher: a board address alone is not a login - the session API must name a user
+    //   (a signed-out board answers 200 with no user, measured 2026-10-08).
+    const watcher = createDropshotLoginWatcher(context, {
+      boardUrl: BOARD_URL,
+      isBoardUrl: isDropshotBoardUrl,
+      isLoginUrl: isDropshotLoginUrl,
+      probeBoardPage: probeDropshotAuthApi,
+      probeContextSession: (ctx: any) => probeDropshotContextSession(ctx, DROPSHOT_SESSION_API, classifyDropshotSessionResponse),
+      onLog: (message: string) => console.log(message),
+    });
     for (let i = 0; i < 300; i++) {
       await new Promise(r => setTimeout(r, 1200));
+      if (windowClosed) break;
       try {
-        const pages = context.pages();
-        const p = pages.find((pg: any) => { try { return pg.url().includes('dropshot.io'); } catch { return false; } }) || pages[pages.length - 1];
-        if (!isDropshotBoardUrl(String(p?.url?.() || ''))) continue;
-        // v3.8.755: 보드 주소만으로는 로그인이 아니다. 로그아웃 상태에서도 보드가 열리고
-        //   세션 API 는 200 에 user 없음을 준다(실측 2026-10-08). 예전엔 주소만 보고 "로그인 완료"라 했다 —
-        //   고객 신고 "로그인 됐다는데 이미지 생성이 계속 실패"의 입구.
-        const probe = await probeDropshotAuthApi(p);
-        if (!probe.ok) continue;
+        const tick = await watcher.tick();
+        if (!tick.done) continue;
         loggedIn = true;
-        boardPage = p;
-        userName = probe.name || undefined;
+        boardPage = tick.page;
+        userName = tick.name || undefined;
         break;
       } catch { continue; }
     }
@@ -1593,6 +1652,7 @@ export async function loginDropshot(): Promise<{
       // v3.8.755: 이미지는 배경 브라우저가 만든다. 창을 닫고, 배경이 같은 로그인을 이어받는지 확인한다.
       await closeDropshotContext(context);
       context = null;
+      loginWindowContext = null;
       const background = await checkDropshotLogin({ force: true }).catch(() => null);
       if (!background?.loggedIn) {
         const failed = {
@@ -1609,15 +1669,16 @@ export async function loginDropshot(): Promise<{
       _loginCheckCache = { ts: Date.now(), result: merged };
       return merged;
     }
-    const result = { loggedIn: false, message: '6분 내 로그인 미완료' };
+    const result = { loggedIn: false, message: windowClosed ? DROPSHOT_LOGIN_CLOSED_MESSAGE : '6분 내 로그인 미완료' };
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   } catch (e: any) {
-    const result = { loggedIn: false, message: `예외: ${e.message || e}` };
+    const result = { loggedIn: false, message: dropshotFailureMessage(e) };
     _loginCheckCache = { ts: Date.now(), result };
     return result;
   } finally {
     if (context) await closeDropshotContext(context);
+    loginWindowContext = null;
   }
 }
 

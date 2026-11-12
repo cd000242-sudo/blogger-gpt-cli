@@ -137,7 +137,7 @@ describe('image Flow and Dropshot UI regression guard', () => {
   test('Dropshot generation waits long enough and detects modern result image URLs', () => {
     const dropshot = read('src/core/dropshotGenerator.ts');
 
-    expect(dropshot).toContain('const DROPSHOT_RESULT_WAIT_MS = 210_000');
+    expect(dropshot).toContain('const DROPSHOT_RESULT_WAIT_MS = 360_000');
     expect(dropshot).toContain('async function findDropshotResultDataUrl');
     expect(dropshot).toContain("src.startsWith('blob:')");
     expect(dropshot).toContain('img.currentSrc');
