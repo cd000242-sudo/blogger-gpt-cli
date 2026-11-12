@@ -87,9 +87,13 @@ describe('sanitizeTagNames / normalizeTagName - 마지막 방어선', () => {
 
 describe('발행 경로 연결', () => {
   test('워드프레스 발행 경로(core/index.ts)가 객체를 String() 으로 바꾸지 않는다', () => {
+    // The collection loop moved to wp-tag-utils (collectTagCandidates), which still reads buckets via tagTextsFromBucket.
     const src = read('src/core/index.ts');
-    expect(src).toContain('tagTextsFromBucket');
+    const collector = read('src/wordpress/wp-tag-utils.ts');
+    expect(src).toContain('collectTagCandidates');
+    expect(collector).toContain('tagTextsFromBucket');
     expect(src).not.toMatch(/Array\.isArray\(bucket\) \? bucket : String\(bucket\)/);
+    expect(collector).not.toMatch(/Array\.isArray\(bucket\) \? bucket : String\(bucket\)/);
   });
 
   test('티스토리 발행 경로도 같은 도우미를 쓴다', () => {

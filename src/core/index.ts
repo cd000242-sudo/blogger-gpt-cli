@@ -10,7 +10,7 @@ import * as cheerio from 'cheerio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { generateUltimateMaxModeArticleFinal } from './ultimate-final-functions';
 import { generateUltimateMaxModeArticlePuppeteer } from './ultimate-puppeteer-functions';
-import { tagTextsFromBucket } from './tag-hygiene';
+import { collectTagCandidates } from '../wordpress/wp-tag-utils';
 
 // ============================================
 // 📋 타입 정의
@@ -2213,10 +2213,11 @@ export async function publishGeneratedContent(
           //   - generatedLabels (API 오케스트레이션)
           //   - metadata.tags / metadata.hashtags / metadata.keywords (agent 모드 metadata.json)
           //   - payload.tags / hashtags / keywords (직접 전달)
-          //   - 빈 상태면 title에서 폴백 자동 생성
+          //   - no title-word padding: when short, the publisher (wordpress-publisher) tops the list up with AI tags
           preGeneratedTags: (() => {
-            const collected: string[] = [];
-            const buckets: any[] = [
+            // v3.8.769: payload.keywords holds objects ({ keyword, ... }) - String(item) made the tag "[object Object]";
+            // collectTagCandidates reads the name field and drops "[object Object]" / "undefined" / "null" leftovers.
+            const collected = collectTagCandidates([
               (payload as any)?.generatedLabels,
               (payload as any)?.metadata?.tags,
               (payload as any)?.metadata?.hashtags,
@@ -2224,31 +2225,7 @@ export async function publishGeneratedContent(
               (payload as any)?.tags,
               (payload as any)?.hashtags,
               (payload as any)?.keywords,
-            ];
-            for (const bucket of buckets) {
-              if (!bucket) continue;
-              // v3.8.769: payload.keywords is [{ keyword, title }] - String(item) made the tag "[object Object]"
-              const arr = tagTextsFromBucket(bucket);
-              for (const item of arr) {
-                const tag = String(item || '').replace(/^#/, '').trim();
-                if (tag && tag.length >= 2 && tag.length <= 20 && !collected.includes(tag)) collected.push(tag);
-                if (collected.length >= 10) break;
-              }
-              if (collected.length >= 10) break;
-            }
-            // 폴백: title에서 한국어 명사 추출
-            if (collected.length < 5 && title) {
-              const tokens = String(title)
-                .replace(/[^가-힣a-zA-Z0-9\s]/g, ' ')
-                .split(/\s+/)
-                .filter(t => t.length >= 2 && t.length <= 12);
-              const stopwords = new Set(['그리고', '하지만', '이번', '오늘', '최근', '관련', '대한', '대해', '이런', '저런', '어떤']);
-              for (const tok of tokens) {
-                if (stopwords.has(tok)) continue;
-                if (!collected.includes(tok)) collected.push(tok);
-                if (collected.length >= 10) break;
-              }
-            }
+            ]);
             console.log(`[WP-TAGS] preGeneratedTags 수집: ${collected.length}개 → ${collected.join(', ')}`);
             return collected.length > 0 ? collected : undefined;
           })(),

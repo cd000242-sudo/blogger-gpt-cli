@@ -12,6 +12,7 @@ import { Provider } from '../core/index';
 import { callGeminiWithRetry } from '../core/final/gemini-engine';
 import { waitForTextProviderTurn } from '../core/llm/provider-throttle';
 import { stripLeadingImageMatching } from './leading-thumbnail';
+import { completeTagsWithAi, extractTitleTagsFallback } from './wp-tag-utils';
 // wp-agent-pipeline는 더 이상 사용하지 않음 (unused import 제거)
 
 // 🃏 소제목별 카드 래핑 함수
@@ -1763,7 +1764,7 @@ export class WordPressPublisher {
     scheduleDate?: string;
     geminiKey?: string; // AI 기능을 위한 키 추가
     categories?: string[]; // 🔥 사용자가 선택한 카테고리 (이름 또는 ID)
-    preGeneratedTags?: string[]; // 🔥 오케스트레이션이 생성한 태그 (이게 있으면 AI 태그 생성 건너뜀)
+    preGeneratedTags?: string[]; // tags from the orchestration; topped up with AI tags when fewer than 5 are usable
     /** v3.8.490: 대표 이미지 복구 결과를 사용자에게 알리는 통로 */
     onLog?: (message: string) => void;
   }): Promise<{ success: boolean; url?: string; postId?: number; error?: string }> {
@@ -2119,16 +2120,15 @@ export class WordPressPublisher {
       console.log(`[WP-PUBLISH] 📝 원본 제목: ${options.title}`);
       console.log(`[WP-PUBLISH] 📝 클린 제목: ${cleanTitle}`);
 
-      // 🔥 태그: 오케스트레이션이 미리 생성한 것이 있으면 그것 사용, 없으면 Gemini AI로 생성
+      // Tags: use the pre-generated ones first; fewer than 5 usable -> the selected engine's AI tops the list up
       let tagIds: number[] = [];
       try {
-        let generatedTags: string[];
-        if (options.preGeneratedTags && options.preGeneratedTags.length > 0) {
-          generatedTags = options.preGeneratedTags;
-          console.log(`[WP-PUBLISH] 🏷️ 오케스트레이션 태그 재사용: ${generatedTags.join(', ')}`);
-        } else {
-          generatedTags = await this.generateTagsSmart(cleanTitle, options.content, options.geminiKey);
-        }
+        // Pre-generated tags are kept first; when fewer than 5 are usable the AI tops the list up (it used to be skipped
+        // whenever any pre-generated tag existed, which let title-word padding block real tags).
+        const generatedTags = await completeTagsWithAi(
+          options.preGeneratedTags,
+          () => this.generateTagsSmart(cleanTitle, options.content, options.geminiKey),
+        );
         if (generatedTags.length > 0) {
           tagIds = await this.resolveTags(generatedTags);
           console.log(`[WP-PUBLISH] 🏷️ 태그 등록 완료: ${generatedTags.join(', ')} (${tagIds.length}개 등록)`);
@@ -2649,14 +2649,8 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
 
   // 태그 폴백 추출 (제목에서 키워드 분리)
   private extractTagsFallback(title: string): string[] {
-    if (!title) return [];
-    const clean = title
-      .replace(/[!?|,.\-\[\](){}'"]/g, ' ')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-    // 2글자 이상인 단어만 추출
-    const words = clean.split(' ').filter(w => w.length >= 2);
-    return words.slice(0, 8);
+    // Trailing particles, verb forms and meaningless words are dropped (wp-tag-utils); only used when the AI call fails.
+    return extractTitleTagsFallback(title);
   }
 
   // 폴백 키워드 추출

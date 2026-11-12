@@ -15,6 +15,7 @@ const tag_hygiene_1 = require("../core/tag-hygiene");
 const gemini_engine_1 = require("../core/final/gemini-engine");
 const provider_throttle_1 = require("../core/llm/provider-throttle");
 const leading_thumbnail_1 = require("./leading-thumbnail");
+const wp_tag_utils_1 = require("./wp-tag-utils");
 var leading_thumbnail_2 = require("./leading-thumbnail");
 Object.defineProperty(exports, "stripLeadingImageMatching", { enumerable: true, get: function () { return leading_thumbnail_2.stripLeadingImageMatching; } });
 function stripBodyThumbnailBox(html) {
@@ -1730,14 +1731,7 @@ class WordPressPublisher {
             console.log(`[WP-PUBLISH] 📝 클린 제목: ${cleanTitle}`);
             let tagIds = [];
             try {
-                let generatedTags;
-                if (options.preGeneratedTags && options.preGeneratedTags.length > 0) {
-                    generatedTags = options.preGeneratedTags;
-                    console.log(`[WP-PUBLISH] 🏷️ 오케스트레이션 태그 재사용: ${generatedTags.join(', ')}`);
-                }
-                else {
-                    generatedTags = await this.generateTagsSmart(cleanTitle, options.content, options.geminiKey);
-                }
+                const generatedTags = await (0, wp_tag_utils_1.completeTagsWithAi)(options.preGeneratedTags, () => this.generateTagsSmart(cleanTitle, options.content, options.geminiKey));
                 if (generatedTags.length > 0) {
                     tagIds = await this.resolveTags(generatedTags);
                     console.log(`[WP-PUBLISH] 🏷️ 태그 등록 완료: ${generatedTags.join(', ')} (${tagIds.length}개 등록)`);
@@ -2164,14 +2158,7 @@ ${catNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
         }
     }
     extractTagsFallback(title) {
-        if (!title)
-            return [];
-        const clean = title
-            .replace(/[!?|,.\-\[\](){}'"]/g, ' ')
-            .replace(/\s{2,}/g, ' ')
-            .trim();
-        const words = clean.split(' ').filter(w => w.length >= 2);
-        return words.slice(0, 8);
+        return (0, wp_tag_utils_1.extractTitleTagsFallback)(title);
     }
     extractFocusKeywordFallback(title) {
         if (!title)
