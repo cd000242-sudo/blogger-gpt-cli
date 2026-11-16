@@ -13756,6 +13756,46 @@ ipcMain.handle('agent-mode:run-job', async (_evt, request: AgentJobRequest) => {
     }
 
     /**
+     * claude-seo review pass: one text-only Claude Code call that checks the draft against the article-level
+     * sections of the shipped claude-seo skills (electron/assets/claude-seo) and fixes only what clearly fails.
+     * Separate from the self-fix above. Claude Code jobs only. Any failure (timeout, bad format, failed safety
+     * check) keeps the draft as it was and publishing continues. ORBIT_SEO_SKILL_REVIEW=0 skips the step.
+     * Runs before the shopping widgets, skin and voice steps so those never pass through the model.
+     */
+    if (!run.canceled && !agentCanceled()) {
+      try {
+        const { runSeoSkillReview, SEO_REVIEW_SYSTEM_PROMPT } = require('../dist/core/final/seo-skill-review');
+        let seoReviewModel = '';
+        try { seoReviewModel = require('../dist/core/agent-models').normalizeAgentModel(profile.provider, (request?.payload as any)?.agentModel) || ''; } catch { /* CLI default model */ }
+        const seoReview = await runSeoSkillReview({
+          provider: profile.provider,
+          title: String(result.title || ''),
+          html: String(result.content || ''),
+          skillDir: path.join(__dirname, 'assets', 'claude-seo'),
+          callModel: (prompt: string) => runAgentTextTask(
+            profile.provider,
+            agentReqMod ? agentReqMod.withRequirements(prompt, agentReq) : prompt,
+            (l: string) => console.log(`[AGENT-SEO-SKILL] ${l}`),
+            { noTools: true, promptViaStdin: true, systemPrompt: SEO_REVIEW_SYSTEM_PROMPT, ...(seoReviewModel ? { model: seoReviewModel } : {}) },
+          ),
+          // A review that breaks an author requirement (FAQ count, tables, CTA ...) is rejected, not published.
+          extraCheck: (before: string, after: string) => {
+            const loss: Array<{ id: string }> = agentReqMod ? agentReqMod.agentStageRegressions(agentReq, before, after, 'seo-skill-review') : [];
+            return loss.length ? `작성자 요구 손상 ${loss.map((g) => g.id).join(',')}` : null;
+          },
+          onLog: (line: string, screen: boolean) => {
+            console.log(`[AGENT-SEO-SKILL] ${line}`);
+            if (screen) tellRenderer(`[PROGRESS] ${line}`);
+          },
+        });
+        for (const detail of seoReview.details) console.log(`[AGENT-SEO-SKILL] ${detail}`);
+        result.content = seoReview.html;
+      } catch (seoReviewErr: any) {
+        console.warn('[AGENT-SEO-SKILL] 건너뜀(점검 전 글로 계속):', String(seoReviewErr?.message || seoReviewErr).slice(0, 120));
+      }
+    }
+
+    /**
      * v3.8.488 - 쇼핑 글이면 상품 위젯·대가성 문구를 앱이 붙인다.
      *
      * 에이전트에게는 "상품 링크를 직접 만들지 마라" 고 막아뒀다 - 지어낸 제휴링크는
