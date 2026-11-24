@@ -487,10 +487,16 @@ export async function restoreTistoryBrowserWindow(page: any, onLog?: (message: s
     }).catch(() => null);
     // v3.8.783: hiding moves the window to -32000,-32000, so un-minimizing alone left it off-screen
     // ("로그인 창 열기 해도 크롬창 안 열림"). Position and size can only be set once the state is normal.
-    await session.send('Browser.setWindowBounds', {
-      windowId: target.windowId,
-      bounds: { left: 100, top: 100, width: 1400, height: 900 },
-    }).catch(() => null);
+    // Only an off-screen window is moved — one the user placed themselves stays where it is.
+    const current = await session.send('Browser.getWindowBounds', { windowId: target.windowId }).catch(() => null);
+    const left = Number(current?.bounds?.left);
+    const top = Number(current?.bounds?.top);
+    if (!Number.isFinite(left) || !Number.isFinite(top) || left < -10000 || top < -10000) {
+      await session.send('Browser.setWindowBounds', {
+        windowId: target.windowId,
+        bounds: { left: 100, top: 100, width: 1400, height: 900 },
+      }).catch(() => null);
+    }
     await session.detach().catch(() => null);
     try { await page.bringToFront(); } catch { /* ignore */ }
     onLog?.('[TISTORY] Browser window restored.');
@@ -1370,6 +1376,20 @@ export async function loadTistoryCategories(
   }
 }
 
+/**
+ * v3.8.784 — one step of the login-window watcher.
+ * The window is hidden only after a login screen was actually seen. Opening the login window while already
+ * signed in lands straight on the blog home (measured 2026-11-24); the old watcher took that for "login
+ * finished" and hid the window two seconds after it opened.
+ */
+export function loginWindowAutoHide(url: string, sawLoginScreen: boolean): { sawLoginScreen: boolean; hide: boolean; done: boolean } {
+  const loggedInPattern = /tistory\.com\/(manage|admin)|^https?:\/\/[^/]+\.tistory\.com\/?$/i;
+  const stillLoginPattern = /accounts\.kakao\.com|tistory\.com\/auth|login/i;
+  if (stillLoginPattern.test(url)) return { sawLoginScreen: true, hide: false, done: false };
+  if (loggedInPattern.test(url)) return { sawLoginScreen, hide: sawLoginScreen, done: true };
+  return { sawLoginScreen, hide: false, done: false };
+}
+
 export async function openTistoryLoginWindow(
   payload: Record<string, any> = {},
   env: Record<string, any> = {},
@@ -1397,6 +1417,7 @@ export async function openTistoryLoginWindow(
     const maxWaitMs = 5 * 60 * 1000;
     const startedAt = Date.now();
     let lastUrl = '';
+    let sawLoginScreen = false;
     while (Date.now() - startedAt < maxWaitMs) {
       await new Promise((r) => setTimeout(r, 2000));
       try {
@@ -1404,11 +1425,15 @@ export async function openTistoryLoginWindow(
         if (url === lastUrl) continue;
         lastUrl = url;
         // 로그인 성공 신호: tistory.com/manage, /admin, blogName.tistory.com (단 /login은 제외)
-        const loggedInPattern = /tistory\.com\/(manage|admin)|^https?:\/\/[^/]+\.tistory\.com\/?$/i;
-        const stillLoginPattern = /accounts\.kakao\.com|tistory\.com\/auth|login/i;
-        if (loggedInPattern.test(url) && !stillLoginPattern.test(url)) {
+        const step = loginWindowAutoHide(url, sawLoginScreen);
+        sawLoginScreen = step.sawLoginScreen;
+        if (step.hide) {
           onLog?.('[TISTORY] 로그인 자동 감지 — 창 숨김');
           await hideTistoryBrowserWindow(page, onLog).catch(() => false);
+          return;
+        }
+        if (step.done) {
+          onLog?.('[TISTORY] 이미 로그인된 상태 — 창을 숨기지 않습니다');
           return;
         }
       } catch {

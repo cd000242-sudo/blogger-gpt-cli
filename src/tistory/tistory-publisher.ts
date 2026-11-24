@@ -924,19 +924,43 @@ export async function dismissIntroModals(page: any, onLog?: (message: string) =>
   }
 }
 
+// An off-screen window took 30-38s for the whole switch (measured); a success returns as soon as it is visible.
+const HTML_MENU_WAIT_MS = 15000;
+const HTML_EDITOR_WAIT_MS = 45000;
+const VISIBLE_POLL_MS = 200;
+
+/** Polls until one of the selectors is really visible. Counted in polls, not wall-clock, so a slow page gets its full budget. */
+async function waitUntilVisible(page: any, selectors: string[], timeoutMs: number): Promise<boolean> {
+  const polls = Math.ceil(timeoutMs / VISIBLE_POLL_MS);
+  for (let i = 0; i <= polls; i += 1) {
+    if (await firstUsableLocator(page, selectors)) return true;
+    if (i < polls) await page.waitForTimeout(VISIBLE_POLL_MS).catch(() => null);
+  }
+  return false;
+}
+
+/**
+ * v3.8.784 — returns true only when the HTML editor is actually on screen.
+ *
+ * Measured on the live editor (2026-11-24): the HTML editor's textarea exists in the DOM even in basic mode
+ * (hidden), so "count > 0" proved nothing; and an off-screen or minimized window draws about one frame a
+ * second, so the mode menu often was not there yet after the old fixed 600ms wait. Either way the body was
+ * then pasted into nothing and a title+thumbnail-only post got published.
+ */
 export async function switchToHtmlMode(page: any, onLog?: (message: string) => void): Promise<boolean> {
-  const opened = await clickFirst(page, TISTORY_SELECTORS.editor.modeButtons, 5000);
+  if (await firstUsableLocator(page, TISTORY_SELECTORS.editor.htmlEditors, 1500)) {
+    log(onLog, 'HTML editor is already active.');
+    return true;
+  }
+  // The mode button toggles: if a previous attempt left the menu open, clicking it again would close it.
+  const menuAlreadyOpen = !!(await firstUsableLocator(page, TISTORY_SELECTORS.editor.htmlModeButtons));
+  const opened = menuAlreadyOpen || await clickFirst(page, TISTORY_SELECTORS.editor.modeButtons, 5000);
   if (!opened) {
-    const htmlEditorAlready = await firstUsableLocator(page, TISTORY_SELECTORS.editor.htmlEditors, 1500);
-    if (htmlEditorAlready) {
-      log(onLog, 'HTML editor is already active.');
-      return true;
-    }
     log(onLog, 'HTML mode menu button was not found.');
     return false;
   }
 
-  await page.waitForTimeout(600).catch(() => null);
+  await waitUntilVisible(page, TISTORY_SELECTORS.editor.htmlModeButtons, HTML_MENU_WAIT_MS);
   const dialogPromise = page.waitForEvent('dialog', { timeout: 5000 })
     .then(async (dialog: any) => {
       await dialog.accept().catch(() => null);
@@ -948,16 +972,12 @@ export async function switchToHtmlMode(page: any, onLog?: (message: string) => v
   const selected = await clickFirst(page, TISTORY_SELECTORS.editor.htmlModeButtons, 5000);
   const acceptedDialog = await dialogPromise;
   if (selected || acceptedDialog) {
-    await page.waitForTimeout(1500).catch(() => null);
-    const htmlReady = await Promise.all(
-      TISTORY_SELECTORS.editor.htmlEditors.map((selector) => locatorCount(page, selector)),
-    ).then((counts) => counts.some((count) => count > 0));
-    if (htmlReady) {
+    if (await waitUntilVisible(page, TISTORY_SELECTORS.editor.htmlEditors, HTML_EDITOR_WAIT_MS)) {
       log(onLog, 'Switched editor to HTML mode.');
       return true;
     }
-    log(onLog, 'HTML mode was selected, but the HTML editor was not detected yet.');
-    return true;
+    log(onLog, 'HTML mode was selected, but the HTML editor did not appear.');
+    return false;
   }
 
   log(onLog, 'HTML mode selector was not found. Falling back to the visible editor.');
@@ -1023,6 +1043,76 @@ export async function fillHtmlEditor(page: any, html: string): Promise<boolean> 
   }
 
   return false;
+}
+
+/** True when what the editor holds is (nearly) all of what we meant to put in. Whitespace and line endings are ignored. */
+export function bodyReachedEditor(expectedHtml: string, actual: string): boolean {
+  const compact = (value: string) => String(value || '').replace(/\s+/g, '');
+  const expected = compact(expectedHtml).length;
+  if (expected === 0) return true;
+  return compact(actual).length >= expected * 0.8;
+}
+
+type HtmlEditorState = { visible: boolean; value: string | null };
+
+/**
+ * Reads (or sets) the HTML-mode editor, counting it only when it is on screen — a hidden copy also exists in
+ * basic mode. Runs in the page's own world (third argument `false`): patchright isolates `evaluate` by default
+ * and the editor API (`element.CodeMirror`) is not reachable from the isolated world.
+ */
+async function htmlEditorBridge(page: any, request: { op: 'read' } | { op: 'set'; html: string }): Promise<HtmlEditorState> {
+  try {
+    return await page.evaluate((req: { op: 'read' | 'set'; html?: string }) => {
+      const host = (document.querySelector('.CodeMirror.cm-s-tistory-html') || document.querySelector('#html-editor-container .CodeMirror')) as any;
+      if (!host) return { visible: false, value: null };
+      const rect = host.getBoundingClientRect();
+      const visible = rect.width > 0 && rect.height > 0;
+      const editor = host.CodeMirror;
+      const usable = !!editor && typeof editor.getValue === 'function';
+      if (visible && usable && req.op === 'set' && typeof editor.setValue === 'function') {
+        editor.setValue(String(req.html ?? ''));
+        if (typeof editor.save === 'function') editor.save();
+      }
+      return { visible, value: usable ? String(editor.getValue() ?? '') : null };
+    }, request, false);
+  } catch {
+    return { visible: false, value: null };
+  }
+}
+
+/**
+ * v3.8.784 — after the body is pasted, read it back before anything gets published.
+ * Empty or short: put it in directly and look again. Still not there: throw, so a title+thumbnail-only
+ * post is never published. Emergency bypass: TISTORY_VERIFY_BODY=off in .env.
+ */
+export async function ensureBodyInHtmlEditor(
+  page: any,
+  html: string,
+  onLog?: (message: string) => void,
+  env: Record<string, any> = {},
+): Promise<void> {
+  if (String(env['TISTORY_VERIFY_BODY'] || '').toLowerCase() === 'off') {
+    log(onLog, '본문 확인을 건너뜁니다 (TISTORY_VERIFY_BODY=off).');
+    return;
+  }
+  const expectedLength = html.replace(/\s+/g, '').length;
+  let state = await htmlEditorBridge(page, { op: 'read' });
+  if (state.visible && state.value === null) {
+    log(onLog, '⚠️ 본문 확인을 건너뜁니다 — HTML 편집기는 보이지만 값을 읽을 수 없습니다.');
+    return;
+  }
+  if (state.visible && state.value !== null && !bodyReachedEditor(html, state.value)) {
+    log(onLog, `⚠️ 본문이 편집기에 덜 들어갔습니다 (${state.value.replace(/\s+/g, '').length}/${expectedLength}자) — 직접 넣어 봅니다.`);
+    state = await htmlEditorBridge(page, { op: 'set', html });
+  }
+  if (state.visible && state.value !== null && bodyReachedEditor(html, state.value)) {
+    log(onLog, `본문 확인 완료 (${state.value.replace(/\s+/g, '').length}자).`);
+    return;
+  }
+  const actualLength = state.visible && state.value !== null ? state.value.replace(/\s+/g, '').length : 0;
+  throw new Error(
+    `본문이 티스토리 편집기에 들어가지 않아 발행하지 않았습니다 (넣으려던 ${expectedLength}자 중 ${actualLength}자 확인${state.visible ? '' : ' · HTML 편집기가 화면에 없음'}). 제목과 썸네일만 있는 글이 올라가는 것을 막았습니다.`,
+  );
 }
 
 /**
@@ -2173,10 +2263,19 @@ export async function publishToTistory(
     );
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'thumbnail_upload');
 
-    await switchToHtmlMode(page, onLog);
+    // v3.8.784: the body goes into the HTML-mode editor. If that editor is not on screen the body lands
+    // nowhere and a title+thumbnail-only post gets published — retry once, then stop before publishing.
+    let htmlModeReady = await switchToHtmlMode(page, onLog);
+    if (!htmlModeReady) {
+      log(onLog, 'HTML 모드 전환을 한 번 더 시도합니다.');
+      await page.keyboard.press('Escape').catch(() => null);
+      htmlModeReady = await switchToHtmlMode(page, onLog);
+    }
+    if (!htmlModeReady) throw new Error('티스토리 편집기를 HTML 모드로 바꾸지 못해 발행하지 않았습니다. 본문이 빈 글이 올라가는 것을 막았습니다.');
     const finalHtml = buildTistoryFinalHtml(html, thumbnailUrl, uploadedThumbnailBlock, title);
     const htmlFilled = await fillHtmlEditor(page, finalHtml);
     if (!htmlFilled) throw new Error('Tistory body editor was not found.');
+    await ensureBodyInHtmlEditor(page, finalHtml, onLog, env);
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'body_fill');
 
     await selectCategory(page, config.defaultCategory, onLog);

@@ -64,6 +64,9 @@ export const TISTORY_SELECTORS = {
       'text=HTML',
     ],
     htmlEditors: [
+      // v3.8.784: the HTML-mode editor itself (measured 2026-11-24). A markdown editor with the same
+      // generic markup also sits in the DOM, so name this one first.
+      '.CodeMirror.cm-s-tistory-html textarea',
       '#html-editor',
       'textarea#html-editor',
       'textarea[name="html"]',

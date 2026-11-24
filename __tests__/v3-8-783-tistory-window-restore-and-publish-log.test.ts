@@ -28,6 +28,7 @@ function fakeChromeWindow(start: Bounds) {
   const session = {
     async send(method: string, params?: { bounds?: Partial<Bounds> }) {
       if (method === 'Browser.getWindowForTarget') return { windowId: 7, bounds: { ...bounds } };
+      if (method === 'Browser.getWindowBounds') return { bounds: { ...bounds } };
       if (method === 'Browser.setWindowBounds') {
         const next = params?.bounds || {};
         const moves = ['left', 'top', 'width', 'height'].some((key) => key in next);
@@ -68,6 +69,12 @@ describe('A. 숨긴 창을 꺼내면 화면 안에 보인다', () => {
     expect(win.bounds.windowState).toBe('normal');
     expect(onScreen(win.bounds)).toBe(true);
     expect(win.bounds.width).toBeGreaterThanOrEqual(1000);
+  });
+
+  test('화면 안에 있던 창은 옮기지 않는다 — 사용자가 둔 자리와 크기를 지킨다', async () => {
+    const win = fakeChromeWindow({ left: 420, top: 60, width: 1100, height: 700, windowState: 'minimized' });
+    await restoreTistoryBrowserWindow(win.page);
+    expect(win.bounds).toEqual({ left: 420, top: 60, width: 1100, height: 700, windowState: 'normal' });
   });
 
   test('숨김은 그대로다 — 화면 밖으로 옮기고 최소화한다', async () => {
