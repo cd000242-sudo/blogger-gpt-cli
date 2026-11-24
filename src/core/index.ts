@@ -11,6 +11,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { generateUltimateMaxModeArticleFinal } from './ultimate-final-functions';
 import { generateUltimateMaxModeArticlePuppeteer } from './ultimate-puppeteer-functions';
 import { collectTagCandidates } from '../wordpress/wp-tag-utils';
+import { pickAccountWordPressCredentials, WORDPRESS_CREDENTIAL_LABELS, type WordPressCredentialField } from '../wordpress/wp-credentials';
 
 // ============================================
 // 📋 타입 정의
@@ -1765,13 +1766,17 @@ export async function runSemiAutoPost(payload: any, onLog?: (msg: string) => voi
  *    `[PROGRESS] N% - …` 를 파싱해서 보낸다. 여기에 콜백이 없으니 UI 가 멈춰 보였다.)
  *   실측 사고(2026-07-29): 발행 18분간 진행률 0% 고정 → 사용자가 취소 후 재클릭 3회 →
  *   결국 finally 폴백이 성공 모달을 띄웠다.
+ * @param options.wordpressAccount v3.8.782. Only the multi-account handler passes this: that account's own
+ *   site URL / username / application password. Used as a whole set instead of the default (.env) account.
+ *   Credentials inside `payload` are still ignored — single-publish payloads can carry stale saved values (v3.8.698).
  */
 export async function publishGeneratedContent(
   payload: any,
   title: string,
   html: string,
   thumbnailUrl?: string,
-  onLog?: (msg: string) => void
+  onLog?: (msg: string) => void,
+  options?: { wordpressAccount?: Partial<Record<WordPressCredentialField, unknown>> }
 ): Promise<PublishGeneratedContentResult> {
   const emit = (msg: string) => {
     try { onLog?.(msg); } catch { /* 로깅 실패가 발행을 막지 않는다 */ }
@@ -2109,6 +2114,17 @@ export async function publishGeneratedContent(
       console.log('[PUBLISH] 워드프레스 발행 시작');
 
       try {
+        // v3.8.782: a multi-account publish uses that account's credentials as a whole set.
+        // A blank field fails here — it never falls back to the default (.env) account,
+        // which is how two accounts' posts used to land on one account.
+        const accountPick = options?.wordpressAccount ? pickAccountWordPressCredentials(options.wordpressAccount) : null;
+        if (accountPick && !accountPick.ok) {
+          const missingLabels = accountPick.missing.map((field) => WORDPRESS_CREDENTIAL_LABELS[field]).join(', ');
+          console.error('[PUBLISH] 워드프레스 계정 설정 누락:', accountPick.missing.join(', '));
+          return { ok: false, error: `이 워드프레스 계정의 설정이 비어 있습니다: ${missingLabels}.\n\n다중 계정 화면에서 이 계정의 빈 칸을 채워 주세요. (기본 계정으로 대신 발행하지 않았습니다)` };
+        }
+        const accountCredentials = accountPick ? accountPick.credentials : null;
+
         // 환경변수에서 워드프레스 설정 로드
         const { loadEnvFromFile } = require('../env');
         const env = loadEnvFromFile();
@@ -2152,7 +2168,7 @@ export async function publishGeneratedContent(
           passwordLength: wpPassword?.length || 0
         });
 
-        if (!wpSiteUrl || !wpUsername || !wpPassword) {
+        if (!accountCredentials && (!wpSiteUrl || !wpUsername || !wpPassword)) {
           console.error('[PUBLISH] 워드프레스 설정 누락. 발견된 키:', wpKeys);
           console.error('[PUBLISH] 환경 변수에서 찾은 값:', {
             wordpressSiteUrl: env.wordpressSiteUrl,
@@ -2173,11 +2189,14 @@ export async function publishGeneratedContent(
 
         const { WordPressPublisher } = require('../wordpress/wordpress-publisher');
 
-        const wpConfig = {
+        const wpConfig = accountCredentials || {
           siteUrl: wpSiteUrl,
           username: wpUsername,
           password: wpPassword
         };
+        if (accountCredentials) {
+          console.log(`[PUBLISH] 다중 계정 자격으로 발행: ${accountCredentials.siteUrl} (기본 계정 아님)`);
+        }
 
         const publisher = new WordPressPublisher(wpConfig);
 

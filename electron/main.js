@@ -5445,12 +5445,16 @@ electron_1.ipcMain.handle('run-multi-account-post', async (_evt, payload) => {
         if (Array.isArray(article?.labels) && article.labels.length > 0) {
             postPayload.generatedLabels = article.labels;
         }
-        const publishResult = await publishGeneratedContent(postPayload, articleTitle, articleHtml, articleThumbnail);
+        // v3.8.782: pass this account's own WordPress credentials — the publish function ignores the ones inside the payload
+        const publishResult = await publishGeneratedContent(postPayload, articleTitle, articleHtml, articleThumbnail, undefined, postPayload.platform === 'wordpress' ? {
+            wordpressAccount: { siteUrl: postPayload.wordpressSiteUrl, username: postPayload.wordpressUsername, password: postPayload.wordpressPassword },
+        } : undefined);
         // v3.8.752 — 다중계정 경로도 생성 1건 → 발행 시도를 runId 로 잇는다
         recordPublishAttemptSafely({
             runId: String(article?.runId || ''),
             platform: String(postPayload?.platform || postPayload?.targetPlatform || postPayload?.blogPlatform || ''),
-            target: publishTargetOf(postPayload),
+            // v3.8.782: a WordPress account's site URL is the publish target here (other paths keep their own rule)
+            target: publishTargetOf(postPayload) || String(postPayload.wordpressSiteUrl || ''),
             ok: !!(publishResult.ok || publishResult.success),
             url: String(publishResult.url || publishResult.postUrl || ''),
             postId: String(publishResult.postId || publishResult.id || ''),
