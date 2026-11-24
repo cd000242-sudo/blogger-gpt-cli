@@ -10,9 +10,18 @@
  *   HTML 모드 전환이 화면 안 3초 · 화면 밖 36~38초. 옛 코드는 메뉴를 연 뒤 0.6초만 기다리고 한 번 봤다.
  * - 전환이 안 된 채 본문을 넣으면 편집기 틀(iframe)에 헛넣고 성공으로 돌아왔다 — 발행 전 확인이 없었다.
  *
+ * ## 진짜 원인 (같은 날, 실제 발행 함수를 임시저장까지 돌려 찾았다)
+ * - 썸네일을 올린 글은 HTML 모드로 바꾼 뒤 **편집기에서 포커스가 처음 벗어나는 순간**(태그 칸으로 이동) 편집기가
+ *   내용을 기본 모드 문서(썸네일만 있음)로 다시 쓴다. 붙여넣은 본문은 직후엔 있다가 0.4초 뒤 사라졌다(화면 안·밖 동일).
+ * - 다시 넣을 때 setValue 로 넣으면 화면엔 보이지만 저장되지 않는다 — 임시저장한 글을 다시 불러오면 본문 0자.
+ *   '+input'(사용자 입력) 으로 표시해 넣으면 저장된다.
+ * - 본문을 넣기 **전에** 편집기를 한 번 벗어나 두면 그 다시 쓰기가 미리 끝나, 붙여넣은 본문이 그대로 남고 저장된다
+ *   (넣은 681자 → 서버에 681자 · 소제목 10 · 표 · 목록 · 이미지 1).
+ *
  * ## 고친 것
  * 메뉴와 HTML 편집기가 **실제로 보일 때까지** 기다린다. 전환이 안 되면 한 번 더 해 보고, 그래도 안 되면 발행하지 않는다.
- * 본문을 넣은 뒤 편집기 값을 다시 읽어, 안 들어갔으면 직접 넣어 보고, 그래도 없으면 발행하지 않는다.
+ * 전환 뒤 편집기를 한 번 벗어났다가 본문을 넣는다. 넣은 뒤에는 편집기를 벗어난 상태에서 두 번 읽어 확인하고,
+ * 사라졌으면 사용자 입력 방식으로 다시 넣는다. 태그까지 넣은 뒤 발행 직전에 한 번 더 확인한다. 끝내 없으면 발행하지 않는다.
  */
 jest.mock('../src/env', () => ({ loadEnvFromFile: jest.fn(() => ({})) }));
 jest.mock('../src/tistory/tistory-session', () => ({
@@ -103,14 +112,38 @@ describe('② 본문이 들어갔는지 판정 (순수 함수)', () => {
     expect(bodyReachedEditor(`[##_Image|kage@abc|CDM|1.3|{}_##]\n${body}`, '[##_Image|kage@abc|CDM|1.3|{}_##]')).toBe(false);
     expect(bodyReachedEditor(body, body.slice(0, Math.floor(body.length / 2)))).toBe(false);
   });
+  test('⭐ 썸네일 표기가 길고 본문이 짧아도 속지 않는다 — 길이가 아니라 본문 끝이 들어 있는지 본다', () => {
+    const longThumbnail = `[##_Image|kage@${'a'.repeat(300)}/img.png|CDM|1.3|{"originWidth":640,"originHeight":360}_##]`;
+    const shortBody = '<p>짧은 본문입니다. 그래도 반드시 들어가야 합니다.</p>';
+    expect(bodyReachedEditor(`${longThumbnail}\n${shortBody}`, longThumbnail)).toBe(false);
+    expect(bodyReachedEditor(`${longThumbnail}\n${shortBody}`, `${longThumbnail}\n${shortBody}`)).toBe(true);
+  });
 });
 
-/** 페이지 안 편집기 다리를 흉내 낸다 — read 는 값을 돌려주고, set 은 값을 바꾼다 */
-function fakeBridgePage(start: { visible: boolean; value: string | null; setWorks?: boolean }) {
-  const state = { ...start };
+/**
+ * 페이지 안 편집기 다리를 흉내 낸다 — read 는 값을 돌려주고, set 은 값을 바꾼다.
+ * revertOnFirstLeave: 실측한 동작. 썸네일이 있는 글은 편집기를 **처음 벗어날 때** 내용이 이 값으로 되돌아간다.
+ */
+function fakeBridgePage(start: { visible: boolean; value: string | null; setWorks?: boolean; revertOnFirstLeave?: string; revertOnEveryLeave?: string; noOutsideField?: boolean }) {
+  const state = { visible: start.visible, value: start.value };
   const ops: string[] = [];
+  let leaves = 0;
+  const outside = {
+    count: async () => (start.noOutsideField ? 0 : 1),
+    isVisible: async () => !start.noOutsideField,
+    focus: async () => {
+      leaves += 1;
+      ops.push('leave');
+      if (leaves === 1 && start.revertOnFirstLeave !== undefined) state.value = start.revertOnFirstLeave;
+      if (start.revertOnEveryLeave !== undefined) state.value = start.revertOnEveryLeave;
+    },
+  };
   const page = {
-    evaluate: async (_fn: unknown, request: { op: 'read' | 'set'; html?: string }, isolated?: boolean) => {
+    locator: () => ({ first: () => outside }),
+    waitForTimeout: async () => undefined,
+    evaluate: async (_fn: unknown, request: { op: 'read' | 'set'; html?: string } | undefined, isolated?: boolean) => {
+      // No request = the fallback that drops focus inside the page; here it reports that nothing had focus.
+      if (!request) { ops.push('blur'); return false; }
       ops.push(`${request.op}:${isolated === false ? 'main' : 'isolated'}`);
       if (request.op === 'set' && state.visible && state.value !== null && start.setWorks !== false) state.value = String(request.html);
       return { visible: state.visible, value: state.value };
@@ -122,22 +155,56 @@ function fakeBridgePage(start: { visible: boolean; value: string | null; setWork
 describe('③ 본문을 넣은 뒤 다시 읽어 확인한다', () => {
   const body = '<h2>소제목</h2><p>본문 문단입니다. 충분히 긴 내용이 들어 있습니다.</p>';
 
-  test('⭐ 들어가 있으면 그대로 진행 — 편집기 값은 페이지 본래 세계에서 읽는다', async () => {
+  test('⭐ 편집기를 벗어난 뒤에, 두 번 읽어 둘 다 있어야 통과한다 (값은 페이지 본래 세계에서 읽는다)', async () => {
     const fake = fakeBridgePage({ visible: true, value: body });
     await expect(ensureBodyInHtmlEditor(fake.page, body)).resolves.toBeUndefined();
-    expect(fake.ops).toEqual(['read:main']);
+    expect(fake.ops).toEqual(['leave', 'read:main', 'read:main']);
   });
 
-  test('⭐ 비어 있으면 직접 넣어 보고, 들어가면 진행한다', async () => {
+  test('⭐ 다시 넣어도 벗어날 때마다 되돌아가면 던진다 — 넣기는 두 번까지', async () => {
+    const thumbnailOnly = '[##_Image|kage@abc/img.png|CDM|1.3|{"originWidth":640}_##]';
+    const fake = fakeBridgePage({ visible: true, value: body, revertOnEveryLeave: thumbnailOnly });
+    await expect(ensureBodyInHtmlEditor(fake.page, `${thumbnailOnly}\n${body}`)).rejects.toThrow('발행하지 않았습니다');
+    expect(fake.ops.filter((op) => op === 'set:main')).toHaveLength(2);
+    expect(fake.ops.filter((op) => op === 'leave')).toHaveLength(3);
+  });
+
+  test('포커스를 옮길 칸이 없으면 페이지 안에서 포커스를 내려놓고, 그것도 안 되면 확인이 불완전하다고 알린다', async () => {
+    const fake = fakeBridgePage({ visible: true, value: body, noOutsideField: true });
+    const logs: string[] = [];
+    await expect(ensureBodyInHtmlEditor(fake.page, body, (m) => logs.push(m))).resolves.toBeUndefined();
+    expect(fake.ops[0]).toBe('blur');
+    expect(logs.join('\n')).toContain('포커스를 옮기지 못했습니다');
+  });
+
+  test('⭐⭐ 실측한 고장: 넣은 직후엔 있던 본문이 편집기를 벗어나자 썸네일만 남는다 → 다시 넣고, 벗어난 뒤 또 확인한다', async () => {
+    const thumbnailOnly = '[##_Image|kage@abc/img.png|CDM|1.3|{"originWidth":640}_##]';
+    const fake = fakeBridgePage({ visible: true, value: `${thumbnailOnly}\n${body}`, revertOnFirstLeave: thumbnailOnly });
+    const logs: string[] = [];
+    await expect(ensureBodyInHtmlEditor(fake.page, `${thumbnailOnly}\n${body}`, (m) => logs.push(m))).resolves.toBeUndefined();
+    expect(fake.ops).toEqual(['leave', 'read:main', 'set:main', 'leave', 'read:main', 'read:main']);
+    expect(fake.state.value).toBe(`${thumbnailOnly}\n${body}`);
+    expect(logs.join('\n')).toContain('다시 넣습니다');
+    expect(logs.join('\n')).toContain('1번 다시 넣음');
+  });
+
+  test('⭐⭐ 다시 넣을 때는 "사용자 입력"으로 표시한다 — setValue 로 넣은 본문은 화면엔 보여도 저장되지 않았다(실측)', () => {
+    const bridge = blockBetween(PUBLISHER, 'async function htmlEditorBridge(', 'const BODY_REINSERT_LIMIT');
+    expect(bridge).toContain("editor.replaceSelection(String(req.html ?? ''), 'end', '+input')");
+    expect(bridge).not.toContain('editor.setValue(');
+  });
+
+  test('⭐ 비어 있으면 직접 넣고, 벗어난 뒤 다시 읽어 들어갔으면 진행한다', async () => {
     const fake = fakeBridgePage({ visible: true, value: '' });
     await expect(ensureBodyInHtmlEditor(fake.page, body)).resolves.toBeUndefined();
-    expect(fake.ops).toEqual(['read:main', 'set:main']);
+    expect(fake.ops).toEqual(['leave', 'read:main', 'set:main', 'leave', 'read:main', 'read:main']);
     expect(fake.state.value).toBe(body);
   });
 
-  test('⭐ 직접 넣어도 비어 있으면 던진다 — 빈 글을 발행하지 않는다', async () => {
+  test('⭐ 두 번 다시 넣어도 비어 있으면 던진다 — 빈 글을 발행하지 않는다', async () => {
     const fake = fakeBridgePage({ visible: true, value: '', setWorks: false });
     await expect(ensureBodyInHtmlEditor(fake.page, body)).rejects.toThrow('발행하지 않았습니다');
+    expect(fake.ops.filter((op) => op === 'set:main')).toHaveLength(2);
   });
 
   test('⭐ HTML 편집기가 화면에 없으면 던진다 (숨은 편집기에 든 값은 세지 않는다)', async () => {
@@ -175,6 +242,20 @@ describe('④ 발행 순서 — 전환 확인 → 본문 넣기 → 본문 확�
     expect(fill).toBeGreaterThan(-1);
     expect(verify).toBeGreaterThan(fill);
     expect(publish.indexOf('await finishPublish(')).toBeGreaterThan(publish.indexOf('await ensureBodyInHtmlEditor('));
+  });
+
+  test('⭐⭐ 본문을 넣기 전에 편집기를 한 번 벗어난다 — 썸네일 있는 글의 "처음 벗어날 때 다시 쓰기"를 본문 없을 때 끝낸다', () => {
+    const gate = bodyStep.indexOf('if (!htmlModeReady) throw new Error(');
+    const leave = bodyStep.indexOf('await leaveHtmlEditor(page);');
+    const fill = bodyStep.indexOf('await fillHtmlEditor(page, finalHtml)');
+    expect(gate).toBeGreaterThan(-1);
+    expect(leave).toBeGreaterThan(gate);
+    expect(fill).toBeGreaterThan(leave);
+  });
+
+  test('⭐ 태그까지 넣은 뒤, 발행 단추를 누르기 바로 전에 한 번 더 확인한다 — 태그 칸으로 넘어갈 때 본문이 사라졌다(실측)', () => {
+    const afterTags = blockBetween(publish, 'const addedTags = await fillTags(', 'await finishPublish(');
+    expect(afterTags).toContain('await ensureBodyInHtmlEditor(page, finalHtml');
   });
 });
 

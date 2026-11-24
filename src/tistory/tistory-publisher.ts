@@ -1048,9 +1048,12 @@ export async function fillHtmlEditor(page: any, html: string): Promise<boolean> 
 /** True when what the editor holds is (nearly) all of what we meant to put in. Whitespace and line endings are ignored. */
 export function bodyReachedEditor(expectedHtml: string, actual: string): boolean {
   const compact = (value: string) => String(value || '').replace(/\s+/g, '');
-  const expected = compact(expectedHtml).length;
-  if (expected === 0) return true;
-  return compact(actual).length >= expected * 0.8;
+  const expected = compact(expectedHtml);
+  if (expected.length === 0) return true;
+  const got = compact(actual);
+  if (got.length < expected.length * 0.8) return false;
+  // Length alone cannot tell a long thumbnail block from a short body: the end of the body must be there too.
+  return got.includes(expected.slice(-40));
 }
 
 type HtmlEditorState = { visible: boolean; value: string | null };
@@ -1069,8 +1072,13 @@ async function htmlEditorBridge(page: any, request: { op: 'read' } | { op: 'set'
       const visible = rect.width > 0 && rect.height > 0;
       const editor = host.CodeMirror;
       const usable = !!editor && typeof editor.getValue === 'function';
-      if (visible && usable && req.op === 'set' && typeof editor.setValue === 'function') {
-        editor.setValue(String(req.html ?? ''));
+      if (visible && usable && req.op === 'set' && typeof editor.replaceSelection === 'function'
+        && typeof editor.execCommand === 'function' && typeof editor.focus === 'function') {
+        // Marked as user input ('+input'). A plain setValue shows in the editor but Tistory does not save it:
+        // a draft saved that way came back with title, tags and thumbnail but no body (measured 2026-11-24).
+        editor.focus();
+        editor.execCommand('selectAll');
+        editor.replaceSelection(String(req.html ?? ''), 'end', '+input');
         if (typeof editor.save === 'function') editor.save();
       }
       return { visible, value: usable ? String(editor.getValue() ?? '') : null };
@@ -1080,10 +1088,54 @@ async function htmlEditorBridge(page: any, request: { op: 'read' } | { op: 'set'
   }
 }
 
+const BODY_REINSERT_LIMIT = 2;
+const EDITOR_SETTLE_MS = 800;
+
+async function settleEditor(page: any): Promise<void> {
+  try { await page.waitForTimeout(EDITOR_SETTLE_MS); } catch { /* a closed page is reported by the read-back */ }
+}
+
 /**
- * v3.8.784 — after the body is pasted, read it back before anything gets published.
- * Empty or short: put it in directly and look again. Still not there: throw, so a title+thumbnail-only
- * post is never published. Emergency bypass: TISTORY_VERIFY_BODY=off in .env.
+ * Moves focus out of the HTML editor (to the tag box, else the title) — the moment the editor may rewrite
+ * itself. Returns false when focus could not be moved, so the caller can say the check was incomplete.
+ */
+async function leaveHtmlEditor(page: any): Promise<boolean> {
+  let moved = false;
+  try {
+    const outside = await firstUsableLocator(page, TISTORY_SELECTORS.editor.tagInputs)
+      || await firstUsableLocator(page, TISTORY_SELECTORS.editor.titleInputs);
+    if (outside) {
+      await outside.focus();
+      moved = true;
+    }
+  } catch {
+    moved = false;
+  }
+  if (!moved) {
+    try {
+      moved = await page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (!active || typeof active.blur !== 'function') return false;
+        active.blur();
+        return true;
+      }, undefined, false) === true;
+    } catch {
+      moved = false;
+    }
+  }
+  await settleEditor(page);
+  return moved;
+}
+
+/**
+ * v3.8.784 — read the body back before anything gets published, and read it AFTER focus has left the editor.
+ *
+ * Measured on the live editor (2026-11-24): with a thumbnail uploaded, the first time focus leaves the
+ * HTML editor (e.g. to the tag box) the editor rewrites its content from the basic-mode document, which
+ * holds only the image. The pasted body was there right after pasting and gone 0.4s later; waiting 6s first
+ * changed nothing. A body put in after that one rewrite stays. That is how title+thumbnail-only posts got
+ * published. So: leave the editor, read; if the body is gone put it in directly and check again; if it
+ * still is not there, throw. Emergency bypass: TISTORY_VERIFY_BODY=off in .env.
  */
 export async function ensureBodyInHtmlEditor(
   page: any,
@@ -1096,18 +1148,28 @@ export async function ensureBodyInHtmlEditor(
     return;
   }
   const expectedLength = html.replace(/\s+/g, '').length;
-  let state = await htmlEditorBridge(page, { op: 'read' });
-  if (state.visible && state.value === null) {
-    log(onLog, '⚠️ 본문 확인을 건너뜁니다 — HTML 편집기는 보이지만 값을 읽을 수 없습니다.');
-    return;
-  }
-  if (state.visible && state.value !== null && !bodyReachedEditor(html, state.value)) {
-    log(onLog, `⚠️ 본문이 편집기에 덜 들어갔습니다 (${state.value.replace(/\s+/g, '').length}/${expectedLength}자) — 직접 넣어 봅니다.`);
-    state = await htmlEditorBridge(page, { op: 'set', html });
-  }
-  if (state.visible && state.value !== null && bodyReachedEditor(html, state.value)) {
-    log(onLog, `본문 확인 완료 (${state.value.replace(/\s+/g, '').length}자).`);
-    return;
+  let state: HtmlEditorState = { visible: false, value: null };
+  for (let reinserts = 0; ; reinserts += 1) {
+    const left = await leaveHtmlEditor(page);
+    state = await htmlEditorBridge(page, { op: 'read' });
+    if (state.visible && state.value !== null && bodyReachedEditor(html, state.value)) {
+      // The rewrite lands a moment after focus leaves: the body has to be there on a second look as well.
+      await settleEditor(page);
+      state = await htmlEditorBridge(page, { op: 'read' });
+    }
+    if (!state.visible) break;
+    if (state.value === null) {
+      log(onLog, '⚠️ 본문 확인을 건너뜁니다 — HTML 편집기는 보이지만 값을 읽을 수 없습니다.');
+      return;
+    }
+    if (bodyReachedEditor(html, state.value)) {
+      if (!left) log(onLog, '⚠️ 편집기 밖으로 포커스를 옮기지 못했습니다 — 본문 확인이 불완전할 수 있습니다.');
+      log(onLog, `본문 확인 완료 (${state.value.replace(/\s+/g, '').length}자${reinserts > 0 ? ` · ${reinserts}번 다시 넣음` : ''}).`);
+      return;
+    }
+    if (reinserts >= BODY_REINSERT_LIMIT) break;
+    log(onLog, `편집기가 본문을 되돌렸습니다 (${state.value.replace(/\s+/g, '').length}/${expectedLength}자) — 다시 넣습니다.`);
+    await htmlEditorBridge(page, { op: 'set', html });
   }
   const actualLength = state.visible && state.value !== null ? state.value.replace(/\s+/g, '').length : 0;
   throw new Error(
@@ -2272,6 +2334,9 @@ export async function publishToTistory(
       htmlModeReady = await switchToHtmlMode(page, onLog);
     }
     if (!htmlModeReady) throw new Error('티스토리 편집기를 HTML 모드로 바꾸지 못해 발행하지 않았습니다. 본문이 빈 글이 올라가는 것을 막았습니다.');
+    // With a thumbnail, the editor rewrites itself the first time focus leaves it. Let that happen now,
+    // while there is no body to lose.
+    await leaveHtmlEditor(page);
     const finalHtml = buildTistoryFinalHtml(html, thumbnailUrl, uploadedThumbnailBlock, title);
     const htmlFilled = await fillHtmlEditor(page, finalHtml);
     if (!htmlFilled) throw new Error('Tistory body editor was not found.');
@@ -2300,6 +2365,8 @@ export async function publishToTistory(
     }
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'before_publish');
 
+    // v3.8.784: the category and tag steps move focus around — look once more right before the publish click.
+    await ensureBodyInHtmlEditor(page, finalHtml, onLog, env);
     const publishResult = await finishPublish(page, config, postingMode, scheduleDate, onLog, title);
     await throwIfTistoryBlocked(page, onLog, dialogMonitor.messages, 'after_publish');
     if (!publishResult.url && postingMode !== 'draft') {
