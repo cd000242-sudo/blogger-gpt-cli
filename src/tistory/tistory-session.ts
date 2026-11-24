@@ -485,6 +485,12 @@ export async function restoreTistoryBrowserWindow(page: any, onLog?: (message: s
       windowId: target.windowId,
       bounds: { windowState: 'normal' },
     }).catch(() => null);
+    // v3.8.783: hiding moves the window to -32000,-32000, so un-minimizing alone left it off-screen
+    // ("로그인 창 열기 해도 크롬창 안 열림"). Position and size can only be set once the state is normal.
+    await session.send('Browser.setWindowBounds', {
+      windowId: target.windowId,
+      bounds: { left: 100, top: 100, width: 1400, height: 900 },
+    }).catch(() => null);
     await session.detach().catch(() => null);
     try { await page.bringToFront(); } catch { /* ignore */ }
     onLog?.('[TISTORY] Browser window restored.');

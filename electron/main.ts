@@ -7106,6 +7106,17 @@ ipcMain.handle('run-post', async (_evt, payload) => {
       }
     }
 
+    // v3.8.783: publish-stage lines (what happened inside the editor) reach the screen on this path too.
+    // The progress bar never moves backwards: a percent already passed is sent as a text line only.
+    const runPostPublishLog = (line: string) => {
+      const percent = String(line).match(/\[PROGRESS\]\s*(\d+)%/);
+      if (percent && parseInt(percent[1]!, 10) < currentProgress) {
+        if (_evt.sender && !_evt.sender.isDestroyed()) _evt.sender.send('log-line', line);
+        return;
+      }
+      onLog(line);
+    };
+
     const MAX_PUBLISH_RETRIES = 2;
     let lastPublishError: any = null;
 
@@ -7121,7 +7132,8 @@ ipcMain.handle('run-post', async (_evt, payload) => {
           payload,
           result.title || payload.topic,
           result.html || result.content,
-          result.thumbnail || result.thumbnailUrl || ''
+          result.thumbnail || result.thumbnailUrl || '',
+          runPostPublishLog
         );
 
         if (publishResult && publishResult.ok) {

@@ -6709,6 +6709,17 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                 console.warn('[RUN-POST] metaDescription AI 생성 실패 (publisher가 폴백):', mdErr?.message);
             }
         }
+        // v3.8.783: publish-stage lines (what happened inside the editor) reach the screen on this path too.
+        // The progress bar never moves backwards: a percent already passed is sent as a text line only.
+        const runPostPublishLog = (line) => {
+            const percent = String(line).match(/\[PROGRESS\]\s*(\d+)%/);
+            if (percent && parseInt(percent[1], 10) < currentProgress) {
+                if (_evt.sender && !_evt.sender.isDestroyed())
+                    _evt.sender.send('log-line', line);
+                return;
+            }
+            onLog(line);
+        };
         const MAX_PUBLISH_RETRIES = 2;
         let lastPublishError = null;
         for (let attempt = 0; attempt <= MAX_PUBLISH_RETRIES; attempt++) {
@@ -6718,7 +6729,7 @@ electron_1.ipcMain.handle('run-post', async (_evt, payload) => {
                     onLog(`[PROGRESS] 95% - 🔄 발행 재시도 (${attempt}/${MAX_PUBLISH_RETRIES})... ${waitSec}초 대기`);
                     await new Promise(r => setTimeout(r, waitSec * 1000));
                 }
-                const publishResult = await publishGeneratedContent(payload, result.title || payload.topic, result.html || result.content, result.thumbnail || result.thumbnailUrl || '');
+                const publishResult = await publishGeneratedContent(payload, result.title || payload.topic, result.html || result.content, result.thumbnail || result.thumbnailUrl || '', runPostPublishLog);
                 if (publishResult && publishResult.ok) {
                     onLog('[PROGRESS] 100% - ✅ 발행 완료!');
                     console.log('[RUN-POST] ✅ 발행 성공:', publishResult.url);
