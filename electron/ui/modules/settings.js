@@ -1480,8 +1480,10 @@ window.openTistoryLoginFromSettings = async function () {
     if (status) status.textContent = '티스토리 로그인 창을 여는 중입니다...';
     const result = await window.blogger?.openTistoryLogin?.({ tistoryBlogName: blogName });
     if (status) {
+      // v3.8.785: say what was actually seen (browser, window position) so one screenshot tells the cause
+      const seen = [result?.browserVersion, result?.window ? `창 위치 ${result.window.left},${result.window.top}` : ''].filter(Boolean).join(' · ');
       status.textContent = result?.ok
-        ? '로그인 창을 열었습니다. 브라우저에서 로그인 후 세션 확인을 눌러주세요.'
+        ? `로그인 창을 열었습니다. 창이 안 보이면 Alt+Tab 을 눌러 보세요. 로그인 후 세션 확인을 눌러주세요.${seen ? ` (${seen})` : ''}`
         : `로그인 창 열기 실패: ${result?.error || 'unknown'}`;
     }
   } catch (error) {

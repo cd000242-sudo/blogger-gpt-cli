@@ -89,4 +89,7 @@ export type TistorySessionStatus = {
   writeUrl?: string;
   profileDir?: string;
   error?: string;
+  /** v3.8.785: what was actually seen after opening the login window */
+  browserVersion?: string;
+  window?: { left: number; top: number; width: number; height: number; state: string };
 };

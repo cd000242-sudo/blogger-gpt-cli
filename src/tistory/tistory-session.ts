@@ -1390,6 +1390,53 @@ export function loginWindowAutoHide(url: string, sawLoginScreen: boolean): { saw
   return { sawLoginScreen, hide: false, done: false };
 }
 
+const LOGIN_WINDOW_SETTLE_MS = 2500;
+
+export type LoginWindowSeen = {
+  alive: boolean;
+  browser?: string;
+  window?: { left: number; top: number; width: number; height: number; state: string };
+};
+
+/**
+ * v3.8.785 — look before saying "opened".
+ *
+ * A buyer's screen said "로그인 창을 열었습니다" while the taskbar showed no running Chrome at all.
+ * The old code answered right after navigating, so a browser that died a moment later, or a window nobody
+ * could see, still came back as success. This waits a moment, checks the browser can still be reached,
+ * brings its window on screen, and reports where it is and which browser it is.
+ */
+export async function inspectLoginWindow(page: any, settleMs = LOGIN_WINDOW_SETTLE_MS): Promise<LoginWindowSeen> {
+  try {
+    await page.waitForTimeout(settleMs);
+    if (typeof page.isClosed === 'function' && page.isClosed()) return { alive: false };
+    await restoreTistoryBrowserWindow(page);
+    const session = await page.context().newCDPSession(page);
+    try {
+      const version = await session.send('Browser.getVersion').catch(() => null);
+      const target = await session.send('Browser.getWindowForTarget');
+      const current = await session.send('Browser.getWindowBounds', { windowId: target.windowId });
+      const bounds = current?.bounds || {};
+      const seen: LoginWindowSeen = {
+        alive: true,
+        window: {
+          left: Number(bounds.left),
+          top: Number(bounds.top),
+          width: Number(bounds.width),
+          height: Number(bounds.height),
+          state: String(bounds.windowState || ''),
+        },
+      };
+      if (version?.product) seen.browser = String(version.product);
+      return seen;
+    } finally {
+      await session.detach().catch(() => null);
+    }
+  } catch {
+    return { alive: false };
+  }
+}
+
 export async function openTistoryLoginWindow(
   payload: Record<string, any> = {},
   env: Record<string, any> = {},
@@ -1408,6 +1455,16 @@ export async function openTistoryLoginWindow(
   const page = launched.page;
   await page.goto(TISTORY_URLS.login, { waitUntil: 'domcontentloaded', timeout: config.timeoutMs });
   await clickTistoryKakaoLoginIfVisible(page, onLog, config.kakaoEmail);
+  const seen = await inspectLoginWindow(page);
+  if (!seen.alive) {
+    ACTIVE_TISTORY_SESSIONS.delete(config.profileDir);
+    onLog?.('[TISTORY] Login window closed right after opening.');
+    return {
+      ok: false,
+      authenticated: false,
+      error: '크롬 창이 열렸다가 바로 닫혔습니다. Orbit 을 완전히 종료했다가 다시 실행해 주세요. 같은 문구가 또 나오면 이 화면을 캡처해 문의해 주세요.',
+    };
+  }
   onLog?.('[TISTORY] Login window opened. Complete Kakao/Tistory login in the browser.');
 
   // v3.8.156: 로그인 완료 자동 감지 + 자동 숨김 (background polling — 호출자는 즉시 응답)
@@ -1450,5 +1507,7 @@ export async function openTistoryLoginWindow(
     blogUrl: config.blogUrl,
     writeUrl: TISTORY_URLS.write(config.blogName),
     profileDir: config.profileDir,
+    ...(seen.browser ? { browserVersion: seen.browser } : {}),
+    ...(seen.window ? { window: seen.window } : {}),
   };
 }
