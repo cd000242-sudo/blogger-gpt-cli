@@ -14501,6 +14501,17 @@ console.log('[MAIN] ✅ 모든 IPC 핸들러 등록 완료! (총 92+ 핸들러)'
 // ============================================
 const electron_2 = require("electron");
 let mainWindow = null;
+// v3.8.785: the Tistory browser window opens on the display the Orbit window is on.
+// It used to open at a fixed 100,100 (the primary monitor) — invisible to a user working on another screen.
+try {
+    require('../dist/tistory/tistory-window-placement').setTistoryWorkAreaProvider(() => {
+        const target = mainWindow && !mainWindow.isDestroyed() ? mainWindow : electron_2.BrowserWindow.getAllWindows()[0];
+        return target ? electron_2.screen.getDisplayMatching(target.getBounds()).workArea : null;
+    });
+}
+catch (placementErr) {
+    console.warn('[TISTORY] 창 위치 설정 건너뜀:', String(placementErr?.message || placementErr).slice(0, 120));
+}
 /**
  * 🖱️ v3.8.470 — **외부 브라우저가 닫힌 뒤 앱 창에 포커스를 돌려준다.**
  *

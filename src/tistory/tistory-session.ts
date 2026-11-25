@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { launchPersistentContextWithAutoInstall } from '../utils/playwright-browser-installer';
 import { TISTORY_SELECTORS, TISTORY_URLS } from './tistory-selectors';
 import { TistoryCategory, TistoryCategoryLoadResult, TistoryConfig, TistorySessionStatus, TistoryVisibility } from './tistory-types';
+import { visibleWindowPosition } from './tistory-window-placement';
 
 type LaunchResult = {
   context: any;
@@ -492,9 +493,10 @@ export async function restoreTistoryBrowserWindow(page: any, onLog?: (message: s
     const left = Number(current?.bounds?.left);
     const top = Number(current?.bounds?.top);
     if (!Number.isFinite(left) || !Number.isFinite(top) || left < -10000 || top < -10000) {
+      const position = visibleWindowPosition();
       await session.send('Browser.setWindowBounds', {
         windowId: target.windowId,
-        bounds: { left: 100, top: 100, width: 1400, height: 900 },
+        bounds: { left: position.left, top: position.top, width: 1400, height: 900 },
       }).catch(() => null);
     }
     await session.detach().catch(() => null);
@@ -527,7 +529,8 @@ export async function launchTistoryContext(
     // v3.8.155: 일반 로그인 모드에서도 명시적 윈도우 위치 + 크기 강제
     args: config.hiddenBrowser
       ? [...getLaunchArgs(), '--start-minimized', '--window-position=-32000,-32000']
-      : [...getLaunchArgs(), '--window-position=100,100', '--window-size=1400,900'],
+      // v3.8.785: on the display the Orbit window is on, not always the primary monitor
+      : [...getLaunchArgs(), `--window-position=${visibleWindowPosition().left},${visibleWindowPosition().top}`, '--window-size=1400,900'],
   } as Record<string, unknown>;
   if (config.browserExecutablePath && fs.existsSync(config.browserExecutablePath)) {
     launchOptions['executablePath'] = config.browserExecutablePath;

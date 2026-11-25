@@ -90,6 +90,48 @@ describe('② 로그인 창 열기 결과에 반영한다', () => {
   });
 });
 
+describe('④ 창은 Orbit 이 떠 있는 화면에 연다 — 늘 주 모니터(100,100)가 아니다', () => {
+  // 구매자 로그: 준비 확인이 크롬을 보이는 창으로 띄워 6초 동안 로그인 화면까지 갔는데, 구매자 눈에는 창이 없었다.
+  const { positionOnWorkArea, setTistoryWorkAreaProvider, visibleWindowPosition } = require('../src/tistory/tistory-window-placement');
+  const { restoreTistoryBrowserWindow } = require('../src/tistory/tistory-session');
+  afterEach(() => setTistoryWorkAreaProvider(null));
+
+  test('⭐ 주 모니터·왼쪽에 붙은 둘째 모니터·위쪽 모니터 — 그 화면의 작업 영역 안쪽에 둔다', () => {
+    expect(positionOnWorkArea({ x: 0, y: 0, width: 1536, height: 816 })).toEqual({ left: 60, top: 40 });
+    expect(positionOnWorkArea({ x: -1920, y: 0, width: 1920, height: 1040 })).toEqual({ left: -1860, top: 40 });
+    expect(positionOnWorkArea({ x: 1920, y: -1080, width: 1920, height: 1040 })).toEqual({ left: 1980, top: -1040 });
+  });
+
+  test('화면 정보를 못 얻으면 예전 자리(100,100)로 — 알 수 없는 값으로 창을 날려 보내지 않는다', () => {
+    expect(positionOnWorkArea(null)).toEqual({ left: 100, top: 100 });
+    expect(positionOnWorkArea({ x: Number.NaN, y: 0, width: 1920, height: 1040 })).toEqual({ left: 100, top: 100 });
+    expect(positionOnWorkArea({ x: 0, y: 0, width: 0, height: 0 })).toEqual({ left: 100, top: 100 });
+    setTistoryWorkAreaProvider(() => { throw new Error('no window'); });
+    expect(visibleWindowPosition()).toEqual({ left: 100, top: 100 });
+  });
+
+  test('⭐ 숨겨 둔 창을 꺼낼 때도 Orbit 이 있는 화면으로 꺼낸다', async () => {
+    setTistoryWorkAreaProvider(() => ({ x: -1920, y: 0, width: 1920, height: 1040 }));
+    const chrome = fakeChrome({ left: -32000, top: -32000, width: 100, height: 100, windowState: 'minimized' });
+    await restoreTistoryBrowserWindow(chrome.page);
+    expect(chrome.bounds).toMatchObject({ left: -1860, top: 40, windowState: 'normal' });
+  });
+
+  test('⭐ 새로 띄울 때의 위치도 같은 규칙을 쓴다 (고정 100,100 이 아니다)', () => {
+    expect(SESSION).toContain('`--window-position=${visibleWindowPosition().left},${visibleWindowPosition().top}`');
+    expect(SESSION).not.toContain("'--window-position=100,100'");
+  });
+
+  test.each([
+    ['main.ts', read('electron/main.ts')],
+    ['main.js (컴파일본)', read('electron/main.js')],
+  ])('⭐ %s — 앱이 Orbit 창이 놓인 화면의 작업 영역을 알려 준다', (_name, src) => {
+    const wiring = blockBetween(src, 'setTistoryWorkAreaProvider(', 'placementErr');
+    expect(wiring).toContain('getDisplayMatching(target.getBounds()).workArea');
+    expect(src).toContain("require('../dist/tistory/tistory-window-placement')");
+  });
+});
+
 describe('③ 화면: 확인한 내용을 단추 옆에 보여 준다', () => {
   const handler = blockBetween(SETTINGS, 'window.openTistoryLoginFromSettings = async function', 'function setTistoryCategoryOptions');
 
